@@ -1,10 +1,34 @@
 // app/dashboard/page.tsx
+import type React from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import AppShell from "@/app/components/AppShell";
 
 export const dynamic = "force-dynamic";
+
+/* =========================
+   Types (FIX Vercel TS)
+========================= */
+type AccountType = "client" | "cabinet" | "groupe";
+type AccountantStatus = "pending" | "verified" | "rejected" | null;
+
+type AppUser = {
+  id: string;
+  email: string | null;
+  full_name: string | null;
+  account_type: AccountType | null;
+
+  accountant_status: AccountantStatus;
+  accountant_mf: string | null;
+  accountant_patente: string | null;
+  accountant_pending_until: string | null;
+  accountant_free_access: boolean | null;
+
+  max_companies: number | null;
+  plan_code: string | null;
+  subscription_status: string | null;
+};
 
 /* =========================
    Helpers
@@ -97,13 +121,7 @@ function Divider() {
   return <div className="ftn-divider" />;
 }
 
-function StatRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
+function StatRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="ftn-statrow">
       <div className="ftn-statlabel">{label}</div>
@@ -122,8 +140,8 @@ export default async function DashboardPage() {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // Profile
-  const { data: profile, error } = await supabase
+  // Profile (FIX: typing)
+  const { data, error } = await supabase
     .from("app_users")
     .select(
       [
@@ -144,6 +162,8 @@ export default async function DashboardPage() {
     .eq("id", auth.user.id)
     .maybeSingle();
 
+  const profile = data as unknown as AppUser | null;
+
   if (error || !profile) {
     return (
       <AppShell title="Dashboard" subtitle="" accountType={undefined}>
@@ -154,7 +174,7 @@ export default async function DashboardPage() {
 
   if (!profile.account_type) redirect("/onboarding");
 
-  const accountType = profile.account_type as "client" | "cabinet" | "groupe";
+  const accountType = profile.account_type;
   const isCabinet = accountType === "cabinet";
   const isGroupe = accountType === "groupe";
   const isClient = accountType === "client";
@@ -177,19 +197,19 @@ export default async function DashboardPage() {
 
   const pendingUntil = formatDateFR(profile.accountant_pending_until);
 
-  // progress approx for cabinet pending (0..100) based on pending_until (date indicative)
+  // Progress approx for cabinet pending (0..100) based on pending_until
   let progressPct = 42; // fallback
   if (profile.accountant_status === "pending" && profile.accountant_pending_until) {
     const now = Date.now();
     const end = new Date(profile.accountant_pending_until).getTime();
-    // assume 2 months window ~ 60 days before end (heuristic)
-    const start = end - 60 * 24 * 60 * 60 * 1000;
+    const start = end - 60 * 24 * 60 * 60 * 1000; // ~60 days window
     if (!Number.isNaN(end) && end > start) {
       const p = ((now - start) / (end - start)) * 100;
       progressPct = Math.max(6, Math.min(96, Math.round(p)));
     }
   }
 
+  // Local luxe CSS (no need to edit global.css)
   const LuxeCSS = (
     <style>{`
 /* =========================================================
@@ -276,6 +296,7 @@ export default async function DashboardPage() {
   position: relative;
   overflow:hidden;
   transform-style: preserve-3d;
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
 }
 .ftn-card-glow{
   position:absolute;
@@ -285,13 +306,11 @@ export default async function DashboardPage() {
   filter: blur(2px);
   opacity:.85;
   pointer-events:none;
-  transform: translate3d(0,0,0);
 }
 .ftn-card-lux:hover{
   border-color: rgba(186,134,52,.30);
   box-shadow: 0 18px 60px rgba(2,6,23,.12);
   transform: translateY(-2px);
-  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
 }
 .ftn-card-head{
   display:flex; justify-content:space-between; align-items:flex-start; gap:10px;
@@ -324,6 +343,7 @@ export default async function DashboardPage() {
   .ftn-hero::after{ animation:none; }
   .ftn-pill-pulse::before{ animation:none; }
   .ftn-btn-shine{ display:none; }
+  .ftn-barFill::after{ animation:none; }
 }
 
 /* Pill */
@@ -471,9 +491,7 @@ export default async function DashboardPage() {
   border: 1px solid rgba(148,163,184,.22);
   background: rgba(255,255,255,.55);
 }
-.ftn-progressTop{
-  display:flex; align-items:center; justify-content:space-between; gap:10px;
-}
+.ftn-progressTop{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .ftn-progressLabel{ font-size: 12.8px; color: rgba(102,112,133,.98); }
 .ftn-progressPct{ font-size: 12.8px; font-weight: 800; color: rgba(11,18,32,.92); }
 .ftn-bar{
@@ -513,7 +531,7 @@ export default async function DashboardPage() {
   );
 
   /* =========================
-     1) CABINET PENDING
+     CABINET PENDING (2 cards top)
   ========================= */
   if (isCabinet && profile.accountant_status === "pending") {
     return (
@@ -525,7 +543,6 @@ export default async function DashboardPage() {
         {LuxeCSS}
 
         <div className="ftn-wrap">
-          {/* HERO */}
           <div className="ftn-hero ftn-reveal" style={{ animationDelay: "0ms" }}>
             <div className="ftn-heroTop">
               <div>
@@ -556,19 +573,19 @@ export default async function DashboardPage() {
             </div>
           </div>
 
-          {/* TOP 2 CARDS */}
           <div className="ftn-grid2">
             <LuxCard
               title="État de votre cabinet"
               subtitle="Statut & délais"
-              right={<Pill tone="warning" pulse>⏳ En vérification</Pill>}
+              right={
+                <Pill tone="warning" pulse>
+                  ⏳ En vérification
+                </Pill>
+              }
               icon={<span>🛡️</span>}
               delay={80}
             >
-              <StatRow
-                label="Statut actuel"
-                value={<span>En vérification</span>}
-              />
+              <StatRow label="Statut actuel" value={<span>En vérification</span>} />
               <div style={{ height: 10 }} />
               <StatRow
                 label="Délai de traitement"
@@ -585,19 +602,13 @@ export default async function DashboardPage() {
                 }
               />
 
-              <div
-                className="ftn-progress"
-                style={{ marginTop: 12 }}
-              >
+              <div className="ftn-progress" style={{ marginTop: 12 }}>
                 <div className="ftn-progressTop">
                   <div className="ftn-progressLabel">Avancement estimatif</div>
                   <div className="ftn-progressPct">{progressPct}%</div>
                 </div>
                 <div className="ftn-bar">
-                  <div
-                    className="ftn-barFill"
-                    style={{ ["--pct" as any]: `${progressPct}%` }}
-                  />
+                  <div className="ftn-barFill" style={{ ["--pct" as any]: `${progressPct}%` }} />
                 </div>
               </div>
 
@@ -664,7 +675,6 @@ export default async function DashboardPage() {
             </LuxCard>
           </div>
 
-          {/* BOTTOM */}
           <div className="ftn-grid2">
             <LuxCard
               title="Informations administratives"
@@ -690,9 +700,7 @@ export default async function DashboardPage() {
               delay={260}
             >
               <div className="ftn-kv">
-                <div>
-                  Besoin de corriger MF/Patente ou d’accélérer la vérification ? Notre équipe peut vous aider.
-                </div>
+                <div>Besoin de corriger MF/Patente ou d’accélérer la vérification ?</div>
               </div>
 
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
@@ -711,7 +719,7 @@ export default async function DashboardPage() {
   }
 
   /* =========================
-     2) NORMAL DASHBOARD (client / groupe / cabinet verified)
+     NORMAL DASHBOARD (client / groupe / cabinet verified)
   ========================= */
   const topBadge = isCabinet ? (
     <Pill tone="success">✅ Cabinet</Pill>
@@ -730,7 +738,6 @@ export default async function DashboardPage() {
       {LuxeCSS}
 
       <div className="ftn-wrap">
-        {/* HERO */}
         <div className="ftn-hero ftn-reveal" style={{ animationDelay: "0ms" }}>
           <div className="ftn-heroTop">
             <div>
@@ -755,7 +762,6 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        {/* OVERVIEW */}
         <div className="ftn-grid3">
           <LuxCard
             title={isCabinet ? "Statut cabinet" : isGroupe ? "Mode groupe" : "Compte client"}
@@ -766,8 +772,7 @@ export default async function DashboardPage() {
           >
             <div className="ftn-kv">
               <div>
-                Plan : <b>{profile.plan_code || "—"}</b> • Abonnement :{" "}
-                <b>{profile.subscription_status || "—"}</b>
+                Plan : <b>{profile.plan_code || "—"}</b> • Abonnement : <b>{profile.subscription_status || "—"}</b>
               </div>
               <div>
                 Max sociétés : <b>{profile.max_companies ?? "—"}</b>
@@ -815,7 +820,6 @@ export default async function DashboardPage() {
           </LuxCard>
         </div>
 
-        {/* ROLE SPECIFIC */}
         <div className="ftn-grid2">
           {isCabinet ? (
             <LuxCard title="Cabinet — organisation" subtitle="Gestion pro" icon={<span>🏛️</span>} delay={260}>
