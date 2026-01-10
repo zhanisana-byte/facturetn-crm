@@ -85,7 +85,7 @@ export default async function DashboardPage() {
               </div>
 
               <div className="ftn-alert mt-4" style={{ background: "rgba(245,158,11,.10)", borderColor: "rgba(245,158,11,.25)", color: "rgba(120,53,15,.95)" }}>
-                Pendant la validation, la création de société cabinet et les invitations sont désactivées.
+                Service gratuit pour les comptables, sous réserve de validation du statut professionnel
               </div>
             </Card>
 
