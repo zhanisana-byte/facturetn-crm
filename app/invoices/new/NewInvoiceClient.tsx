@@ -19,9 +19,12 @@ export default function NewInvoiceClient() {
   const sp = useSearchParams();
 
   const urlCompany = sp.get("company") || "";
+  const urlMode = (sp.get("mode") || "") as "normal" | "permanente" | "";
 
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [invoiceMode, setInvoiceMode] = useState<"normal" | "permanente" | null>(null);
+  const [invoiceMode, setInvoiceMode] = useState<"normal" | "permanente" | null>(
+    urlMode === "normal" || urlMode === "permanente" ? urlMode : null
+  );
   const [recurringDay, setRecurringDay] = useState<string>("1");
 
   const [companyId, setCompanyId] = useState(urlCompany);
@@ -42,7 +45,7 @@ export default function NewInvoiceClient() {
   const [customerAddress, setCustomerAddress] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
-  const [codeClient, setCodeClient] = useState(""); // optionnel
+  const [codeClient, setCodeClient] = useState("");
 
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
@@ -61,21 +64,17 @@ export default function NewInvoiceClient() {
 
       if (!error && data) {
         setCompanies(data as Company[]);
-        // auto-select if only one company and no urlCompany
         if (!urlCompany && data.length === 1) setCompanyId((data[0] as any).id);
       }
-
       if (urlCompany) setCompanyId(urlCompany);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Apply company defaults (safe: table may not exist yet)
   useEffect(() => {
     (async () => {
       if (!companyId) return;
 
-      // Try to load default VAT/stamp for this company
       const { data: settings, error } = await supabase
         .from("company_ttn_settings")
         .select("vat_default, stamp_enabled_default, stamp_amount_default")
@@ -84,7 +83,6 @@ export default function NewInvoiceClient() {
 
       if (error || !settings) return;
 
-      // Default VAT: only update lines that are still empty/initial
       if (typeof settings.vat_default === "number") {
         setLines((prev) =>
           prev.map((l) =>
@@ -93,12 +91,10 @@ export default function NewInvoiceClient() {
         );
       }
 
-      // Default stamp
       if (typeof settings.stamp_enabled_default === "boolean") {
         setStampEnabled(settings.stamp_enabled_default);
       }
       if (typeof settings.stamp_amount_default === "number") {
-        // ✅ FIX: stampAmount est un number
         setStampAmount(Number(settings.stamp_amount_default ?? 0));
       }
     })();
@@ -120,18 +116,15 @@ export default function NewInvoiceClient() {
     }, 0);
 
     const totalTtc = subtotal + totalVat + (stampEnabled ? (Number(stampAmount) || 0) : 0);
-
     return { subtotal, totalVat, totalTtc };
   }, [lines, stampEnabled, stampAmount]);
 
   function updateLine(i: number, patch: Partial<Line>) {
     setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   }
-
   function addLine() {
     setLines((prev) => [...prev, { description: "", qty: 1, price: 0, vat: 19, discount: 0 }]);
   }
-
   function removeLine(i: number) {
     setLines((prev) => prev.filter((_, idx) => idx !== i));
   }
@@ -140,7 +133,6 @@ export default function NewInvoiceClient() {
     if (!companyId) return alert("Choisis une société d’abord.");
     if (!customerName.trim()) return alert("Nom client requis.");
 
-    // Cohérence période TTN
     if ((periodFrom && !periodTo) || (!periodFrom && periodTo)) {
       return alert("Période TTN: remplis Du et Au.");
     }
@@ -186,8 +178,6 @@ export default function NewInvoiceClient() {
         customer_email: customerEmail,
         customer_phone: customerPhone,
 
-        // Optionnel: stocker code client dans notes si tu veux, sinon ajouter colonne plus tard
-        // (on le garde côté UI pour future TTN)
         billing_period: null,
 
         stamp_enabled: stampEnabled,
@@ -244,7 +234,6 @@ export default function NewInvoiceClient() {
       return;
     }
 
-    // Optional: register as recurring template (safe if table not created yet)
     if (invoiceMode === "permanente") {
       try {
         const day = Math.min(28, Math.max(1, Number(recurringDay) || 1));
@@ -255,95 +244,130 @@ export default function NewInvoiceClient() {
           month_day: day,
           is_active: true,
         });
-      } catch {
-        // ignore (SQL will be added manually)
-      }
+      } catch {}
     }
 
     router.push(`/invoices/${invoiceId}`);
   }
 
+  function goMode(mode: "normal" | "permanente") {
+    setInvoiceMode(mode);
+    const params = new URLSearchParams(sp.toString());
+    params.set("mode", mode);
+    router.replace(`/invoices/new?${params.toString()}`);
+  }
+
+  // =========================
+  // UI: étape 1 (choix mode)
+  // =========================
   if (!invoiceMode) {
     return (
-      <div className="ftn-mode-wrap">
-        <div className="ftn-mode-title">Choisir le type de facture</div>
-        <div className="ftn-mode-sub">Avant de remplir les champs TTN, choisis le mode.</div>
+      <div className="ftn-inv-wrap">
+        <div className="ftn-inv-card">
+          <div className="ftn-inv-head">
+            <div>
+              <div className="ftn-inv-h">Nouvelle facture TTN</div>
+              <div className="ftn-inv-sub">Choisissez le mode avant de remplir les champs de la facture TTN.</div>
+            </div>
+            <span className="ftn-badge tone-info">Étape 1 / 2</span>
+          </div>
 
-        <div className="ftn-mode-grid">
-          <button className="ftn-mode-card" onClick={() => setInvoiceMode("normal")}>
-            <div className="ftn-mode-badge">Normal</div>
-            <div className="ftn-mode-h">Facture classique</div>
-            <div className="ftn-mode-p">Création immédiate, numérotation + PDF/XML ensuite.</div>
-          </button>
+          <div className="ftn-mode-grid2">
+            <button className="ftn-mode-pro ftn-mode-pro--normal" onClick={() => goMode("normal")} type="button">
+              <div className="ftn-mode-top">
+                <span className="ftn-mode-dot ftn-dot-orange" />
+                <div className="ftn-mode-txt">
+                  <div className="ftn-mode-title">Mode Normal</div>
+                  <div className="ftn-mode-desc">Facture TTN classique · création immédiate</div>
+                </div>
+                <span className="ftn-mode-radio" />
+              </div>
 
-          <button className="ftn-mode-card" onClick={() => setInvoiceMode("permanente")}>
-            <div className="ftn-mode-badge">Permanente</div>
-            <div className="ftn-mode-h">Facture mensuelle</div>
-            <div className="ftn-mode-p">Modèle récurrent (génération automatique après SQL/cron).</div>
-          </button>
-        </div>
+              <div className="ftn-mode-pills">
+                <span className="ftn-pill">PDF</span>
+                <span className="ftn-pill">XML</span>
+                <span className="ftn-pill">Numérotation</span>
+                <span className="ftn-pill">Prêt TTN</span>
+              </div>
 
-        <div className="ftn-muted mt-3">
-          Astuce: tu peux commencer en “Normal” et activer “Permanente” après validation du module récurrent.
+              <div className="ftn-mode-foot">
+                <button className="ftn-btn" type="button" onClick={() => goMode("normal")}>
+                  Continuer en Normal
+                </button>
+              </div>
+            </button>
+
+            <button className="ftn-mode-pro ftn-mode-pro--perm" onClick={() => goMode("permanente")} type="button">
+              <div className="ftn-mode-top">
+                <span className="ftn-mode-dot ftn-dot-blue" />
+                <div className="ftn-mode-txt">
+                  <div className="ftn-mode-title">Mode Permanente</div>
+                  <div className="ftn-mode-desc">Facture TTN mensuelle · modèle récurrent</div>
+                </div>
+                <span className="ftn-mode-radio" />
+              </div>
+
+              <div className="ftn-mode-pills">
+                <span className="ftn-pill">Récurrent</span>
+                <span className="ftn-pill">Mensuel</span>
+                <span className="ftn-pill">Auto-génération</span>
+                <span className="ftn-pill">TTN</span>
+              </div>
+
+              <div className="ftn-mode-foot">
+                <button className="ftn-btn-ghost" type="button" onClick={() => goMode("permanente")}>
+                  Configurer Permanente
+                </button>
+              </div>
+            </button>
+          </div>
+
+          <div className="ftn-muted" style={{ marginTop: 10 }}>
+            Astuce : commencez en <b>Normal</b>, puis activez <b>Permanente</b> après validation du module récurrent.
+          </div>
         </div>
       </div>
     );
   }
 
+  // =========================
+  // UI: étape 2 (formulaire)
+  // =========================
   return (
-    <div className="max-w-5xl">
-      <div className="grid gap-4">
-        {/* En-tête TTN */}
-        <div className="grid gap-3 rounded-3xl border border-slate-200 bg-white/80 p-5 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="ftn-inv-wrap">
+      <div className="ftn-form-shell">
+        <div className="ftn-form-head">
+          <div>
+            <div className="ftn-form-title">
+              Facture TTN — Mode {invoiceMode === "permanente" ? "Permanente" : "Normal"}
+            </div>
+            <div className="ftn-form-sub">
+              Remplissez la facture (puis export PDF/XML). Les champs restent inchangés.
+            </div>
+          </div>
+
+          <button type="button" className="ftn-btn-ghost" onClick={() => setInvoiceMode(null)}>
+            ← Changer le mode
+          </button>
+        </div>
+
+        {/* SECTION: TTN */}
+        <div className="ftn-block">
+          <div className="ftn-block-head">
             <div>
-              <div className="text-sm font-semibold">Données TTN (copie conforme)</div>
-              <div className="text-xs text-slate-500">Type, période, référence unique, échéance…</div>
-            </div>
-            <button
-              type="button"
-              className="px-4 py-2 rounded-2xl border border-slate-200 text-sm hover:bg-slate-50"
-              onClick={() => setUniqueRef(genRef())}
-            >
-              Regénérer référence
-            </button>
-          </div>
-
-          <div className="ftn-mode-bar">
-            <div className="ftn-chip">
-              Mode: <b>{invoiceMode === "permanente" ? "Permanente" : "Normale"}</b>
+              <div className="ftn-block-title">Données TTN (copie conforme)</div>
+              <div className="ftn-block-sub">Type, période, référence unique, échéance…</div>
             </div>
 
-            {invoiceMode === "permanente" && (
-              <div className="ftn-rec-row">
-                <div>
-                  <label className="ftn-label">Jour de génération (1-28)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={28}
-                    className="ftn-input"
-                    value={recurringDay}
-                    onChange={(e) => setRecurringDay(e.target.value)}
-                  />
-                </div>
-                <div className="ftn-muted mt-6">
-                  Modèle mensuel (la génération auto sera activée après ajout SQL/cron).
-                </div>
-              </div>
-            )}
-
-            <button
-              type="button"
-              className="ftn-link"
-              onClick={() => setInvoiceMode(null)}
-              title="Changer le mode"
-            >
-              Changer
-            </button>
+            <div className="ftn-block-actions">
+              <button type="button" className="ftn-btn-ghost ftn-btn-sm" onClick={() => setUniqueRef(genRef())}>
+                Regénérer référence
+              </button>
+              <span className="ftn-badge tone-info">Étape 2 / 2</span>
+            </div>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-3">
+          <div className="ftn-row ftn-row-3">
             <div>
               <label className="ftn-label">Société</label>
               <select className="ftn-input" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
@@ -385,7 +409,7 @@ export default function NewInvoiceClient() {
               <input className="ftn-input" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
             </div>
 
-            <div className="md:col-span-2">
+            <div className="ftn-col-span-2">
               <label className="ftn-label">Référence unique (TTN)</label>
               <input className="ftn-input" value={uniqueRef} onChange={(e) => setUniqueRef(e.target.value)} />
             </div>
@@ -395,12 +419,40 @@ export default function NewInvoiceClient() {
               <input className="ftn-input" value={codeClient} onChange={(e) => setCodeClient(e.target.value)} />
             </div>
           </div>
+
+          {invoiceMode === "permanente" && (
+            <div className="ftn-callout" style={{ marginTop: 10 }}>
+              <div className="ftn-callout-title">Récurrence mensuelle</div>
+              <div className="ftn-row ftn-row-3" style={{ marginTop: 8 }}>
+                <div>
+                  <label className="ftn-label">Jour de génération (1-28)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={28}
+                    className="ftn-input"
+                    value={recurringDay}
+                    onChange={(e) => setRecurringDay(e.target.value)}
+                  />
+                </div>
+                <div className="ftn-muted" style={{ alignSelf: "end" }}>
+                  Modèle mensuel (auto-génération activée après SQL/cron).
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Client */}
-        <div className="grid gap-3 rounded-3xl border border-slate-200 bg-white/80 p-5 shadow-sm">
-          <div className="text-sm font-semibold">Client</div>
-          <div className="grid md:grid-cols-2 gap-3">
+        {/* SECTION: CLIENT */}
+        <div className="ftn-block">
+          <div className="ftn-block-head">
+            <div>
+              <div className="ftn-block-title">Client</div>
+              <div className="ftn-block-sub">Informations du destinataire</div>
+            </div>
+          </div>
+
+          <div className="ftn-row ftn-row-2">
             <div>
               <label className="ftn-label">Nom / Raison sociale *</label>
               <input className="ftn-input" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
@@ -417,82 +469,98 @@ export default function NewInvoiceClient() {
               <label className="ftn-label">Téléphone</label>
               <input className="ftn-input" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
             </div>
-            <div className="md:col-span-2">
+            <div className="ftn-col-span-2">
               <label className="ftn-label">Adresse</label>
               <input className="ftn-input" value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} />
             </div>
           </div>
         </div>
 
-        {/* Lignes */}
-        <div className="grid gap-3 rounded-3xl border border-slate-200 bg-white/80 p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-semibold">Lignes</div>
-            <button type="button" className="px-4 py-2 rounded-2xl border border-slate-200 text-sm hover:bg-slate-50" onClick={addLine}>
+        {/* SECTION: LIGNES */}
+        <div className="ftn-block">
+          <div className="ftn-block-head">
+            <div>
+              <div className="ftn-block-title">Lignes</div>
+              <div className="ftn-block-sub">Produits / services / TVA / remise</div>
+            </div>
+
+            <button type="button" className="ftn-btn-ghost ftn-btn-sm" onClick={addLine}>
               + Ajouter ligne
             </button>
           </div>
 
-          <div className="grid gap-3">
+          <div className="ftn-lines">
             {lines.map((l, i) => (
-              <div key={i} className="grid md:grid-cols-12 gap-2 items-end">
-                <div className="md:col-span-5">
-                  <label className="ftn-label">Désignation</label>
-                  <input className="ftn-input" value={l.description} onChange={(e) => updateLine(i, { description: e.target.value })} />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="ftn-label">Qté</label>
-                  <input className="ftn-input" type="number" value={l.qty} onChange={(e) => updateLine(i, { qty: Number(e.target.value) })} />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="ftn-label">PU HT</label>
-                  <input className="ftn-input" type="number" value={l.price} onChange={(e) => updateLine(i, { price: Number(e.target.value) })} />
-                </div>
-                <div className="md:col-span-1">
-                  <label className="ftn-label">TVA%</label>
-                  <input className="ftn-input" type="number" value={l.vat} onChange={(e) => updateLine(i, { vat: Number(e.target.value) })} />
-                </div>
-                <div className="md:col-span-1">
-                  <label className="ftn-label">Rem%</label>
-                  <input className="ftn-input" type="number" value={l.discount} onChange={(e) => updateLine(i, { discount: Number(e.target.value) })} />
-                </div>
-                <div className="md:col-span-1 flex justify-end">
-                  {lines.length > 1 && (
-                    <button type="button" className="px-3 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50" onClick={() => removeLine(i)}>
-                      ✕
-                    </button>
-                  )}
+              <div key={i} className="ftn-line">
+                <div className="ftn-line-grid">
+                  <div className="ftn-line-desc">
+                    <label className="ftn-label">Désignation</label>
+                    <input className="ftn-input" value={l.description} onChange={(e) => updateLine(i, { description: e.target.value })} />
+                  </div>
+
+                  <div>
+                    <label className="ftn-label">Qté</label>
+                    <input className="ftn-input" type="number" value={l.qty} onChange={(e) => updateLine(i, { qty: Number(e.target.value) })} />
+                  </div>
+
+                  <div>
+                    <label className="ftn-label">PU HT</label>
+                    <input className="ftn-input" type="number" value={l.price} onChange={(e) => updateLine(i, { price: Number(e.target.value) })} />
+                  </div>
+
+                  <div>
+                    <label className="ftn-label">TVA%</label>
+                    <input className="ftn-input" type="number" value={l.vat} onChange={(e) => updateLine(i, { vat: Number(e.target.value) })} />
+                  </div>
+
+                  <div>
+                    <label className="ftn-label">Rem%</label>
+                    <input className="ftn-input" type="number" value={l.discount} onChange={(e) => updateLine(i, { discount: Number(e.target.value) })} />
+                  </div>
+
+                  <div className="ftn-line-x">
+                    {lines.length > 1 && (
+                      <button type="button" className="ftn-x" onClick={() => removeLine(i)} title="Supprimer ligne">
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Totaux */}
-        <div className="grid gap-3 rounded-3xl border border-slate-200 bg-white/80 p-5 shadow-sm">
-          <div className="text-sm font-semibold">Totaux</div>
-
-          <div className="grid md:grid-cols-4 gap-3">
-            <div className="rounded-2xl border border-slate-200 bg-white p-3">
-              <div className="text-xs text-slate-500">Total HT</div>
-              <div className="text-lg font-semibold">{totals.subtotal.toFixed(3)} TND</div>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-3">
-              <div className="text-xs text-slate-500">TVA</div>
-              <div className="text-lg font-semibold">{totals.totalVat.toFixed(3)} TND</div>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-3">
-              <div className="text-xs text-slate-500">Timbre</div>
-              <div className="text-lg font-semibold">{(stampEnabled ? (Number(stampAmount) || 0) : 0).toFixed(3)} TND</div>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-3">
-              <div className="text-xs text-slate-500">Net à payer</div>
-              <div className="text-lg font-semibold">{totals.totalTtc.toFixed(3)} TND</div>
+        {/* SECTION: TOTAUX */}
+        <div className="ftn-block">
+          <div className="ftn-block-head">
+            <div>
+              <div className="ftn-block-title">Totaux</div>
+              <div className="ftn-block-sub">HT · TVA · Timbre · Net à payer</div>
             </div>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-3">
-            <div className="flex items-center gap-3">
+          <div className="ftn-kpi">
+            <div className="ftn-kpi-card">
+              <div className="ftn-kpi-title">Total HT</div>
+              <div className="ftn-kpi-value">{totals.subtotal.toFixed(3)} TND</div>
+            </div>
+            <div className="ftn-kpi-card">
+              <div className="ftn-kpi-title">TVA</div>
+              <div className="ftn-kpi-value">{totals.totalVat.toFixed(3)} TND</div>
+            </div>
+            <div className="ftn-kpi-card">
+              <div className="ftn-kpi-title">Timbre</div>
+              <div className="ftn-kpi-value">{(stampEnabled ? (Number(stampAmount) || 0) : 0).toFixed(3)} TND</div>
+            </div>
+            <div className="ftn-kpi-card ftn-kpi-card--strong">
+              <div className="ftn-kpi-title">Net à payer</div>
+              <div className="ftn-kpi-value">{totals.totalTtc.toFixed(3)} TND</div>
+            </div>
+          </div>
+
+          <div className="ftn-row ftn-row-3" style={{ marginTop: 10 }}>
+            <div className="ftn-toggle">
               <input
                 id="stamp"
                 type="checkbox"
@@ -500,7 +568,7 @@ export default function NewInvoiceClient() {
                 checked={stampEnabled}
                 onChange={(e) => setStampEnabled(e.target.checked)}
               />
-              <label htmlFor="stamp" className="text-sm font-medium">
+              <label htmlFor="stamp" className="ftn-toggle-label">
                 Activer timbre
               </label>
             </div>
@@ -521,15 +589,17 @@ export default function NewInvoiceClient() {
               <input className="ftn-input" value={amountInWords} onChange={(e) => setAmountInWords(e.target.value)} />
             </div>
 
-            <div className="md:col-span-3">
+            <div className="ftn-col-span-3">
               <label className="ftn-label">Notes (optionnel)</label>
               <input className="ftn-input" value={notes} onChange={(e) => setNotes(e.target.value)} />
             </div>
           </div>
 
-          <button className="ftn-btn" disabled={loading} onClick={save}>
-            {loading ? "Création..." : "Créer"}
-          </button>
+          <div className="ftn-form-footer">
+            <button className="ftn-btn" disabled={loading} onClick={save}>
+              {loading ? "Création..." : "Créer la facture"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
