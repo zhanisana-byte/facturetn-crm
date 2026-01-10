@@ -54,7 +54,7 @@ export default function LoginClient() {
   )}`;
 
   return (
-    <AuthShell title="Connexion" subtitle="Accède à ton espace FactureTN.">
+    <AuthShell title="Connexion" subtitle="Accédez à votre espace FactureTN.">
       <form onSubmit={onSubmit}>
         <label className="ftn-label">Email</label>
         <input
