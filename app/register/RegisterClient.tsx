@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -17,33 +18,21 @@ const OPTIONS: Array<{
     key: "client",
     title: "Client — Facture TTN",
     subtitle: "Auto-entrepreneur, freelance, petite société",
-    bullets: [
-      "Facture TTN conforme Tunisie",
-      "Gestion simple (1 société)",
-      "Inviter équipe ou comptable",
-    ],
+    bullets: ["Facture TTN conforme Tunisie", "Gestion simple (1 société)", "Inviter équipe ou comptable"],
     accent: "orange",
   },
   {
     key: "cabinet",
     title: "Cabinet comptable — Facture TTN",
     subtitle: "Accès Cabinet (Comptable) — Gratuit après validation",
-    bullets: [
-      "Accès cabinet Facture TTN (gratuit)",
-      "Gérer les factures TTN des clients",
-      "Inviter équipe & collaborateurs",
-    ],
+    bullets: ["Accès cabinet Facture TTN (gratuit)", "Gérer les factures TTN des clients", "Inviter équipe & collaborateurs"],
     accent: "blue",
   },
   {
     key: "groupe",
     title: "Groupe — Facture TTN",
     subtitle: "Multi-sociétés & gestion avancée (forfait)",
-    bullets: [
-      "Facture TTN multi-sociétés",
-      "Équipe interne & rôles avancés",
-      "Comptable externe & reporting",
-    ],
+    bullets: ["Facture TTN multi-sociétés", "Équipe interne & rôles avancés", "Comptable externe & reporting"],
     accent: "violet",
   },
 ];
@@ -71,6 +60,9 @@ export default function RegisterClient() {
   const [accountantMf, setAccountantMf] = useState("");
   const [accountantPatente, setAccountantPatente] = useState("");
 
+  // ✅ NEW: case obligatoire Mentions légales + Conditions générales
+  const [acceptTerms, setAcceptTerms] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -81,10 +73,13 @@ export default function RegisterClient() {
 
   const canSubmit = useMemo(() => {
     const cleanEmail = email.trim().toLowerCase();
+
+    // ✅ NEW: acceptTerms obligatoire
     const baseOk =
       fullName.trim().length > 1 &&
       cleanEmail.length > 3 &&
       password.length >= 8 &&
+      acceptTerms &&
       !loading;
 
     if (!baseOk) return false;
@@ -103,6 +98,7 @@ export default function RegisterClient() {
     email,
     fullName,
     password,
+    acceptTerms,
     loading,
     accountType,
     companyName,
@@ -113,10 +109,14 @@ export default function RegisterClient() {
   async function handleRegister() {
     setErr(null);
 
+    // ✅ NEW: blocage si pas coché
+    if (!acceptTerms) {
+      return setErr("Vous devez accepter les Mentions légales et les Conditions générales.");
+    }
+
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail) return setErr("Email obligatoire.");
-    if (!password || password.length < 8)
-      return setErr("Mot de passe : minimum 8 caractères.");
+    if (!password || password.length < 8) return setErr("Mot de passe : minimum 8 caractères.");
     if (!fullName.trim()) return setErr("Nom complet obligatoire.");
 
     if (accountType === "client" && !companyName.trim()) {
@@ -134,7 +134,13 @@ export default function RegisterClient() {
       email: cleanEmail,
       password,
       options: {
-        data: { full_name: fullName.trim(), plan: plan || null },
+        // ✅ NEW: on garde une trace de l’acceptation (utile en audit)
+        data: {
+          full_name: fullName.trim(),
+          plan: plan || null,
+          accept_terms: true,
+          accept_terms_at: new Date().toISOString(),
+        },
       },
     });
 
@@ -164,6 +170,10 @@ export default function RegisterClient() {
       plan_code: accountType === "groupe" ? "group_unlimited" : "client_50",
       max_companies: accountType === "groupe" ? 999 : 1,
       subscription_status: "active",
+
+      // ✅ NEW: garder la trace aussi côté app_users (si tu veux)
+      accepted_terms: true,
+      accepted_terms_at: new Date().toISOString(),
     };
 
     if (accountType === "cabinet") {
@@ -173,9 +183,7 @@ export default function RegisterClient() {
       userPayload.accountant_free_access = false; // sera activé après validation admin
     }
 
-    const { error: upErr } = await supabase
-      .from("app_users")
-      .upsert(userPayload, { onConflict: "id" });
+    const { error: upErr } = await supabase.from("app_users").upsert(userPayload, { onConflict: "id" });
 
     if (upErr) {
       setLoading(false);
@@ -184,7 +192,6 @@ export default function RegisterClient() {
     }
 
     // 3) Créer société selon accountType
-
     // ✅ CLIENT: créer société + membership owner (Facture TTN)
     if (accountType === "client") {
       const { data: comp, error: cErr } = await supabase
@@ -234,9 +241,7 @@ export default function RegisterClient() {
       <div className="ftn-auth">
         <div className="ftn-auth-card ftn-reg-card">
           <h1 className="ftn-auth-title">Créer un compte</h1>
-          <p className="ftn-auth-sub">
-            Choisissez votre profil Facture TTN, puis complétez les informations.
-          </p>
+          <p className="ftn-auth-sub">Choisissez votre profil Facture TTN, puis complétez les informations.</p>
 
           {err && <div className="ftn-alert">{err}</div>}
 
@@ -257,9 +262,7 @@ export default function RegisterClient() {
                       <div className="ftn-reg-title">{o.title}</div>
                       <div className="ftn-reg-sub">{o.subtitle}</div>
                     </div>
-                    <span className={`ftn-reg-check ${active ? "on" : ""}`}>
-                      {active ? "✓" : "○"}
-                    </span>
+                    <span className={`ftn-reg-check ${active ? "on" : ""}`}>{active ? "✓" : "○"}</span>
                   </div>
 
                   <div className="ftn-reg-bullets">
@@ -340,12 +343,10 @@ export default function RegisterClient() {
                     background: "rgba(59,130,246,.06)",
                   }}
                 >
-                  <div className="ftn-callout-title">
-                    Accès Cabinet (Comptable) — Gratuit après validation
-                  </div>
+                  <div className="ftn-callout-title">Accès Cabinet (Comptable) — Gratuit après validation</div>
                   <div className="ftn-muted" style={{ marginTop: 6 }}>
-                    Après vérification (MF / Patente), votre accès cabinet est activé pour
-                    gérer les <b>Factures TTN</b> de vos clients.
+                    Après vérification (MF / Patente), votre accès cabinet est activé pour gérer les{" "}
+                    <b>Factures TTN</b> de vos clients.
                   </div>
                 </div>
 
@@ -372,18 +373,39 @@ export default function RegisterClient() {
               <div className="ftn-callout" style={{ marginTop: 12 }}>
                 <div className="ftn-callout-title">Groupe — Facture TTN multi-sociétés</div>
                 <div className="ftn-muted" style={{ marginTop: 6 }}>
-                  Idéal pour holdings et structures multi-entités : rôles avancés,
-                  équipes internes, et gestion centralisée des <b>Factures TTN</b>.
+                  Idéal pour holdings et structures multi-entités : rôles avancés, équipes internes, et gestion centralisée
+                  des <b>Factures TTN</b>.
                 </div>
               </div>
             )}
 
-            <button
-              onClick={handleRegister}
-              disabled={!canSubmit}
-              className="ftn-btn"
-              style={{ width: "100%", marginTop: 14 }}
-            >
+            {/* ✅ NEW: Mentions légales + Conditions générales */}
+            <div className="ftn-terms">
+              <label className="ftn-terms-row">
+                <input
+                  type="checkbox"
+                  className="ftn-checkbox"
+                  checked={acceptTerms}
+                  onChange={(e) => setAcceptTerms(e.target.checked)}
+                />
+                <span className="ftn-terms-text">
+                  J&apos;ai lu et j&apos;accepte les{" "}
+                  <Link className="ftn-link" href="/mentions-legales" target="_blank" rel="noopener noreferrer">
+                    Mentions légales
+                  </Link>{" "}
+                  et les{" "}
+                  <Link className="ftn-link" href="/conditions-generales" target="_blank" rel="noopener noreferrer">
+                    Conditions générales
+                  </Link>
+                  .
+                </span>
+              </label>
+              {!acceptTerms && (
+                <div className="ftn-terms-hint">Obligatoire pour créer un compte Facture TTN.</div>
+              )}
+            </div>
+
+            <button onClick={handleRegister} disabled={!canSubmit} className="ftn-btn" style={{ width: "100%", marginTop: 14 }}>
               {loading ? "Création..." : "Créer un compte"}
             </button>
 
@@ -395,6 +417,49 @@ export default function RegisterClient() {
           </div>
         </div>
       </div>
+
+      {/* ✅ CSS rapide pour la partie Terms (tu peux le déplacer dans ton global) */}
+      <style jsx>{`
+        .ftn-terms {
+          margin-top: 14px;
+          padding: 12px;
+          border: 1px solid rgba(15, 23, 42, 0.08);
+          border-radius: 14px;
+          background: rgba(15, 23, 42, 0.02);
+        }
+        .ftn-terms-row {
+          display: flex;
+          gap: 10px;
+          align-items: flex-start;
+          cursor: pointer;
+          user-select: none;
+        }
+        .ftn-checkbox {
+          width: 18px;
+          height: 18px;
+          margin-top: 2px;
+          accent-color: #111827;
+        }
+        .ftn-terms-text {
+          font-size: 13px;
+          color: rgba(15, 23, 42, 0.82);
+          line-height: 1.35;
+        }
+        .ftn-link {
+          text-decoration: underline;
+          text-underline-offset: 3px;
+          color: rgba(15, 23, 42, 0.92);
+          font-weight: 600;
+        }
+        .ftn-link:hover {
+          opacity: 0.85;
+        }
+        .ftn-terms-hint {
+          margin-top: 8px;
+          font-size: 12px;
+          color: rgba(220, 38, 38, 0.9);
+        }
+      `}</style>
     </div>
   );
 }
