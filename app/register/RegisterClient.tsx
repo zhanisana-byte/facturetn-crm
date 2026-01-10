@@ -1,3 +1,4 @@
+// app/register/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -5,39 +6,46 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-type AccountType = "client" | "cabinet" | "groupe";
+type AccountType = "societe" | "cabinet" | "multi_societe" | "profil_compta";
 
 const OPTIONS: Array<{
   key: AccountType;
   title: string;
   subtitle: string;
   bullets: string[];
-  accent: "orange" | "blue" | "violet";
+  accent: "orange" | "blue" | "violet" | "slate";
 }> = [
   {
-    key: "client",
-    title: "Client — Facture TTN",
-    subtitle: "Auto-entrepreneur, freelance, petite société",
-    bullets: ["Facture TTN conforme Tunisie", "Gestion simple (1 société)", "Inviter équipe ou comptable"],
+    key: "societe",
+    title: "Société — Facture TTN",
+    subtitle: "Entreprise / freelance (1 société au départ)",
+    bullets: ["Factures TTN conformes", "Gestion simple", "Inviter équipe ou comptable"],
     accent: "orange",
   },
   {
     key: "cabinet",
     title: "Cabinet comptable — Facture TTN",
-    subtitle: "Accès Cabinet (Comptable) — Gratuit après validation",
-    bullets: ["Accès cabinet Facture TTN (gratuit)", "Gérer les factures TTN des clients", "Inviter équipe & collaborateurs"],
+    subtitle: "Cabinet (Comptable) — Gratuit après validation",
+    bullets: ["Accès cabinet (gratuit)", "Gérer les factures TTN des clients", "Inviter équipe & collaborateurs"],
     accent: "blue",
   },
   {
-    key: "groupe",
-    title: "Groupe — Facture TTN",
-    subtitle: "Multi-sociétés & gestion avancée (forfait)",
-    bullets: ["Facture TTN multi-sociétés", "Équipe interne & rôles avancés", "Comptable externe & reporting"],
+    key: "multi_societe",
+    title: "Multi-société — Facture TTN",
+    subtitle: "Groupe / holding / multi-entités (forfait)",
+    bullets: ["Multi-sociétés illimitées", "Équipe interne & rôles avancés", "Reporting & contrôle d’accès"],
     accent: "violet",
+  },
+  {
+    key: "profil_compta",
+    title: "Profil Compta — Collaborateur",
+    subtitle: "Profil collaborateur (interne/externe) — via invitations",
+    bullets: ["Accès via invitations", "Gérer les tâches & factures selon permissions", "Peut inviter un comptable (si autorisé)"],
+    accent: "slate",
   },
 ];
 
-export default function RegisterClient() {
+export default function RegisterPage() {
   const supabase = createClient();
   const router = useRouter();
   const sp = useSearchParams();
@@ -46,21 +54,21 @@ export default function RegisterClient() {
   const redirectTo = sp.get("redirect") || sp.get("next") || "/dashboard";
   const prefillEmail = sp.get("email") || "";
 
-  const [accountType, setAccountType] = useState<AccountType>("client");
+  const [accountType, setAccountType] = useState<AccountType>("societe");
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState("");
 
-  // Client: création société immédiate
+  // Société
   const [companyName, setCompanyName] = useState("");
   const [companyTaxId, setCompanyTaxId] = useState("");
 
-  // Cabinet: infos validation
+  // Cabinet (validation)
   const [accountantMf, setAccountantMf] = useState("");
   const [accountantPatente, setAccountantPatente] = useState("");
 
-  // ✅ NEW: case obligatoire Mentions légales + Conditions générales
+  // ✅ Mentions légales + CG
   const [acceptTerms, setAcceptTerms] = useState(false);
 
   const [loading, setLoading] = useState(false);
@@ -74,7 +82,6 @@ export default function RegisterClient() {
   const canSubmit = useMemo(() => {
     const cleanEmail = email.trim().toLowerCase();
 
-    // ✅ NEW: acceptTerms obligatoire
     const baseOk =
       fullName.trim().length > 1 &&
       cleanEmail.length > 3 &&
@@ -84,15 +91,13 @@ export default function RegisterClient() {
 
     if (!baseOk) return false;
 
-    if (accountType === "client") {
-      return companyName.trim().length > 1;
-    }
+    if (accountType === "societe") return companyName.trim().length > 1;
 
     if (accountType === "cabinet") {
       return accountantMf.trim().length > 3 && accountantPatente.trim().length > 2;
     }
 
-    // groupe
+    // multi_societe & profil_compta: pas de champs obligatoires en plus
     return true;
   }, [
     email,
@@ -109,7 +114,6 @@ export default function RegisterClient() {
   async function handleRegister() {
     setErr(null);
 
-    // ✅ NEW: blocage si pas coché
     if (!acceptTerms) {
       return setErr("Vous devez accepter les Mentions légales et les Conditions générales.");
     }
@@ -119,9 +123,10 @@ export default function RegisterClient() {
     if (!password || password.length < 8) return setErr("Mot de passe : minimum 8 caractères.");
     if (!fullName.trim()) return setErr("Nom complet obligatoire.");
 
-    if (accountType === "client" && !companyName.trim()) {
+    if (accountType === "societe" && !companyName.trim()) {
       return setErr("Nom de société obligatoire.");
     }
+
     if (accountType === "cabinet") {
       if (!accountantMf.trim()) return setErr("Matricule fiscal obligatoire.");
       if (!accountantPatente.trim()) return setErr("Patente obligatoire.");
@@ -134,12 +139,12 @@ export default function RegisterClient() {
       email: cleanEmail,
       password,
       options: {
-        // ✅ NEW: on garde une trace de l’acceptation (utile en audit)
         data: {
           full_name: fullName.trim(),
           plan: plan || null,
           accept_terms: true,
           accept_terms_at: new Date().toISOString(),
+          account_type: accountType, // utile
         },
       },
     });
@@ -166,12 +171,19 @@ export default function RegisterClient() {
       role: "user",
       is_active: true,
 
-      // Plan (interne)
-      plan_code: accountType === "groupe" ? "group_unlimited" : "client_50",
-      max_companies: accountType === "groupe" ? 999 : 1,
+      // Plan interne (tu ajustes après)
+      plan_code:
+        accountType === "multi_societe"
+          ? "multi_societe_start"
+          : accountType === "cabinet"
+            ? "cabinet_pending"
+            : accountType === "profil_compta"
+              ? "profil_compta"
+              : "societe_start",
+
+      max_companies: accountType === "multi_societe" ? 999 : accountType === "societe" ? 1 : 0,
       subscription_status: "active",
 
-      // ✅ NEW: garder la trace aussi côté app_users (si tu veux)
       accepted_terms: true,
       accepted_terms_at: new Date().toISOString(),
     };
@@ -180,10 +192,12 @@ export default function RegisterClient() {
       userPayload.accountant_mf = accountantMf.trim();
       userPayload.accountant_patente = accountantPatente.trim();
       userPayload.accountant_status = "pending";
-      userPayload.accountant_free_access = false; // sera activé après validation admin
+      userPayload.accountant_free_access = false; // activé après validation admin
     }
 
-    const { error: upErr } = await supabase.from("app_users").upsert(userPayload, { onConflict: "id" });
+    const { error: upErr } = await supabase
+      .from("app_users")
+      .upsert(userPayload, { onConflict: "id" });
 
     if (upErr) {
       setLoading(false);
@@ -191,9 +205,9 @@ export default function RegisterClient() {
       return;
     }
 
-    // 3) Créer société selon accountType
-    // ✅ CLIENT: créer société + membership owner (Facture TTN)
-    if (accountType === "client") {
+    // 3) Setup selon type
+    // ✅ SOCIÉTÉ: créer société + membership owner
+    if (accountType === "societe") {
       const { data: comp, error: cErr } = await supabase
         .from("companies")
         .insert({
@@ -219,6 +233,7 @@ export default function RegisterClient() {
         can_create_invoices: true,
         can_validate_invoices: true,
         can_submit_ttn: true,
+        is_active: true,
       });
 
       if (mErr) {
@@ -229,7 +244,8 @@ export default function RegisterClient() {
     }
 
     // ✅ CABINET: pas de société tant que pending
-    // ✅ GROUPE: setup plus tard
+    // ✅ MULTI: setup sociétés plus tard
+    // ✅ PROFIL_COMPTA: accès uniquement via invitations
 
     setLoading(false);
     router.push(redirectTo);
@@ -241,11 +257,13 @@ export default function RegisterClient() {
       <div className="ftn-auth">
         <div className="ftn-auth-card ftn-reg-card">
           <h1 className="ftn-auth-title">Créer un compte</h1>
-          <p className="ftn-auth-sub">Choisissez votre profil Facture TTN, puis complétez les informations.</p>
+          <p className="ftn-auth-sub">
+            Choisissez votre type d’accès FactureTN, puis complétez les informations.
+          </p>
 
           {err && <div className="ftn-alert">{err}</div>}
 
-          {/* Choix profil (3 cartes) */}
+          {/* Choix profil */}
           <div className="ftn-reg-grid">
             {OPTIONS.map((o) => {
               const active = accountType === o.key;
@@ -307,11 +325,11 @@ export default function RegisterClient() {
               autoComplete="new-password"
             />
 
-            {/* CLIENT */}
-            {accountType === "client" && (
+            {/* SOCIÉTÉ */}
+            {accountType === "societe" && (
               <>
                 <div className="ftn-muted" style={{ marginTop: 12 }}>
-                  Vous allez créer votre première société pour émettre des <b>Factures TTN</b>.
+                  Création de votre première <b>société</b> (obligatoire) pour émettre des <b>factures TTN</b>.
                 </div>
 
                 <label className="ftn-label">Nom de société</label>
@@ -343,10 +361,9 @@ export default function RegisterClient() {
                     background: "rgba(59,130,246,.06)",
                   }}
                 >
-                  <div className="ftn-callout-title">Accès Cabinet (Comptable) — Gratuit après validation</div>
+                  <div className="ftn-callout-title">Cabinet (Comptable) — Gratuit après validation</div>
                   <div className="ftn-muted" style={{ marginTop: 6 }}>
-                    Après vérification (MF / Patente), votre accès cabinet est activé pour gérer les{" "}
-                    <b>Factures TTN</b> de vos clients.
+                    Après vérification (MF / Patente), votre accès cabinet est activé.
                   </div>
                 </div>
 
@@ -368,18 +385,34 @@ export default function RegisterClient() {
               </>
             )}
 
-            {/* GROUPE */}
-            {accountType === "groupe" && (
+            {/* MULTI */}
+            {accountType === "multi_societe" && (
               <div className="ftn-callout" style={{ marginTop: 12 }}>
-                <div className="ftn-callout-title">Groupe — Facture TTN multi-sociétés</div>
+                <div className="ftn-callout-title">Multi-société — gestion avancée</div>
                 <div className="ftn-muted" style={{ marginTop: 6 }}>
-                  Idéal pour holdings et structures multi-entités : rôles avancés, équipes internes, et gestion centralisée
-                  des <b>Factures TTN</b>.
+                  Accès multi-entités : rôles avancés, équipes, et contrôle centralisé.
                 </div>
               </div>
             )}
 
-            {/* ✅ NEW: Mentions légales + Conditions générales */}
+            {/* PROFIL COMPTA */}
+            {accountType === "profil_compta" && (
+              <div
+                className="ftn-callout"
+                style={{
+                  marginTop: 12,
+                  borderColor: "rgba(148,163,184,.28)",
+                  background: "rgba(148,163,184,.08)",
+                }}
+              >
+                <div className="ftn-callout-title">Profil Compta (Collaborateur)</div>
+                <div className="ftn-muted" style={{ marginTop: 6 }}>
+                  Ce profil est destiné aux collaborateurs. Les accès se font via <b>invitations</b>.
+                </div>
+              </div>
+            )}
+
+            {/* Terms */}
             <div className="ftn-terms">
               <label className="ftn-terms-row">
                 <input
@@ -400,25 +433,34 @@ export default function RegisterClient() {
                   .
                 </span>
               </label>
-              {!acceptTerms && (
-                <div className="ftn-terms-hint">Obligatoire pour créer un compte Facture TTN.</div>
-              )}
+              {!acceptTerms && <div className="ftn-terms-hint">Obligatoire pour créer un compte.</div>}
             </div>
 
-            <button onClick={handleRegister} disabled={!canSubmit} className="ftn-btn" style={{ width: "100%", marginTop: 14 }}>
+            <button
+              onClick={handleRegister}
+              disabled={!canSubmit}
+              className="ftn-btn"
+              style={{ width: "100%", marginTop: 14 }}
+            >
               {loading ? "Création..." : "Créer un compte"}
             </button>
 
-            {plan ? (
-              <div className="ftn-muted" style={{ marginTop: 10 }}>
-                Plan détecté : <b>{plan}</b>
-              </div>
-            ) : null}
+            <div className="ftn-muted" style={{ marginTop: 12 }}>
+              Déjà un compte ?{" "}
+              <Link className="ftn-link" href="/login">
+                Se connecter
+              </Link>
+              {plan ? (
+                <>
+                  {" "}
+                  • Plan : <b>{plan}</b>
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ✅ CSS rapide pour la partie Terms (tu peux le déplacer dans ton global) */}
       <style jsx>{`
         .ftn-terms {
           margin-top: 14px;
@@ -449,7 +491,7 @@ export default function RegisterClient() {
           text-decoration: underline;
           text-underline-offset: 3px;
           color: rgba(15, 23, 42, 0.92);
-          font-weight: 600;
+          font-weight: 650;
         }
         .ftn-link:hover {
           opacity: 0.85;
