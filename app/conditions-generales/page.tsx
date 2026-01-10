@@ -38,10 +38,9 @@ export default function ConditionsGeneralesPage() {
             FTN
           </div>
           <div>
-            <h1 className="ftn-legal-h1">Conditions générales</h1>
+            <h1 className="ftn-legal-h1">Conditions générales d’utilisation (CGU)</h1>
             <p className="ftn-legal-sub">
-              Dernière mise à jour : <b>{lastUpdate}</b>. Ces conditions encadrent l’accès et l’utilisation
-              de FactureTN.
+              Dernière mise à jour : <b>{lastUpdate}</b>. Ces CGU encadrent l’accès et l’utilisation de FactureTN.
             </p>
           </div>
         </div>
@@ -60,11 +59,10 @@ export default function ConditionsGeneralesPage() {
         <div className="ftn-legal-toc-title">Sommaire</div>
         <div className="ftn-legal-toc-links">
           <a className="ftn-legal-toc-link" href="#objet">Objet</a>
-          <a className="ftn-legal-toc-link" href="#compte">Compte</a>
-          <a className="ftn-legal-toc-link" href="#plans">Plans & rôles</a>
-          <a className="ftn-legal-toc-link" href="#factures">Factures</a>
-          <a className="ftn-legal-toc-link" href="#donnees">Données</a>
+          <a className="ftn-legal-toc-link" href="#acces">Accès & compte</a>
+          <a className="ftn-legal-toc-link" href="#roles">Rôles & permissions</a>
           <a className="ftn-legal-toc-link" href="#responsabilite">Responsabilité</a>
+          <a className="ftn-legal-toc-link" href="#donnees">Données</a>
           <a className="ftn-legal-toc-link" href="#support">Support</a>
           <a className="ftn-legal-toc-link" href="#final">Final</a>
         </div>
@@ -73,71 +71,74 @@ export default function ConditionsGeneralesPage() {
       <div className="ftn-legal-grid">
         <Section id="objet" title="1) Objet">
           <p className="ftn-legal-p">
-            FactureTN est une plateforme visant à <b>faciliter la gestion des factures électroniques</b> :
-            création, organisation, export, partage et gestion des droits d’accès (équipe, comptable, multi-sociétés).
+            FactureTN est une plateforme dont l’objectif est de faciliter la gestion des{" "}
+            <b>factures électroniques</b> : création, organisation, export, et partage avec une équipe ou un
+            comptable (selon les autorisations).
           </p>
           <p className="ftn-legal-p">
-            En créant un compte ou en utilisant le service, vous acceptez les présentes conditions.
+            En utilisant FactureTN, vous acceptez les présentes Conditions Générales d’Utilisation.
           </p>
         </Section>
 
-        <Section id="compte" title="2) Compte, sécurité & accès">
+        <Section id="acces" title="2) Accès au service & création de compte">
           <ul className="ftn-legal-list">
-            <li>Vous devez fournir des informations exactes lors de l’inscription.</li>
-            <li>Vous êtes responsable de la confidentialité de vos identifiants.</li>
-            <li>Tout usage abusif peut entraîner suspension ou restriction d’accès.</li>
+            <li>Vous devez fournir des informations exactes et à jour.</li>
+            <li>Vous êtes responsable de la confidentialité de votre mot de passe.</li>
+            <li>
+              L’accès peut être suspendu en cas d’abus, tentative de fraude, ou usage contraire aux présentes CGU.
+            </li>
+          </ul>
+        </Section>
+
+        <Section id="roles" title="3) Rôles, permissions & invitations" spanAll>
+          <p className="ftn-legal-p">
+            FactureTN propose plusieurs profils (ex: Client, Cabinet, Groupe) et un système de permissions
+            (ex: création de facture, gestion client, validation, soumission, etc.). Les droits sont gérés
+            par l’administrateur de la société ou via invitations.
+          </p>
+          <ul className="ftn-legal-list">
+            <li>
+              <b>Client</b> : gère sa société et ses factures, peut inviter une équipe/comptable selon permissions.
+            </li>
+            <li>
+              <b>Cabinet</b> : accès comptable pouvant être soumis à validation (patente/informations) selon la politique
+              interne de la plateforme.
+            </li>
+            <li>
+              <b>Groupe</b> : gestion multi-sociétés et rôles avancés (selon forfait).
+            </li>
           </ul>
         </Section>
 
-        <Section id="plans" title="3) Plans & rôles (Client / Cabinet / Groupe)" spanAll>
-          <ul className="ftn-legal-list">
-            <li>
-              <b>Client</b> : création et gestion d’une société (selon plan), factures, invitations équipe/comptable.
-            </li>
-            <li>
-              <b>Cabinet</b> : accès comptable pouvant nécessiter <b>validation</b> (patente / informations fournies),
-              et accès aux clients uniquement via invitations/permissions.
-            </li>
-            <li>
-              <b>Groupe</b> : gestion multi-sociétés, rôles avancés, équipes internes et reporting (selon forfait).
-            </li>
-          </ul>
-          <p className="ftn-legal-note">
-            Les fonctionnalités peuvent évoluer. Les limites (ex: nombre de sociétés) dépendent du plan affiché dans l’interface.
+        <Section id="responsabilite" title="4) Responsabilité de l’utilisateur" spanAll>
+          <p className="ftn-legal-p">
+            L’utilisateur est seul responsable des données saisies (identité, MF, montants, TVA, articles, etc.)
+            et du respect des obligations légales et fiscales applicables.
+          </p>
+          <p className="ftn-legal-p">
+            FactureTN fournit un outil de gestion ; il ne remplace pas un conseil fiscal/juridique.
           </p>
         </Section>
 
-        <Section id="factures" title="4) Factures & obligations de l’utilisateur" spanAll>
+        <Section id="donnees" title="5) Données, confidentialité & infrastructure" spanAll>
           <p className="ftn-legal-p">
-            L’utilisateur reste responsable de la véracité des données saisies (identité, MF, montants, TVA, articles, etc.)
-            et du respect des obligations fiscales/légales.
+            FactureTN traite les données nécessaires au service (compte, sociétés, factures, permissions).
+            Des mesures raisonnables de sécurité sont mises en place.
           </p>
           <ul className="ftn-legal-list">
-            <li>FactureTN fournit des outils de gestion et d’export.</li>
-            <li>La plateforme ne remplace pas un conseil fiscal/juridique.</li>
-            <li>Vous devez vérifier vos documents avant envoi/partage.</li>
+            <li>
+              <b>Hébergement :</b> Vercel
+            </li>
+            <li>
+              <b>Base/Auth :</b> Supabase
+            </li>
+            <li>
+              <b>Données techniques :</b> logs, anti-abus, performance (strictement nécessaires au fonctionnement)
+            </li>
           </ul>
         </Section>
 
-        <Section id="donnees" title="5) Données & confidentialité (résumé)" spanAll>
-          <p className="ftn-legal-p">
-            FactureTN traite des données nécessaires au service (compte, sociétés, factures, permissions). Des mesures
-            raisonnables sont mises en place pour protéger l’accès.
-          </p>
-          <p className="ftn-legal-p">
-            Infrastructure : Vercel (hébergement) et Supabase (base/auth). Certaines données techniques peuvent être
-            traitées pour le fonctionnement et la sécurité.
-          </p>
-        </Section>
-
-        <Section id="responsabilite" title="6) Responsabilité" spanAll>
-          <p className="ftn-legal-p">
-            FactureTN vise une disponibilité élevée, sans garantir l’absence d’interruptions. L’éditeur ne peut être tenu
-            responsable des pertes liées à une mauvaise utilisation, à des données erronées saisies, ou à des incidents externes.
-          </p>
-        </Section>
-
-        <Section id="support" title="7) Support & contact">
+        <Section id="support" title="6) Support & contact">
           <p className="ftn-legal-p">
             Support :{" "}
             <a className="ftn-legal-link" href="mailto:zhanisana@gmail.com">
@@ -148,20 +149,24 @@ export default function ConditionsGeneralesPage() {
               +216 20 121 521
             </a>
           </p>
+          <p className="ftn-legal-note">
+            Pour toute question liée au service, merci d’indiquer votre email de compte FactureTN.
+          </p>
         </Section>
 
-        <Section id="final" title="8) Dispositions finales" spanAll>
+        <Section id="final" title="7) Dispositions finales" spanAll>
           <ul className="ftn-legal-list">
-            <li>Les CG peuvent être mises à jour ; la version en ligne fait foi.</li>
+            <li>Les CGU peuvent être mises à jour ; la version en ligne fait foi.</li>
             <li>Si une clause est invalide, les autres restent applicables.</li>
-            <li>
-              Droit applicable / juridiction : <b>[Tunisie — à préciser juridiquement]</b>
-            </li>
+            <li>Droit applicable : Tunisie (à préciser si tu veux une formulation juridique exacte).</li>
           </ul>
 
-          <p className="ftn-legal-note">
-            Tu peux afficher un lien vers <Link className="ftn-legal-link" href="/mentions-legales">Mentions légales</Link>
-            {" "}dans toutes les pages d’inscription et login.
+          <p className="ftn-legal-p">
+            Voir aussi :{" "}
+            <Link className="ftn-legal-link" href="/mentions-legales">
+              Mentions légales
+            </Link>
+            .
           </p>
         </Section>
       </div>
