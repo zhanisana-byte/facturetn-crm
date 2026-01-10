@@ -13,32 +13,55 @@ export default function AuthShell({
     <div className="ftn-shell">
       <div className="ftn-auth">
         <div className="ftn-auth-wrap">
-          {/* ===== LEFT : MESSAGE SIMPLE ===== */}
+          {/* ================= LEFT : TEXTE (SAME DESIGN, BETTER TYPO) ================= */}
           <div className="ftn-auth-hero">
-            <h3>FactureTN</h3>
+            <div className="ftn-hero-copy">
+              <div className="ftn-hero-kicker">
+                CRM • Facturation électronique
+              </div>
 
-            <p className="mt-3 text-sm ftn-muted" style={{ lineHeight: 1.7 }}>
-              <b>FactureTN est un CRM de facturation électronique.</b>
-              <br />
-              Il facilite la création, la gestion et le téléchargement des factures{" "}
-              <b>(PDF &amp; XML)</b>.
-              <br />
-              <b>Il ne remplace pas le comptable.</b>
-              <br />
-              Il structure les factures pour simplifier le travail du comptable.
-            </p>
+              <h3 className="ftn-hero-title">FactureTN</h3>
 
-            <p className="mt-6 text-xs ftn-muted">
-              © 2026 FactureTN — CRM de facturation électronique
-            </p>
+              <p className="ftn-hero-lead">
+                <b>FactureTN est un CRM de facturation électronique.</b>
+              </p>
+
+              <p className="ftn-hero-text">
+                Il facilite la <b>création</b>, la <b>gestion</b> et le{" "}
+                <b>téléchargement</b> des factures{" "}
+                <b>(PDF &amp; XML)</b>.
+              </p>
+
+              <p className="ftn-hero-strong">
+                Il ne remplace pas le comptable.
+              </p>
+
+              <p className="ftn-hero-text">
+                Il structure les factures pour <b>simplifier</b> le travail du
+                comptable.
+              </p>
+
+              <div className="ftn-hero-tags">
+                <span className="ftn-hero-tag">PDF</span>
+                <span className="ftn-hero-tag">XML</span>
+                <span className="ftn-hero-tag">TTN</span>
+                <span className="ftn-hero-tag">Gestion</span>
+              </div>
+
+              <div className="ftn-hero-foot">
+                © 2026 FactureTN — CRM de facturation électronique
+              </div>
+            </div>
           </div>
 
-          {/* ===== RIGHT : CARD ===== */}
+          {/* ================= RIGHT : CARD (UNCHANGED) ================= */}
           <div className="ftn-auth-card">
             <div className="ftn-auth-title">{title}</div>
-            {subtitle ? <div className="ftn-auth-sub">{subtitle}</div> : null}
+            {subtitle && (
+              <div className="ftn-auth-sub">{subtitle}</div>
+            )}
 
-            <div className="mt-6">{children}</div>
+            <div style={{ marginTop: 22 }}>{children}</div>
           </div>
         </div>
       </div>
