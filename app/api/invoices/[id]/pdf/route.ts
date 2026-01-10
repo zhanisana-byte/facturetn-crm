@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  * - Uses pdf-lib (fonts embedded via StandardFonts)
  */
 export async function GET(
-  req: NextRequest,
+  _req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -21,10 +21,7 @@ export async function GET(
     // Auth
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) {
-      return NextResponse.json(
-        { ok: false, error: "Unauthorized" },
-        { status: 401 }
-      );
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
     // Load invoice + items + company
@@ -50,7 +47,7 @@ export async function GET(
     const { data: company } = await supabase
       .from("companies")
       .select("*")
-      .eq("id", invoice.company_id)
+      .eq("id", (invoice as any).company_id)
       .single();
 
     // Create PDF
@@ -65,12 +62,7 @@ export async function GET(
     const margin = 40;
     let y = height - margin;
 
-    const drawText = (
-      text: string,
-      x: number,
-      size = 11,
-      bold = false
-    ) => {
+    const drawText = (text: string, x: number, size = 11, bold = false) => {
       page.drawText(text, {
         x,
         y,
@@ -86,15 +78,16 @@ export async function GET(
     // Header
     drawText("FACTURE", margin, 18, true);
     drawText(
-      `N°: ${safe(invoice.invoice_number || invoice.unique_reference || invoice.id).slice(
-        0,
-        40
-      )}`,
+      `N°: ${safe(
+        (invoice as any).invoice_number ||
+          (invoice as any).unique_reference ||
+          (invoice as any).id
+      ).slice(0, 40)}`,
       margin,
       11,
       true
     );
-    drawText(`Date: ${safe(invoice.issue_date)}`, margin, 11, false);
+    drawText(`Date: ${safe((invoice as any).issue_date)}`, margin, 11, false);
     y -= 6;
 
     // Company block (left) + Customer block (right)
@@ -114,11 +107,15 @@ export async function GET(
     // Customer
     y = blockTopY;
     drawText("Client", rightX, 12, true);
-    drawText(safe(invoice.customer_name || ""), rightX, 10, false);
-    if (invoice.customer_tax_id) drawText(`MF: ${safe(invoice.customer_tax_id)}`, rightX, 10, false);
-    if (invoice.customer_address) drawText(safe(invoice.customer_address), rightX, 10, false);
-    if (invoice.customer_phone) drawText(`Tél: ${safe(invoice.customer_phone)}`, rightX, 10, false);
-    if (invoice.customer_email) drawText(`Email: ${safe(invoice.customer_email)}`, rightX, 10, false);
+    drawText(safe((invoice as any).customer_name || ""), rightX, 10, false);
+    if ((invoice as any).customer_tax_id)
+      drawText(`MF: ${safe((invoice as any).customer_tax_id)}`, rightX, 10, false);
+    if ((invoice as any).customer_address)
+      drawText(safe((invoice as any).customer_address), rightX, 10, false);
+    if ((invoice as any).customer_phone)
+      drawText(`Tél: ${safe((invoice as any).customer_phone)}`, rightX, 10, false);
+    if ((invoice as any).customer_email)
+      drawText(`Email: ${safe((invoice as any).customer_email)}`, rightX, 10, false);
 
     // Move cursor below blocks
     y = Math.min(y, blockTopY - 85);
@@ -161,7 +158,6 @@ export async function GET(
     const rows = (items || []) as any[];
 
     for (const it of rows) {
-      // simple page-break guard
       if (y < 140) break;
 
       const desc = safe(it.description || "").slice(0, 55);
@@ -224,7 +220,13 @@ export async function GET(
     const pdfBytes = await pdfDoc.save();
     const filename = `facture-${safe((invoice as any).invoice_number || id)}.pdf`;
 
-    return new NextResponse(pdfBytes, {
+    // ✅ FIX Next 15 typing: BodyInit doesn't accept Uint8Array
+    const body =
+      pdfBytes instanceof Uint8Array
+        ? pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength)
+        : (pdfBytes as any);
+
+    return new NextResponse(body as ArrayBuffer, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
