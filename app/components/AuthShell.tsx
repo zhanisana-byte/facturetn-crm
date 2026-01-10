@@ -19,19 +19,20 @@ export default function AuthShell({
           <h1 className="ftn-hero-h1">FactureTN</h1>
 
           <div className="ftn-hero-lead">
-        <p>
-<p>
-  <p>
-  <b>FactureTN est conçu pour travailler en collaboration avec les comptables.</b>
-</p>
-<p>
-  Le CRM prépare des factures <b>claires</b>, <b>structurées</b> et <b>conformes</b>, aux formats <b>PDF</b> et <b>XML</b>.
-</p>
-<p>
-  Le comptable conserve <b>l’entière responsabilité</b> des déclarations TTN, réalisées via notre CRM.
-</p>
-
-
+            <p>
+              <b>FactureTN est un CRM de facturation électronique.</b>
+            </p>
+            <p>
+              Il facilite la <b>création</b>, la <b>gestion</b> et le{" "}
+              <b>téléchargement</b> des factures <b>(PDF &amp; XML)</b>.
+            </p>
+            <p>
+              <b>Il ne remplace pas le comptable.</b>
+            </p>
+            <p>
+              Il structure les factures pour <b>simplifier</b> le travail du
+              comptable.
+            </p>
           </div>
 
           <div className="ftn-hero-chips">
