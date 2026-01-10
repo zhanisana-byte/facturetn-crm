@@ -805,6 +805,7 @@ body{
 .ftn-reg-form{
   margin-top: 16px;
 }
+
 /* =========================
    NEW INVOICE — LUXE UI (NO LOGIC CHANGE)
 ========================= */
@@ -1072,12 +1073,17 @@ body{
   padding-left: 10px;
 }
 
+/* ✅ FIXED (PostCSS OK) */
 .ftn-legal-link {
   color: rgba(15,23,42,.92);
   font-weight: 700;
   text-decoration: underline;
-  text reminder: none;
+  text-decoration-thickness: from-font;
   text-underline-offset: 3px;
+  text-decoration-color: rgba(186,134,52,.38);
+}
+.ftn-legal-link:hover{
+  text-decoration-color: rgba(186,134,52,.70);
 }
 
 .ftn-legal-footer {
@@ -1133,4 +1139,3 @@ body{
   .ftn-legal-grid { grid-template-columns: 1fr 1fr; }
   .ftn-legal-spanall { grid-column: 1 / -1; }
 }
-
