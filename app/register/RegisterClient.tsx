@@ -15,23 +15,23 @@ const OPTIONS: Array<{
 }> = [
   {
     key: "client",
-    title: "Une seule société",
+    title: "Client (1 société)",
     subtitle: "Auto-entrepreneur, freelance, petite société",
-    bullets: ["Factures TTN", "1 société", "Démarrage rapide"],
+    bullets: ["1 société", "Factures TTN", "Inviter équipe / comptable"],
     accent: "orange",
   },
   {
     key: "cabinet",
-    title: "Cabinet comptable",
-    subtitle: "Cabinet comptable ou équipe interne",
-    bullets: ["Factures TTN", "Accès contrôlés", "Gestion clients"],
+    title: "Cabinet comptable (gratuit)",
+    subtitle: "1 seule société cabinet après validation",
+    bullets: ["1 société cabinet", "Inviter équipe", "Gérer clients"],
     accent: "blue",
   },
   {
     key: "groupe",
-    title: "Multi-sociétés",
-    subtitle: "Groupe, holding, multi-patentes",
-    bullets: ["Factures TTN", "Centralisation", "Vue globale"],
+    title: "Groupe / Multi-sociétés",
+    subtitle: "Plusieurs sociétés avec forfait",
+    bullets: ["Multi sociétés", "Équipe interne", "Comptable externe"],
     accent: "violet",
   },
 ];
@@ -46,13 +46,21 @@ export default function RegisterClient() {
   const prefillEmail = sp.get("email") || "";
 
   const [accountType, setAccountType] = useState<AccountType>("client");
+
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState("");
 
+  // Client: création société immédiate (1 société)
+  const [companyName, setCompanyName] = useState("");
+  const [companyTaxId, setCompanyTaxId] = useState("");
+
+  // Cabinet: infos validation
+  const [accountantMf, setAccountantMf] = useState("");
+  const [accountantPatente, setAccountantPatente] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
 
   useEffect(() => {
     if (prefillEmail) setEmail(prefillEmail);
@@ -61,17 +69,37 @@ export default function RegisterClient() {
 
   const canSubmit = useMemo(() => {
     const cleanEmail = email.trim().toLowerCase();
-    return (
+    const baseOk =
       fullName.trim().length > 1 &&
       cleanEmail.length > 3 &&
       password.length >= 8 &&
-      !loading
-    );
-  }, [email, fullName, password, loading]);
+      !loading;
+
+    if (!baseOk) return false;
+
+    if (accountType === "client") {
+      return companyName.trim().length > 1;
+    }
+
+    if (accountType === "cabinet") {
+      return accountantMf.trim().length > 3 && accountantPatente.trim().length > 2;
+    }
+
+    // groupe
+    return true;
+  }, [
+    email,
+    fullName,
+    password,
+    loading,
+    accountType,
+    companyName,
+    accountantMf,
+    accountantPatente,
+  ]);
 
   async function handleRegister() {
     setErr(null);
-    setOk(null);
 
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail) return setErr("Email obligatoire.");
@@ -79,9 +107,17 @@ export default function RegisterClient() {
       return setErr("Mot de passe: minimum 8 caractères.");
     if (!fullName.trim()) return setErr("Nom complet obligatoire.");
 
+    if (accountType === "client" && !companyName.trim()) {
+      return setErr("Nom de société obligatoire (client).");
+    }
+    if (accountType === "cabinet") {
+      if (!accountantMf.trim()) return setErr("MF du cabinet obligatoire.");
+      if (!accountantPatente.trim()) return setErr("Patente du cabinet obligatoire.");
+    }
+
     setLoading(true);
 
-    // 1) signup auth
+    // 1) Auth signup
     const { data, error } = await supabase.auth.signUp({
       email: cleanEmail,
       password,
@@ -103,30 +139,85 @@ export default function RegisterClient() {
       return;
     }
 
-    // 2) upsert minimal profile (UNIQUEMENT colonnes sûres)
-    // IMPORTANT: onConflict=id => pas de duplicate key
-    const profilePayload = {
+    // 2) Upsert app_users (selon TON schéma)
+    const userPayload: any = {
       id: userId,
       email: cleanEmail,
       full_name: fullName.trim(),
       account_type: accountType,
+      role: "user",
+      is_active: true,
+
+      // Tu as déjà ces champs:
+      plan_code: accountType === "groupe" ? "group_unlimited" : "client_50",
+      max_companies: accountType === "groupe" ? 999 : 1,
+      subscription_status: "active",
     };
+
+    if (accountType === "cabinet") {
+      userPayload.accountant_mf = accountantMf.trim();
+      userPayload.accountant_patente = accountantPatente.trim();
+      userPayload.accountant_status = "pending";
+      userPayload.accountant_free_access = false;
+    }
 
     const { error: upErr } = await supabase
       .from("app_users")
-      .upsert(profilePayload, { onConflict: "id" });
+      .upsert(userPayload, { onConflict: "id" });
 
     if (upErr) {
       setLoading(false);
-      setErr("Compte créé, mais profil non enregistré: " + upErr.message);
+      setErr("Profil non enregistré: " + upErr.message);
       return;
     }
 
-    setLoading(false);
+    // 3) Créer société selon accountType
 
-    // 3) Redirection
-    // Si confirmation email activée: l'user peut ne pas être connecté -> middleware peut renvoyer /login
-    setOk("Compte créé ✅ Redirection...");
+    // ✅ CLIENT: créer 1 société + membership owner
+    if (accountType === "client") {
+      const { data: comp, error: cErr } = await supabase
+        .from("companies")
+        .insert({
+          company_name: companyName.trim(),
+          tax_id: companyTaxId.trim() || null,
+          owner_user: userId,
+          origin: "direct",
+        })
+        .select("id")
+        .single();
+
+      if (cErr || !comp?.id) {
+        setLoading(false);
+        setErr("Compte créé, mais société non créée: " + (cErr?.message || "Unknown"));
+        return;
+      }
+
+      const { error: mErr } = await supabase.from("memberships").insert({
+        company_id: comp.id,
+        user_id: userId,
+        role: "owner",
+        can_manage_customers: true,
+        can_create_invoices: true,
+        can_validate_invoices: true,
+        can_submit_ttn: true,
+      });
+
+      if (mErr) {
+        setLoading(false);
+        setErr("Société créée, mais accès non créé: " + mErr.message);
+        return;
+      }
+    }
+
+    // ✅ CABINET: pas de société tant que pending (gratuité après vérification)
+    if (accountType === "cabinet") {
+      // Ici tu peux afficher une page “Validation en cours”
+      // Pour l’instant on redirige vers dashboard
+    }
+
+    // ✅ GROUPE: pour le moment, juste profil groupe → dashboard
+    // (tu as tables groups/group_members/group_companies, on pourra faire setup dédié)
+    setLoading(false);
     router.push(redirectTo);
     router.refresh();
   }
@@ -137,16 +228,12 @@ export default function RegisterClient() {
         <div className="ftn-auth-card ftn-reg-card">
           <h1 className="ftn-auth-title">Créer un compte</h1>
           <p className="ftn-auth-sub">
-            Choisissez votre profil, puis créez votre accès.
+            Choisissez votre profil, puis complétez les informations.
           </p>
 
           {err && <div className="ftn-alert">{err}</div>}
-          {ok && (
-            <div className="ftn-alert" style={{ borderColor: "#22c55e" }}>
-              {ok}
-            </div>
-          )}
 
+          {/* Choix profil (3 cartes) */}
           <div className="ftn-reg-grid">
             {OPTIONS.map((o) => {
               const active = accountType === o.key;
@@ -155,9 +242,7 @@ export default function RegisterClient() {
                   key={o.key}
                   type="button"
                   onClick={() => setAccountType(o.key)}
-                  className={`ftn-reg-option accent-${o.accent} ${
-                    active ? "is-active" : ""
-                  }`}
+                  className={`ftn-reg-option accent-${o.accent} ${active ? "is-active" : ""}`}
                 >
                   <div className="ftn-reg-top">
                     <span className="ftn-reg-dot" aria-hidden="true" />
@@ -165,7 +250,6 @@ export default function RegisterClient() {
                       <div className="ftn-reg-title">{o.title}</div>
                       <div className="ftn-reg-sub">{o.subtitle}</div>
                     </div>
-
                     <span className={`ftn-reg-check ${active ? "on" : ""}`}>
                       {active ? "✓" : "○"}
                     </span>
@@ -183,6 +267,7 @@ export default function RegisterClient() {
             })}
           </div>
 
+          {/* Form */}
           <div className="ftn-reg-form">
             <label className="ftn-label">Nom complet</label>
             <input
@@ -200,7 +285,6 @@ export default function RegisterClient() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="email@exemple.com"
               autoComplete="email"
-              inputMode="email"
             />
 
             <label className="ftn-label">Mot de passe</label>
@@ -213,8 +297,68 @@ export default function RegisterClient() {
               autoComplete="new-password"
             />
 
+            {/* CLIENT */}
+            {accountType === "client" && (
+              <>
+                <label className="ftn-label">Nom de société</label>
+                <input
+                  className="ftn-input"
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  placeholder="Ex: Société Sana Com"
+                />
+
+                <label className="ftn-label">Matricule fiscal (optionnel)</label>
+                <input
+                  className="ftn-input"
+                  value={companyTaxId}
+                  onChange={(e) => setCompanyTaxId(e.target.value)}
+                  placeholder="Ex: 1304544Z"
+                />
+              </>
+            )}
+
+            {/* CABINET */}
+            {accountType === "cabinet" && (
+              <>
+                <div
+                  className="ftn-alert"
+                  style={{
+                    background: "rgba(245,158,11,.10)",
+                    borderColor: "rgba(245,158,11,.25)",
+                    color: "rgba(120,53,15,.95)",
+                    marginTop: 12,
+                  }}
+                >
+                  Cabinet : 1 seule société (gratuit) après validation patente/MF.
+                </div>
+
+                <label className="ftn-label">Matricule fiscal du cabinet</label>
+                <input
+                  className="ftn-input"
+                  value={accountantMf}
+                  onChange={(e) => setAccountantMf(e.target.value)}
+                  placeholder="MF cabinet"
+                />
+
+                <label className="ftn-label">Patente / identifiant cabinet</label>
+                <input
+                  className="ftn-input"
+                  value={accountantPatente}
+                  onChange={(e) => setAccountantPatente(e.target.value)}
+                  placeholder="Patente cabinet"
+                />
+              </>
+            )}
+
+            {/* GROUPE */}
+            {accountType === "groupe" && (
+              <div className="ftn-muted" style={{ marginTop: 12 }}>
+                Groupe : multi-sociétés selon forfait (setup à compléter dans l’étape suivante).
+              </div>
+            )}
+
             <button
-              type="button"
               onClick={handleRegister}
               disabled={!canSubmit}
               className="ftn-btn"
@@ -228,13 +372,6 @@ export default function RegisterClient() {
                 Plan détecté : <b>{plan}</b>
               </div>
             ) : null}
-
-            <div className="ftn-muted" style={{ marginTop: 12 }}>
-              Déjà un compte ?{" "}
-              <a className="ftn-link" href="/login">
-                Se connecter
-              </a>
-            </div>
           </div>
         </div>
       </div>
