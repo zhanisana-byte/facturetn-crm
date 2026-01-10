@@ -2,13 +2,23 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import AppShell from "@/app/components/AppShell";
-import type { AccountType } from "@/app/components/AppShell"; // ✅ IMPORTANT
+import type { AccountType } from "@/app/types"; // ✅ IMPORTANT: source unique des types
 
 type PageProps = {
   searchParams?: Promise<{ company?: string }>;
 };
 
 type CompanyOption = { id: string; name: string };
+
+// ✅ Types DB (app_users.account_type)
+type DbAccountType = "client" | "cabinet" | "groupe";
+
+// ✅ Mapper DB -> UI (AppShell)
+function mapDbAccountTypeToUi(t?: DbAccountType | null): AccountType {
+  if (t === "cabinet") return "comptable";
+  if (t === "groupe") return "multi_societe";
+  return "entreprise"; // client / null
+}
 
 function Badge({ children }: { children: React.ReactNode }) {
   return <span className="ftn-badge tone-info mr-2">{children}</span>;
@@ -29,20 +39,20 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
   const sp = (await searchParams) ?? {};
   const companyParam = sp.company ?? "";
 
+  // ✅ Lire account_type DB
   const { data: profile } = await supabase
     .from("app_users")
     .select("account_type")
     .eq("id", auth.user.id)
-    .single();
+    .maybeSingle();
 
-  const rawType = profile?.account_type;
-  const accountType: AccountType | undefined =
-    rawType === "client" || rawType === "cabinet" || rawType === "groupe"
-      ? rawType
-      : undefined;
+  const dbAccountType = (profile?.account_type ?? "client") as DbAccountType;
+  const accountType: AccountType = mapDbAccountTypeToUi(dbAccountType);
 
-  const isClient = accountType === "client";
-  const isCabinet = accountType === "cabinet";
+  // ✅ Comparaisons UI (et non DB)
+  const isClient = accountType === "entreprise";
+  const isCabinet = accountType === "comptable";
+  const isGroup = accountType === "multi_societe";
 
   const { data: memberships, error: memErr } = await supabase
     .from("memberships")
@@ -69,11 +79,17 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
     .filter((c) => Boolean(c.id));
 
   const autoCompany = companies.length === 1 ? companies[0].id : "";
+
+  // ✅ Logique sélection société
+  // - Client (entreprise): prend automatiquement sa seule société (ou la 1ère)
+  // - Comptable / groupe: suit ?company=... sinon auto si 1 société
   const selectedCompany = isClient ? companies[0]?.id ?? "" : companyParam || autoCompany;
 
   let query = supabase
     .from("invoices")
-    .select("id, invoice_number, total_ttc, total, created_at, company_id, ttn_status, payment_status")
+    .select(
+      "id, invoice_number, total_ttc, total, created_at, company_id, ttn_status, payment_status"
+    )
     .order("created_at", { ascending: false });
 
   if (selectedCompany) query = query.eq("company_id", selectedCompany);
@@ -96,7 +112,9 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
     ? "Vos factures (1 société)"
     : isCabinet
     ? "Factures clients — sélectionnez une société"
-    : "Factures multi-sociétés";
+    : isGroup
+    ? "Factures multi-sociétés"
+    : "Factures";
 
   const canCreate = Boolean(selectedCompany);
   const createHref = canCreate ? `/invoices/new?company=${selectedCompany}` : "#";
@@ -113,7 +131,7 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
               <div className="mt-2 flex flex-wrap gap-2">
                 <Badge>Total: {invoices?.length ?? 0}</Badge>
                 <Badge>Société: {selectedCompany || "—"}</Badge>
-                {accountType && <Badge>Compte: {accountType}</Badge>}
+                <Badge>Compte: {accountType}</Badge>
               </div>
             </div>
 
