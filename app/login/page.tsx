@@ -10,12 +10,7 @@ export default function LoginPage() {
             <div className="ftn-auth-wrap">
               <div className="ftn-auth-hero">
                 <h3>FactureTN</h3>
-                <p>Chargement…</p>
-                <div className="ftn-auth-tiles">
-                  <div className="ftn-auth-tile" />
-                  <div className="ftn-auth-tile" />
-                  <div className="ftn-auth-tile" />
-                </div>
+                <p className="ftn-muted mt-3">Chargement…</p>
               </div>
               <div className="ftn-auth-card">Chargement…</div>
             </div>
