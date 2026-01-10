@@ -3,15 +3,26 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import AppShell from "@/app/components/AppShell";
 
+/* =========================
+   TYPES
+========================= */
+type AccountType = "client" | "cabinet" | "groupe";
+
 type PageProps = {
   searchParams?: Promise<{ company?: string }>;
 };
 
-type CompanyOption = { id: string; name: string };
+type CompanyOption = {
+  id: string;
+  name: string;
+};
 
+/* =========================
+   UI helpers
+========================= */
 function Badge({ children }: { children: React.ReactNode }) {
   return (
-    <span className="ftn-badge tone-info" style={{ marginRight: 8 }}>
+    <span className="ftn-badge tone-info mr-2">
       {children}
     </span>
   );
@@ -23,28 +34,37 @@ function money(v: any) {
   return n.toFixed(3);
 }
 
+/* =========================
+   PAGE
+========================= */
 export default async function InvoicesPage({ searchParams }: PageProps) {
   const supabase = await createClient();
 
+  /* ---------- Auth ---------- */
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
   const sp = (await searchParams) ?? {};
-  const companyParam = sp?.company ?? "";
+  const companyParam = sp.company ?? "";
 
-  // 1) Profil (account_type)
+  /* ---------- Profile ---------- */
   const { data: profile } = await supabase
     .from("app_users")
     .select("account_type")
     .eq("id", auth.user.id)
     .single();
 
-  const accountType = (profile?.account_type as string | null) ?? null;
+  const rawType = profile?.account_type;
+  const accountType: AccountType | undefined =
+    rawType === "client" || rawType === "cabinet" || rawType === "groupe"
+      ? rawType
+      : undefined;
+
   const isClient = accountType === "client";
   const isCabinet = accountType === "cabinet";
   const isGroupe = accountType === "groupe";
 
-  // 2) Companies accessibles via memberships
+  /* ---------- Companies via memberships ---------- */
   const { data: memberships, error: memErr } = await supabase
     .from("memberships")
     .select("company_id, companies(id, company_name)")
@@ -52,7 +72,7 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
 
   if (memErr) {
     return (
-      <AppShell title="Factures" subtitle="Erreur chargement" accountType={accountType ?? undefined}>
+      <AppShell title="Factures" subtitle="Erreur chargement" accountType={accountType}>
         <div className="ftn-content">
           <div className="ftn-card">
             <div className="ftn-alert">{memErr.message}</div>
@@ -63,21 +83,20 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
   }
 
   const companies: CompanyOption[] = (memberships ?? [])
-    .map((m: any): CompanyOption => ({
+    .map((m: any) => ({
       id: String(m.companies?.id ?? m.company_id ?? ""),
       name: String(m.companies?.company_name ?? "Société"),
     }))
     .filter((c) => Boolean(c.id));
 
-  // 3) Société sélectionnée
-  // - Client: auto 1 seule société (s’il y en a une)
-  // - Cabinet/Groupe: on respecte ?company si présent, sinon vide ou auto si une seule
+  /* ---------- Selected company ---------- */
   const autoCompany = companies.length === 1 ? companies[0].id : "";
-  const selectedCompany = isClient
-    ? (companies[0]?.id ?? "")
-    : (companyParam || autoCompany);
 
-  // 4) Query invoices
+  const selectedCompany = isClient
+    ? companies[0]?.id ?? ""
+    : companyParam || autoCompany;
+
+  /* ---------- Invoices query ---------- */
   let query = supabase
     .from("invoices")
     .select("id, invoice_number, total_ttc, total, created_at, company_id, ttn_status, payment_status")
@@ -89,7 +108,7 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
 
   if (invErr) {
     return (
-      <AppShell title="Factures" subtitle="Erreur chargement" accountType={accountType ?? undefined}>
+      <AppShell title="Factures" subtitle="Erreur chargement" accountType={accountType}>
         <div className="ftn-content">
           <div className="ftn-card">
             <div className="ftn-alert">{invErr.message}</div>
@@ -99,36 +118,36 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
     );
   }
 
-  // 5) Bouton créer facture
-  const canCreate = Boolean(selectedCompany);
-  const createHref = canCreate ? `/invoices/new?company=${selectedCompany}` : "#";
-
-  // 6) Textes pro selon compte
+  /* ---------- UI texts ---------- */
   const subtitle =
     isClient
       ? "Vos factures (1 société)"
       : isCabinet
-      ? "Factures clients — choisissez une société"
+      ? "Factures clients — sélectionnez une société"
       : "Factures multi-sociétés";
 
+  const canCreate = Boolean(selectedCompany);
+  const createHref = canCreate ? `/invoices/new?company=${selectedCompany}` : "#";
+
+  /* =========================
+     RENDER
+  ========================= */
   return (
-    <AppShell title="Factures" subtitle={subtitle} accountType={accountType ?? undefined}>
+    <AppShell title="Factures" subtitle={subtitle} accountType={accountType}>
       <div className="ftn-content">
         <div className="ftn-card">
-          {/* Header actions */}
+          {/* Header */}
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div>
               <div className="text-lg font-extrabold">Liste des factures</div>
-              <p className="ftn-muted" style={{ marginTop: 6 }}>
-                PDF • XML • Statuts TTN • Paiement
+              <p className="ftn-muted mt-1">
+                PDF • XML • Paiement • TTN
               </p>
 
-              <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <div className="mt-2 flex flex-wrap gap-2">
                 <Badge>Total: {invoices?.length ?? 0}</Badge>
-                <Badge>
-                  Société: {selectedCompany ? selectedCompany : "—"}
-                </Badge>
-                {accountType ? <Badge>Compte: {accountType}</Badge> : null}
+                <Badge>Société: {selectedCompany || "—"}</Badge>
+                {accountType && <Badge>Compte: {accountType}</Badge>}
               </div>
             </div>
 
@@ -137,22 +156,22 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
                 + Nouvelle facture
               </Link>
             ) : (
-              <button className="ftn-btn" disabled title="Sélectionne une société">
+              <button className="ftn-btn" disabled>
                 + Nouvelle facture
               </button>
             )}
           </div>
 
-          {/* Sélecteur société (Cabinet/Groupe seulement, et si plusieurs) */}
+          {/* Company selector (cabinet / groupe) */}
           {!isClient && companies.length > 1 && (
-            <div style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <div className="mt-4 flex flex-wrap gap-2">
               {companies.map((c) => {
                 const active = selectedCompany === c.id;
                 return (
                   <Link
                     key={c.id}
                     href={`/invoices?company=${c.id}`}
-                    className={active ? "ftn-btn-ghost" : "ftn-btn-ghost"}
+                    className="ftn-btn-ghost"
                     style={{
                       borderColor: active ? "rgba(186,134,52,.55)" : undefined,
                       background: active ? "rgba(186,134,52,.12)" : undefined,
@@ -167,8 +186,8 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
           )}
 
           {/* Table */}
-          <div style={{ marginTop: 16 }}>
-            {(!invoices || invoices.length === 0) ? (
+          <div className="mt-4">
+            {!invoices || invoices.length === 0 ? (
               <div className="ftn-muted">Aucune facture trouvée.</div>
             ) : (
               <table className="ftn-table">
@@ -179,7 +198,7 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
                     <th>Date</th>
                     <th>Paiement</th>
                     <th>TTN</th>
-                    <th style={{ textAlign: "right" }}>Action</th>
+                    <th className="text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -187,14 +206,16 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
                     const total = inv.total_ttc ?? inv.total ?? 0;
                     return (
                       <tr key={inv.id}>
-                        <td style={{ fontWeight: 800 }}>{inv.invoice_number ?? "—"}</td>
+                        <td className="font-semibold">{inv.invoice_number ?? "—"}</td>
                         <td>{money(total)} TND</td>
                         <td>
-                          {inv.created_at ? new Date(inv.created_at).toLocaleDateString() : ""}
+                          {inv.created_at
+                            ? new Date(inv.created_at).toLocaleDateString()
+                            : ""}
                         </td>
                         <td>{inv.payment_status ?? "unpaid"}</td>
                         <td>{inv.ttn_status ?? "not_sent"}</td>
-                        <td style={{ textAlign: "right" }}>
+                        <td className="text-right">
                           <Link className="ftn-link" href={`/invoices/${inv.id}`}>
                             Ouvrir
                           </Link>
@@ -207,17 +228,16 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
             )}
           </div>
 
-          {/* Hint cabinet */}
+          {/* Hints */}
           {isCabinet && !selectedCompany && (
-            <div className="ftn-alert" style={{ marginTop: 16 }}>
-              Cabinet : sélectionnez une société client pour voir/créer les factures.
+            <div className="ftn-alert mt-4">
+              Cabinet : sélectionnez une société client pour créer ou consulter des factures.
             </div>
           )}
 
-          {/* Hint client */}
           {isClient && companies.length === 0 && (
-            <div className="ftn-alert" style={{ marginTop: 16 }}>
-              Aucune société trouvée. Créez votre société dans l’espace société.
+            <div className="ftn-alert mt-4">
+              Aucune société trouvée. Créez votre société avant de facturer.
             </div>
           )}
         </div>
