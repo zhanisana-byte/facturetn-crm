@@ -56,10 +56,7 @@ export default function MentionsLegalesPage() {
       </header>
 
       <div className="ftn-legal-grid">
-        <Card
-          title="1) Éditeur de la plateforme"
-          subtitle="Responsable de publication & exploitation"
-        >
+        <Card title="1) Éditeur de la plateforme" subtitle="Responsable de publication & exploitation">
           <ul className="ftn-legal-list">
             <li>
               <b>Éditrice / Responsable :</b> Sana Zhani
@@ -83,16 +80,16 @@ export default function MentionsLegalesPage() {
               </a>
             </li>
             <li>
-              <b>Adresse :</b> [À compléter]
+              <b>Adresse :</b> IMMM COMMUNICA JARZOUNA
             </li>
             <li>
-              <b>Matricule fiscal / RC :</b> [À compléter si applicable]
+              <b>Adresse (bureau) :</b> Regus Lac 2
             </li>
           </ul>
 
           <p className="ftn-legal-note">
-            Si tu veux, je te prépare une version “Tunisie-friendly” avec les mentions exactes à afficher
-            selon ton statut (personne physique / SUARL).
+            FactureTN est un service logiciel visant à faciliter la gestion des factures électroniques (création,
+            organisation, export et gestion des accès).
           </p>
         </Card>
 
@@ -105,41 +102,42 @@ export default function MentionsLegalesPage() {
               <b>Base de données / Auth :</b> Supabase
             </li>
             <li>
-              <b>Localisation technique :</b> variable selon la région d’exécution (edge / datacenters)
+              <b>Traitements techniques :</b> journaux techniques, sécurité, performance (nécessaires au service)
             </li>
           </ul>
+
           <p className="ftn-legal-note">
-            (Info) Les services tiers peuvent traiter des données techniques nécessaires au fonctionnement.
+            Les fournisseurs cloud peuvent utiliser des régions d’exécution variables selon la performance et la
+            disponibilité.
           </p>
         </Card>
 
         <Card title="3) Objet du service" spanAll>
           <p className="ftn-legal-p">
             <b>FactureTN</b> a pour objectif de faciliter la gestion de la <b>facturation électronique</b> :
-            création, organisation, export et gestion d’accès (équipe, comptable, multi-sociétés) afin de
-            simplifier le quotidien des entreprises.
+            création de factures, gestion des sociétés, export, et partage sécurisé avec une équipe ou un comptable
+            (selon les permissions).
           </p>
           <p className="ftn-legal-p">
-            FactureTN fournit des outils de gestion. L’utilisateur reste responsable des informations saisies
-            et du respect des obligations légales et fiscales applicables.
+            L’utilisateur reste responsable des informations saisies et du respect des obligations légales et
+            fiscales applicables.
           </p>
         </Card>
 
         <Card title="4) Propriété intellectuelle" spanAll>
           <p className="ftn-legal-p">
-            Les contenus (marque, interface, design, textes, code, base de données) sont protégés. Toute
-            reproduction, modification ou diffusion sans autorisation est interdite.
+            L’interface, le design, les textes, le code et la base de données sont protégés. Toute reproduction,
+            modification ou diffusion sans autorisation est interdite.
           </p>
         </Card>
 
-        <Card title="5) Données personnelles (résumé)" spanAll>
+        <Card title="5) Liens utiles" spanAll>
           <p className="ftn-legal-p">
-            FactureTN collecte et traite des données nécessaires au service (compte, sociétés, factures,
-            droits d’accès). Pour plus de détails, consulte les{" "}
+            Lire les{" "}
             <Link className="ftn-legal-link" href="/conditions-generales">
-              Conditions générales
-            </Link>
-            .
+              Conditions générales d’utilisation
+            </Link>{" "}
+            (CGU).
           </p>
         </Card>
 
