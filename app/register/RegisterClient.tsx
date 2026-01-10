@@ -1,4 +1,3 @@
-// app/register/RegisterClient.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -53,6 +52,7 @@ export default function RegisterClient() {
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
 
   useEffect(() => {
     if (prefillEmail) setEmail(prefillEmail);
@@ -71,9 +71,9 @@ export default function RegisterClient() {
 
   async function handleRegister() {
     setErr(null);
+    setOk(null);
 
     const cleanEmail = email.trim().toLowerCase();
-
     if (!cleanEmail) return setErr("Email obligatoire.");
     if (!password || password.length < 8)
       return setErr("Mot de passe: minimum 8 caractères.");
@@ -81,7 +81,7 @@ export default function RegisterClient() {
 
     setLoading(true);
 
-    // 1) auth signup
+    // 1) signup auth
     const { data, error } = await supabase.auth.signUp({
       email: cleanEmail,
       password,
@@ -99,26 +99,22 @@ export default function RegisterClient() {
     const userId = data?.user?.id;
     if (!userId) {
       setLoading(false);
-      setErr(
-        "Compte créé, mais userId introuvable. Vérifiez la confirmation email ou la configuration Supabase."
-      );
+      setErr("Compte créé, mais userId introuvable.");
       return;
     }
 
-    // 2) profile upsert (IMPORTANT: évite duplicate key)
-    const payload: Record<string, any> = {
+    // 2) upsert minimal profile (UNIQUEMENT colonnes sûres)
+    // IMPORTANT: onConflict=id => pas de duplicate key
+    const profilePayload = {
       id: userId,
       email: cleanEmail,
       full_name: fullName.trim(),
       account_type: accountType,
-      role: "user",
-      status: "active",
-      is_active: true,
     };
 
     const { error: upErr } = await supabase
       .from("app_users")
-      .upsert(payload, { onConflict: "id" });
+      .upsert(profilePayload, { onConflict: "id" });
 
     if (upErr) {
       setLoading(false);
@@ -128,8 +124,9 @@ export default function RegisterClient() {
 
     setLoading(false);
 
-    // Optionnel : si tu as email confirmation activée, l'user peut ne pas être "session"
-    // Tu peux soit laisser comme ça, soit forcer un login après signup.
+    // 3) Redirection
+    // Si confirmation email activée: l'user peut ne pas être connecté -> middleware peut renvoyer /login
+    setOk("Compte créé ✅ Redirection...");
     router.push(redirectTo);
     router.refresh();
   }
@@ -144,8 +141,12 @@ export default function RegisterClient() {
           </p>
 
           {err && <div className="ftn-alert">{err}</div>}
+          {ok && (
+            <div className="ftn-alert" style={{ borderColor: "#22c55e" }}>
+              {ok}
+            </div>
+          )}
 
-          {/* 3 cards */}
           <div className="ftn-reg-grid">
             {OPTIONS.map((o) => {
               const active = accountType === o.key;
