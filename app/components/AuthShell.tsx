@@ -9,34 +9,70 @@ export default function AuthShell({
   subtitle?: string;
   children: ReactNode;
 }) {
-  const year = new Date().getFullYear();
-
   return (
-    <div className="ftn-auth">
-      <div className="ftn-auth-wrap">
-        <aside className="ftn-auth-hero">
-          <h3>FactureTN • CRM & Facturation TTN</h3>
-          <p>
-            Un CRM tunisien, simple et puissant : factures, multi-sociétés, rôles comptables,
-            export PDF/XML et préparation de l'intégration TTN.
-          </p>
+    <div className="ftn-shell">
+      <div className="ftn-auth">
+        <div className="ftn-auth-wrap">
 
-          <div className="ftn-auth-tiles" aria-hidden>
-            <div className="ftn-auth-tile" />
-            <div className="ftn-auth-tile" />
-            <div className="ftn-auth-tile" />
+          {/* ===== LEFT : HERO ===== */}
+          <div className="ftn-auth-hero">
+            <h3>FactureTN · CRM & Facturation TTN</h3>
+            <p>
+              Un CRM tunisien moderne pour gérer vos sociétés,
+              vos factures et préparer la facturation électronique TTN.
+            </p>
+
+            {/* CADRES BLANCS */}
+            <div className="ftn-auth-tiles">
+              <div className="ftn-auth-tile">
+                <div className="text-sm font-extrabold mb-1">
+                  🧾 Facturation conforme TTN
+                </div>
+                <p className="ftn-muted">
+                  Création et gestion de factures prêtes pour la
+                  facturation électronique tunisienne (PDF & XML).
+                </p>
+              </div>
+
+              <div className="ftn-auth-tile">
+                <div className="text-sm font-extrabold mb-1">
+                  🏢 Multi-sociétés & rôles
+                </div>
+                <p className="ftn-muted">
+                  Gérez plusieurs sociétés avec des accès comptable,
+                  client ou équipe, selon vos besoins.
+                </p>
+              </div>
+
+              <div className="ftn-auth-tile">
+                <div className="text-sm font-extrabold mb-1">
+                  🔐 Sécurité & conformité
+                </div>
+                <p className="ftn-muted">
+                  Données sécurisées, permissions contrôlées et
+                  architecture moderne prête pour TTN.
+                </p>
+              </div>
+            </div>
+
+            <p className="mt-6 text-xs ftn-muted">
+              © 2026 FactureTN — Sécurisé · Moderne · Évolutif
+            </p>
           </div>
 
-          <p style={{ marginTop: 18, fontSize: 12 }}>
-            {year} • FactureTN — Sécurisé • Moderne • Évolutif
-          </p>
-        </aside>
+          {/* ===== RIGHT : CARD ===== */}
+          <div className="ftn-auth-card">
+            <div className="ftn-auth-title">{title}</div>
+            {subtitle && (
+              <div className="ftn-auth-sub">{subtitle}</div>
+            )}
 
-        <section className="ftn-auth-card">
-          <div className="ftn-auth-title">{title}</div>
-          {subtitle ? <div className="ftn-auth-sub">{subtitle}</div> : null}
-          <div style={{ marginTop: 14 }}>{children}</div>
-        </section>
+            <div className="mt-6">
+              {children}
+            </div>
+          </div>
+
+        </div>
       </div>
     </div>
   );
