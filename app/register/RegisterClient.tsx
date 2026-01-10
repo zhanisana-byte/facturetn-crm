@@ -15,23 +15,35 @@ const OPTIONS: Array<{
 }> = [
   {
     key: "client",
-    title: "Client (1 société)",
+    title: "Client — Facture TTN",
     subtitle: "Auto-entrepreneur, freelance, petite société",
-    bullets: ["1 société", "Factures TTN", "Inviter équipe / comptable"],
+    bullets: [
+      "Facture TTN conforme Tunisie",
+      "Gestion simple (1 société)",
+      "Inviter équipe ou comptable",
+    ],
     accent: "orange",
   },
   {
     key: "cabinet",
-    title: "Cabinet comptable (gratuit)",
-    subtitle: "1 seule société cabinet après validation",
-    bullets: ["1 société cabinet", "Inviter équipe", "Gérer clients"],
+    title: "Cabinet comptable — Facture TTN",
+    subtitle: "Accès Cabinet (Comptable) — Gratuit après validation",
+    bullets: [
+      "Accès cabinet Facture TTN (gratuit)",
+      "Gérer les factures TTN des clients",
+      "Inviter équipe & collaborateurs",
+    ],
     accent: "blue",
   },
   {
     key: "groupe",
-    title: "Groupe / Multi-sociétés",
-    subtitle: "Plusieurs sociétés avec forfait",
-    bullets: ["Multi sociétés", "Équipe interne", "Comptable externe"],
+    title: "Groupe — Facture TTN",
+    subtitle: "Multi-sociétés & gestion avancée (forfait)",
+    bullets: [
+      "Facture TTN multi-sociétés",
+      "Équipe interne & rôles avancés",
+      "Comptable externe & reporting",
+    ],
     accent: "violet",
   },
 ];
@@ -51,7 +63,7 @@ export default function RegisterClient() {
   const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState("");
 
-  // Client: création société immédiate (1 société)
+  // Client: création société immédiate
   const [companyName, setCompanyName] = useState("");
   const [companyTaxId, setCompanyTaxId] = useState("");
 
@@ -104,15 +116,15 @@ export default function RegisterClient() {
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail) return setErr("Email obligatoire.");
     if (!password || password.length < 8)
-      return setErr("Mot de passe: minimum 8 caractères.");
+      return setErr("Mot de passe : minimum 8 caractères.");
     if (!fullName.trim()) return setErr("Nom complet obligatoire.");
 
     if (accountType === "client" && !companyName.trim()) {
-      return setErr("Nom de société obligatoire (client).");
+      return setErr("Nom de société obligatoire.");
     }
     if (accountType === "cabinet") {
-      if (!accountantMf.trim()) return setErr("MF du cabinet obligatoire.");
-      if (!accountantPatente.trim()) return setErr("Patente du cabinet obligatoire.");
+      if (!accountantMf.trim()) return setErr("Matricule fiscal obligatoire.");
+      if (!accountantPatente.trim()) return setErr("Patente obligatoire.");
     }
 
     setLoading(true);
@@ -139,7 +151,7 @@ export default function RegisterClient() {
       return;
     }
 
-    // 2) Upsert app_users (selon TON schéma)
+    // 2) Upsert app_users
     const userPayload: any = {
       id: userId,
       email: cleanEmail,
@@ -148,7 +160,7 @@ export default function RegisterClient() {
       role: "user",
       is_active: true,
 
-      // Tu as déjà ces champs:
+      // Plan (interne)
       plan_code: accountType === "groupe" ? "group_unlimited" : "client_50",
       max_companies: accountType === "groupe" ? 999 : 1,
       subscription_status: "active",
@@ -158,7 +170,7 @@ export default function RegisterClient() {
       userPayload.accountant_mf = accountantMf.trim();
       userPayload.accountant_patente = accountantPatente.trim();
       userPayload.accountant_status = "pending";
-      userPayload.accountant_free_access = false;
+      userPayload.accountant_free_access = false; // sera activé après validation admin
     }
 
     const { error: upErr } = await supabase
@@ -167,13 +179,13 @@ export default function RegisterClient() {
 
     if (upErr) {
       setLoading(false);
-      setErr("Profil non enregistré: " + upErr.message);
+      setErr("Profil non enregistré : " + upErr.message);
       return;
     }
 
     // 3) Créer société selon accountType
 
-    // ✅ CLIENT: créer 1 société + membership owner
+    // ✅ CLIENT: créer société + membership owner (Facture TTN)
     if (accountType === "client") {
       const { data: comp, error: cErr } = await supabase
         .from("companies")
@@ -188,7 +200,7 @@ export default function RegisterClient() {
 
       if (cErr || !comp?.id) {
         setLoading(false);
-        setErr("Compte créé, mais société non créée: " + (cErr?.message || "Unknown"));
+        setErr("Compte créé, mais société non créée : " + (cErr?.message || "Unknown"));
         return;
       }
 
@@ -204,19 +216,14 @@ export default function RegisterClient() {
 
       if (mErr) {
         setLoading(false);
-        setErr("Société créée, mais accès non créé: " + mErr.message);
+        setErr("Société créée, mais accès non créé : " + mErr.message);
         return;
       }
     }
 
-    // ✅ CABINET: pas de société tant que pending (gratuité après vérification)
-    if (accountType === "cabinet") {
-      // Ici tu peux afficher une page “Validation en cours”
-      // Pour l’instant on redirige vers dashboard
-    }
+    // ✅ CABINET: pas de société tant que pending
+    // ✅ GROUPE: setup plus tard
 
-    // ✅ GROUPE: pour le moment, juste profil groupe → dashboard
-    // (tu as tables groups/group_members/group_companies, on pourra faire setup dédié)
     setLoading(false);
     router.push(redirectTo);
     router.refresh();
@@ -228,7 +235,7 @@ export default function RegisterClient() {
         <div className="ftn-auth-card ftn-reg-card">
           <h1 className="ftn-auth-title">Créer un compte</h1>
           <p className="ftn-auth-sub">
-            Choisissez votre profil, puis complétez les informations.
+            Choisissez votre profil Facture TTN, puis complétez les informations.
           </p>
 
           {err && <div className="ftn-alert">{err}</div>}
@@ -300,6 +307,10 @@ export default function RegisterClient() {
             {/* CLIENT */}
             {accountType === "client" && (
               <>
+                <div className="ftn-muted" style={{ marginTop: 12 }}>
+                  Vous allez créer votre première société pour émettre des <b>Factures TTN</b>.
+                </div>
+
                 <label className="ftn-label">Nom de société</label>
                 <input
                   className="ftn-input"
@@ -322,15 +333,20 @@ export default function RegisterClient() {
             {accountType === "cabinet" && (
               <>
                 <div
-                  className="ftn-alert"
+                  className="ftn-callout"
                   style={{
-                    background: "rgba(245,158,11,.10)",
-                    borderColor: "rgba(245,158,11,.25)",
-                    color: "rgba(120,53,15,.95)",
                     marginTop: 12,
+                    borderColor: "rgba(59,130,246,.25)",
+                    background: "rgba(59,130,246,.06)",
                   }}
                 >
-                  Cabinet : 1 seule société (gratuit) après validation patente/MF.
+                  <div className="ftn-callout-title">
+                    Accès Cabinet (Comptable) — Gratuit après validation
+                  </div>
+                  <div className="ftn-muted" style={{ marginTop: 6 }}>
+                    Après vérification (MF / Patente), votre accès cabinet est activé pour
+                    gérer les <b>Factures TTN</b> de vos clients.
+                  </div>
                 </div>
 
                 <label className="ftn-label">Matricule fiscal du cabinet</label>
@@ -353,8 +369,12 @@ export default function RegisterClient() {
 
             {/* GROUPE */}
             {accountType === "groupe" && (
-              <div className="ftn-muted" style={{ marginTop: 12 }}>
-                Groupe : multi-sociétés selon forfait (setup à compléter dans l’étape suivante).
+              <div className="ftn-callout" style={{ marginTop: 12 }}>
+                <div className="ftn-callout-title">Groupe — Facture TTN multi-sociétés</div>
+                <div className="ftn-muted" style={{ marginTop: 6 }}>
+                  Idéal pour holdings et structures multi-entités : rôles avancés,
+                  équipes internes, et gestion centralisée des <b>Factures TTN</b>.
+                </div>
               </div>
             )}
 
