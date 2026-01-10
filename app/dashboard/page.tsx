@@ -1,114 +1,150 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import AppShell from "@/app/components/AppShell";
-import { Card } from "@/components/ui";
+
+export const dynamic = "force-dynamic";
+
+function Card({
+  title,
+  children,
+  tone,
+}: {
+  title: string;
+  children: React.ReactNode;
+  tone?: "warn" | "info" | "ok";
+}) {
+  const badgeClass =
+    tone === "warn"
+      ? "ftn-badge tone-warn"
+      : tone === "ok"
+      ? "ftn-badge tone-ok"
+      : "ftn-badge tone-info";
+
+  const badgeText =
+    tone === "warn" ? "En attente" : tone === "ok" ? "Actif" : "Info";
+
+  return (
+    <div className="ftn-card">
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+        <div style={{ fontWeight: 900, fontSize: 16 }}>{title}</div>
+        <span className={badgeClass}>{badgeText}</span>
+      </div>
+      <div style={{ marginTop: 12 }}>{children}</div>
+    </div>
+  );
+}
 
 export default async function DashboardPage() {
   const supabase = await createClient();
+
+  // Auth
   const { data: auth } = await supabase.auth.getUser();
-  if (!auth?.user) redirect("/login");
+  const user = auth?.user;
+  if (!user) redirect("/login");
 
-  const { data: profile, error } = await supabase
+  // Profile
+  const { data: profile, error: pErr } = await supabase
     .from("app_users")
-    .select("id,email,full_name,account_type")
-    .eq("id", auth.user.id)
-    .single();
+    .select(
+      "id,email,full_name,account_type,accountant_status,accountant_mf,accountant_patente,accountant_free_access,max_companies,plan_code,subscription_status"
+    )
+    .eq("id", user.id)
+    .maybeSingle();
 
-  if (error || !profile) {
+  if (pErr || !profile) {
+    // profil manquant => renvoyer vers login ou page erreur
     return (
-      <AppShell title="Dashboard" subtitle="" accountType={undefined}>
-        <div className="ftn-alert">{error?.message || "Profil introuvable."}</div>
-      </AppShell>
+      <div className="ftn-shell">
+        <div className="ftn-auth">
+          <div className="ftn-auth-card">
+            <h1 className="ftn-auth-title">Erreur profil</h1>
+            <p className="ftn-muted" style={{ marginTop: 8 }}>
+              Impossible de charger votre profil (app_users). Vérifiez que l’inscription a bien créé l’entrée.
+            </p>
+            <div style={{ marginTop: 14 }}>
+              <Link className="ftn-btn" href="/login">
+                Retour connexion
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
     );
   }
 
-  if (!profile.account_type) redirect("/onboarding");
+  const accountType = profile.account_type as "client" | "cabinet" | "groupe";
 
-  // Message positif (commun, change chaque jour)
-  const dayIndex = new Date().getDate();
-  const dailyPositive = [
-    "Votre espace est prêt : simplicité, conformité et organisation pour la facture électronique.",
-    "FactureTN vous aide à structurer vos factures pour une transition TTN sans stress.",
-    "Une solution claire et professionnelle pour préparer la facture électronique en Tunisie.",
-    "Centralisez, organisez et avancez sereinement vers la conformité TTN.",
-    "Moins de complexité, plus de contrôle : FactureTN simplifie votre quotidien.",
-    "La facture électronique devient simple : FactureTN vous accompagne étape par étape.",
-  ];
-  const positiveMsg = dailyPositive[dayIndex % dailyPositive.length];
+  // ✅ CABINET PENDING: afficher un dashboard “Validation en cours”
+  if (accountType === "cabinet" && profile.accountant_status === "pending") {
+    return (
+      <div className="ftn-shell">
+        <div className="ftn-auth">
+          <div className="ftn-auth-card" style={{ maxWidth: 980, width: "100%" }}>
+            <h1 className="ftn-auth-title">Validation du cabinet</h1>
+            <p className="ftn-auth-sub">
+              Votre compte cabinet est créé, mais l’accès gratuit (1 société) nécessite une validation.
+            </p>
 
-  const welcomeName =
-    (profile.full_name && profile.full_name.trim()) ||
-    (profile.email ? profile.email.split("@")[0] : "Bienvenue");
+            <div className="ftn-grid" style={{ marginTop: 14 }}>
+              <Card title="Statut de vérification" tone="warn">
+                <div className="ftn-muted">
+                  Statut actuel : <b>pending</b>
+                </div>
 
-  return (
-    <AppShell
-      title="Bienvenue"
-      subtitle={`Bienvenue ${welcomeName} — ce projet est conçu pour faciliter la facture électronique TTN.`}
-      accountType={profile.account_type as any}
-    >
-      <div className="ftn-grid">
-        {/* 2 cartes seulement (clean) */}
-        <div className="ftn-grid-3">
-          {/* Carte TTN / Facture électronique */}
-          <Card title="Facture électronique TTN" subtitle="Solution clé en main">
-            <div className="ftn-muted">
-              Génération <b className="ftn-strong">XML/PDF</b>, organisation & préparation à la conformité TTN.
+                <div style={{ marginTop: 12 }} className="ftn-callout">
+                  <div className="ftn-callout-title">Informations envoyées</div>
+                  <div className="ftn-muted" style={{ marginTop: 6 }}>
+                    <div>
+                      <span className="ftn-strong">MF :</span> {profile.accountant_mf || "—"}
+                    </div>
+                    <div style={{ marginTop: 4 }}>
+                      <span className="ftn-strong">Patente :</span> {profile.accountant_patente || "—"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="ftn-muted" style={{ marginTop: 12 }}>
+                  Pendant la validation, la création de société est bloquée.
+                </div>
+              </Card>
+
+              <Card title="Que pouvez-vous faire maintenant ?" tone="info">
+                <ul style={{ margin: 0, paddingLeft: 18 }} className="ftn-muted">
+                  <li>Préparer votre modèle de facture (infos, TVA, timbre…).</li>
+                  <li>Contacter le support pour accélérer la validation.</li>
+                  <li>Une fois vérifié : créer la société cabinet + inviter équipe + clients.</li>
+                </ul>
+
+                <div className="ftn-callout-actions" style={{ marginTop: 14 }}>
+                  <Link className="ftn-btn" href="/support">
+                    Contacter le support
+                  </Link>
+                  <Link className="ftn-btn-ghost" href="/account">
+                    Modifier mes informations
+                  </Link>
+                </div>
+              </Card>
             </div>
-            <div className="mt-4">
-              <Link href="/ttn" className="ftn-btn-success">
-                Accès paramètres TTN
-              </Link>
-            </div>
-          </Card>
 
-          {/* Carte “Comment ça marche” */}
-          <Card title="Comment ça marche" subtitle="Simple & clair">
-            <div className="ftn-muted">
-              1) Créez vos factures
-              <br />
-              2) Elles sont structurées pour la facture électronique
-              <br />
-              3) Envoi TTN activé en production
+            <div style={{ marginTop: 14 }} className="ftn-muted">
+              Plan : <b>{profile.plan_code}</b> • Max sociétés : <b>{profile.max_companies}</b>
             </div>
-          </Card>
-
-          {/* Carte message positif */}
-          <Card title="Message du jour" subtitle="Confiance & simplicité">
-            <div className="ftn-muted">{positiveMsg}</div>
-          </Card>
-        </div>
-
-        {/* Modules Premium (Soon) */}
-        <div className="mt-6">
-          <Card title="Modules Premium" subtitle="Bientôt disponibles (SOON)">
-            <div className="ftn-muted">
-              <ul className="list-disc pl-5 leading-7">
-                <li>
-                  <b>Envoi TTN programmé</b> (date/heure + rappel avant envoi)
-                </li>
-                <li>
-                  <b>Notifications intelligentes</b> (accepté/rejeté + suivi)
-                </li>
-                <li>
-                  <b>Statistiques visuelles</b> (graphiques + exports)
-                </li>
-                <li>
-                  <b>API</b> (intégrations avancées)
-                </li>
-              </ul>
-              <div className="ftn-muted mt-3">
-                Si vous souhaitez être parmi les premiers, contactez notre support.
-              </div>
-            </div>
-            <div className="mt-4 flex gap-2 flex-wrap">
-              <Link href="/help" className="ftn-btn ftn-btn-soft">
-                Contacter le support
-              </Link>
-            </div>
-          </Card>
+          </div>
         </div>
       </div>
-    </AppShell>
-  );
+    );
+  }
+
+  // ✅ si cabinet verified mais pas encore d’espace accountant route => redirection
+  if (accountType === "cabinet") {
+    redirect("/accountant/invoices");
+  }
+
+  // ✅ groupe
+  if (accountType === "groupe") {
+    redirect("/group");
+  }
+
+  // ✅ client (par défaut)
+  redirect("/invoices");
 }
