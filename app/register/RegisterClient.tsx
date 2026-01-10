@@ -73,6 +73,7 @@ export default function RegisterClient() {
     setErr(null);
 
     const cleanEmail = email.trim().toLowerCase();
+
     if (!cleanEmail) return setErr("Email obligatoire.");
     if (!password || password.length < 8)
       return setErr("Mot de passe: minimum 8 caractères.");
@@ -80,6 +81,7 @@ export default function RegisterClient() {
 
     setLoading(true);
 
+    // 1) auth signup
     const { data, error } = await supabase.auth.signUp({
       email: cleanEmail,
       password,
@@ -97,11 +99,14 @@ export default function RegisterClient() {
     const userId = data?.user?.id;
     if (!userId) {
       setLoading(false);
-      setErr("Compte créé, mais userId introuvable.");
+      setErr(
+        "Compte créé, mais userId introuvable. Vérifiez la confirmation email ou la configuration Supabase."
+      );
       return;
     }
 
-    const fullPayload: Record<string, any> = {
+    // 2) profile upsert (IMPORTANT: évite duplicate key)
+    const payload: Record<string, any> = {
       id: userId,
       email: cleanEmail,
       full_name: fullName.trim(),
@@ -111,26 +116,20 @@ export default function RegisterClient() {
       is_active: true,
     };
 
-    const { error: e1 } = await supabase.from("app_users").insert(fullPayload);
+    const { error: upErr } = await supabase
+      .from("app_users")
+      .upsert(payload, { onConflict: "id" });
 
-    if (e1) {
-      const minimalPayload = {
-        id: userId,
-        email: cleanEmail,
-        full_name: fullName.trim(),
-        account_type: accountType,
-      };
-
-      const { error: e2 } = await supabase.from("app_users").insert(minimalPayload);
-
-      if (e2) {
-        setLoading(false);
-        setErr("Compte créé, mais profil non enregistré: " + e2.message);
-        return;
-      }
+    if (upErr) {
+      setLoading(false);
+      setErr("Compte créé, mais profil non enregistré: " + upErr.message);
+      return;
     }
 
     setLoading(false);
+
+    // Optionnel : si tu as email confirmation activée, l'user peut ne pas être "session"
+    // Tu peux soit laisser comme ça, soit forcer un login après signup.
     router.push(redirectTo);
     router.refresh();
   }
@@ -146,6 +145,7 @@ export default function RegisterClient() {
 
           {err && <div className="ftn-alert">{err}</div>}
 
+          {/* 3 cards */}
           <div className="ftn-reg-grid">
             {OPTIONS.map((o) => {
               const active = accountType === o.key;
@@ -154,7 +154,9 @@ export default function RegisterClient() {
                   key={o.key}
                   type="button"
                   onClick={() => setAccountType(o.key)}
-                  className={`ftn-reg-option accent-${o.accent} ${active ? "is-active" : ""}`}
+                  className={`ftn-reg-option accent-${o.accent} ${
+                    active ? "is-active" : ""
+                  }`}
                 >
                   <div className="ftn-reg-top">
                     <span className="ftn-reg-dot" aria-hidden="true" />
@@ -197,6 +199,7 @@ export default function RegisterClient() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="email@exemple.com"
               autoComplete="email"
+              inputMode="email"
             />
 
             <label className="ftn-label">Mot de passe</label>
@@ -210,6 +213,7 @@ export default function RegisterClient() {
             />
 
             <button
+              type="button"
               onClick={handleRegister}
               disabled={!canSubmit}
               className="ftn-btn"
@@ -223,6 +227,13 @@ export default function RegisterClient() {
                 Plan détecté : <b>{plan}</b>
               </div>
             ) : null}
+
+            <div className="ftn-muted" style={{ marginTop: 12 }}>
+              Déjà un compte ?{" "}
+              <a className="ftn-link" href="/login">
+                Se connecter
+              </a>
+            </div>
           </div>
         </div>
       </div>
