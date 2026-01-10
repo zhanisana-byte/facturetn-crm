@@ -15,6 +15,7 @@ type CompanyRow = {
   address: string | null;
   vat_rate: number | null;
   stamp_duty: number | null;
+  email: string | null;
   created_at?: string | null;
 };
 
@@ -33,7 +34,6 @@ type ProfileRow = {
     | "free_admin"
     | null;
 
-  // ✅ champs validation comptable (selon ton schéma)
   accountant_mf: string | null;
   accountant_patente: string | null;
   accountant_status: "pending" | "verified" | "rejected" | null;
@@ -48,6 +48,10 @@ function fmtDate(d?: string | null) {
   return dt.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
 }
 
+function isValidEmail(v: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+}
+
 function statusBadge(status?: string | null) {
   if (status === "verified") {
     return { label: "Vérifié", cls: "border-emerald-200 bg-emerald-50 text-emerald-800" };
@@ -58,7 +62,12 @@ function statusBadge(status?: string | null) {
   return { label: "En vérification", cls: "border-amber-200 bg-amber-50 text-amber-900" };
 }
 
-// ✅ Server Action : envoi MF + Patente
+/**
+ * ✅ Server Action
+ * - Enregistre MF + Patente dans app_users
+ * - Met status = pending + pending_until = now + 2 mois
+ * - Enregistre email du propriétaire du cabinet dans companies.email (obligatoire)
+ */
 async function submitVerification(formData: FormData) {
   "use server";
 
@@ -68,16 +77,19 @@ async function submitVerification(formData: FormData) {
 
   const accountant_mf = String(formData.get("accountant_mf") ?? "").trim();
   const accountant_patente = String(formData.get("accountant_patente") ?? "").trim();
+  const owner_email = String(formData.get("owner_email") ?? "").trim().toLowerCase();
+  const cabinet_id = String(formData.get("cabinet_id") ?? "").trim();
 
-  if (!accountant_mf || !accountant_patente) {
-    // Next n'a pas "toast" server-side ici : on redirige avec query
-    redirect("/accountant/cabinet?err=missing");
-  }
+  if (!cabinet_id) redirect("/accountant/cabinet?err=cabinet");
+  if (!accountant_mf || !accountant_patente) redirect("/accountant/cabinet?err=missing");
+  if (!owner_email || !isValidEmail(owner_email)) redirect("/accountant/cabinet?err=email");
 
+  // 2 mois (délai administratif max)
   const pendingUntil = new Date();
   pendingUntil.setMonth(pendingUntil.getMonth() + 2);
 
-  const { error } = await supabase
+  // Update profil comptable
+  const { error: upErr } = await supabase
     .from("app_users")
     .update({
       accountant_mf,
@@ -85,14 +97,20 @@ async function submitVerification(formData: FormData) {
       accountant_status: "pending",
       accountant_verified_at: null,
       accountant_pending_until: pendingUntil.toISOString(),
-      accountant_free_access: true,
+      accountant_free_access: true, // bonus accès cabinet pendant vérification (si tu veux)
       updated_at: new Date().toISOString(),
     })
     .eq("id", auth.user.id);
 
-  if (error) {
-    redirect("/accountant/cabinet?err=save");
-  }
+  if (upErr) redirect("/accountant/cabinet?err=save_profile");
+
+  // Update email propriétaire sur la société cabinet (companies.email)
+  const { error: coErr } = await supabase
+    .from("companies")
+    .update({ email: owner_email, updated_at: new Date().toISOString() })
+    .eq("id", cabinet_id);
+
+  if (coErr) redirect("/accountant/cabinet?err=save_company");
 
   revalidatePath("/accountant/cabinet");
   redirect("/accountant/cabinet?ok=1");
@@ -101,8 +119,10 @@ async function submitVerification(formData: FormData) {
 export default async function Page({
   searchParams,
 }: {
-  searchParams?: { ok?: string; err?: string };
+  // ✅ FIX Next.js : searchParams est un Promise dans ton build
+  searchParams?: Promise<{ ok?: string; err?: string }>;
 }) {
+  const sp = (await searchParams) ?? {};
   const supabase = await createClient();
 
   const { data: auth } = await supabase.auth.getUser();
@@ -124,50 +144,57 @@ export default async function Page({
   // Cabinet = 1ère société du comptable (owner_user = user)
   const { data: cabinetList } = await supabase
     .from("companies")
-    .select("id,company_name,tax_id,address,vat_rate,stamp_duty,created_at")
+    .select("id,company_name,tax_id,address,vat_rate,stamp_duty,email,created_at")
     .eq("owner_user", userId)
     .order("created_at", { ascending: true })
     .limit(1);
 
   const cabinet = (cabinetList?.[0] as CompanyRow | undefined) ?? undefined;
 
-  if (!cabinet) {
-    redirect("/accountant/cabinet/new");
-  }
-
-  const endsAt = p?.subscription_ends_at ? new Date(p.subscription_ends_at) : null;
-  const trialEnds = p?.trial_ends_at ? new Date(p.trial_ends_at) : null;
+  if (!cabinet) redirect("/accountant/cabinet/new");
 
   const badge = statusBadge(p?.accountant_status);
-
-  const showOk = searchParams?.ok === "1";
-  const err = searchParams?.err;
 
   return (
     <AppShell
       title="Mon cabinet"
-      subtitle="Gérez votre cabinet, vos paramètres fiscaux et la connexion TTN."
+      subtitle="Nom du cabinet + validation Patente (bonus accès gratuit) + accès TTN."
       accountType={accountType}
     >
       <div className="ftn-grid">
-        {/* ✅ Alertes */}
-        {showOk && (
+        {/* Alerts */}
+        {sp?.ok === "1" && (
           <div className="ftn-card" style={{ borderColor: "rgba(16,185,129,.35)" }}>
             <b>✅ Demande envoyée.</b> Vos informations sont en cours de vérification.
           </div>
         )}
-        {err === "missing" && (
+        {sp?.err === "missing" && (
           <div className="ftn-card" style={{ borderColor: "rgba(244,63,94,.35)" }}>
             <b>⚠️ MF et Patente sont obligatoires.</b>
           </div>
         )}
-        {err === "save" && (
+        {sp?.err === "email" && (
           <div className="ftn-card" style={{ borderColor: "rgba(244,63,94,.35)" }}>
-            <b>⚠️ Erreur serveur.</b> Réessayez.
+            <b>⚠️ Email du propriétaire obligatoire.</b> Format invalide.
+          </div>
+        )}
+        {sp?.err === "save_profile" && (
+          <div className="ftn-card" style={{ borderColor: "rgba(244,63,94,.35)" }}>
+            <b>⚠️ Erreur enregistrement profil.</b> Réessayez.
+          </div>
+        )}
+        {sp?.err === "save_company" && (
+          <div className="ftn-card" style={{ borderColor: "rgba(244,63,94,.35)" }}>
+            <b>⚠️ Erreur enregistrement email cabinet.</b> Réessayez.
+          </div>
+        )}
+        {sp?.err === "cabinet" && (
+          <div className="ftn-card" style={{ borderColor: "rgba(244,63,94,.35)" }}>
+            <b>⚠️ Cabinet introuvable.</b>
           </div>
         )}
 
-        {/* Résumé cabinet */}
+        {/* Résumé cabinet (minimal) */}
         <div className="ftn-card">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div>
@@ -176,8 +203,8 @@ export default async function Page({
               </h2>
 
               <div className="ftn-muted" style={{ marginTop: 6 }}>
-                Matricule fiscal (MF): <b>{cabinet.tax_id || "—"}</b> · TVA:{" "}
-                <b>{cabinet.vat_rate ?? "—"}</b>% · Timbre: <b>{cabinet.stamp_duty ?? "—"}</b> TND
+                MF société: <b>{cabinet.tax_id || "—"}</b> · TVA: <b>{cabinet.vat_rate ?? "—"}</b>% · Timbre:{" "}
+                <b>{cabinet.stamp_duty ?? "—"}</b> TND
               </div>
 
               <div className="ftn-muted" style={{ marginTop: 6 }}>
@@ -186,7 +213,6 @@ export default async function Page({
             </div>
 
             <div className="flex gap-2 flex-wrap">
-              {/* ⚠️ adapte si ton TTN est /accountant/ttn */}
               <Link className="ftn-btn" href="/ttn">
                 Paramètres TTN
               </Link>
@@ -196,44 +222,33 @@ export default async function Page({
               <Link className="ftn-btn ftn-btn-ghost" href="/accountant/invoices">
                 Factures
               </Link>
-              {/* ⚠️ adapte si ton recurring route est comptable */}
-              <Link className="ftn-btn ftn-btn-ghost" href="/accountant/recurring">
-                Factures récurrentes
-              </Link>
-              <Link className="ftn-btn ftn-btn-ghost" href="/accountant/team">
-                Mon équipe
-              </Link>
             </div>
           </div>
         </div>
 
-        {/* ✅ Vérification cabinet (MF / Patente) */}
+        {/* ✅ Validation Patente (simple + clair) */}
         <div className="ftn-card" style={{ overflow: "visible" }}>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <h3 className="ftn-h3" style={{ marginTop: 0 }}>
-              Vérification du cabinet
+              Validation Patente (bonus accès gratuit)
             </h3>
-
-            <span className={`px-3 py-1 rounded-full border text-sm ${badge.cls}`}>
-              {badge.label}
-            </span>
+            <span className={`px-3 py-1 rounded-full border text-sm ${badge.cls}`}>{badge.label}</span>
           </div>
 
           <div className="ftn-muted" style={{ marginTop: 8 }}>
-            Après validation : bonus <b>“Accès gratuit Cabinet”</b> + gestion des accès / invitations.
-          </div>
-
-          <div className="ftn-muted" style={{ marginTop: 8 }}>
-            Délai de traitement : <b>jusqu’à 2 mois</b> — date indicative :{" "}
-            <b>{fmtDate(p?.accountant_pending_until)}</b>
-          </div>
-
-          <div className="ftn-muted" style={{ marginTop: 10 }}>
-            <b>Important :</b> ce délai est un délai administratif maximum (pas une durée d’accès gratuit).
+            Délai de traitement : <b>jusqu’à 2 mois</b> · Date indicative : <b>{fmtDate(p?.accountant_pending_until)}</b>
           </div>
 
           <form action={submitVerification} style={{ marginTop: 14 }}>
-            <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+            <input type="hidden" name="cabinet_id" value={cabinet.id} />
+
+            <div
+              style={{
+                display: "grid",
+                gap: 12,
+                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              }}
+            >
               <div>
                 <div className="ftn-muted" style={{ marginBottom: 6 }}>
                   MF (Matricule fiscal)
@@ -257,9 +272,21 @@ export default async function Page({
                   className="ftn-input"
                 />
               </div>
+
+              <div>
+                <div className="ftn-muted" style={{ marginBottom: 6 }}>
+                  Email du propriétaire (obligatoire)
+                </div>
+                <input
+                  name="owner_email"
+                  defaultValue={cabinet.email ?? ""}
+                  placeholder="ex: owner@cabinet.tn"
+                  className="ftn-input"
+                />
+              </div>
             </div>
 
-            <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <button className="ftn-btn" type="submit">
                 Envoyer pour validation
               </button>
@@ -269,23 +296,26 @@ export default async function Page({
                   Vérifié le : <b>{fmtDate(p?.accountant_verified_at)}</b>
                 </span>
               )}
+
+              <span className="ftn-muted">
+                <b>Note :</b> le délai administratif n’est pas une durée d’accès gratuit.
+              </span>
             </div>
           </form>
         </div>
 
-        {/* Abonnement */}
+        {/* Abonnement (petit bloc, pas chargé) */}
         <div className="ftn-card">
           <h3 className="ftn-h3" style={{ marginTop: 0 }}>
-            Abonnement & accès
+            Abonnement
           </h3>
 
           <div className="ftn-muted" style={{ marginTop: 8 }}>
-            Plan: <b>{p?.plan_code || "—"}</b> · Nombre max de sociétés: <b>{p?.max_companies ?? "—"}</b>
+            Plan: <b>{p?.plan_code || "—"}</b> · Max sociétés: <b>{p?.max_companies ?? "—"}</b>
           </div>
 
           <div className="ftn-muted" style={{ marginTop: 8 }}>
-            Essai jusqu’au: <b>{fmtDate(p?.trial_ends_at)}</b> · Fin d’abonnement:{" "}
-            <b>{fmtDate(p?.subscription_ends_at)}</b>
+            Essai: <b>{fmtDate(p?.trial_ends_at)}</b> · Fin: <b>{fmtDate(p?.subscription_ends_at)}</b>
           </div>
 
           <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -293,34 +323,8 @@ export default async function Page({
               Voir mon abonnement
             </Link>
             <Link className="ftn-btn ftn-btn-ghost" href="/help">
-              Aide & support
+              Aide
             </Link>
-          </div>
-        </div>
-
-        {/* Conformité + Clôture (2 cartes فقط) */}
-        <div className="ftn-grid-3" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
-          <div className="ftn-card">
-            <h3 className="ftn-h3" style={{ marginTop: 0 }}>
-              Conformité TTN
-            </h3>
-            <p className="ftn-muted">
-              Vos factures restent conformes (modèle standard). Vous pourrez exporter en PDF/XML et préparer l’envoi vers TTN.
-            </p>
-          </div>
-
-          <div className="ftn-card">
-            <h3 className="ftn-h3" style={{ marginTop: 0 }}>
-              Clôture mensuelle
-            </h3>
-            <p className="ftn-muted">
-              Vérifiez, validez et préparez votre déclaration du mois (audit et traçabilité).
-            </p>
-            <div style={{ marginTop: 12 }}>
-              <Link className="ftn-btn ftn-btn-ghost" href="/accountant/declaration">
-                Ouvrir la clôture
-              </Link>
-            </div>
           </div>
         </div>
       </div>
