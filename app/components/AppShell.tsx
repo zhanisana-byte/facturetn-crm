@@ -3,8 +3,11 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo } from "react";
+import type { ReactNode } from "react";
+import type { AccountType } from "@/app/types";
 
-type AccountType = "entreprise" | "multi_societe" | "comptable";
+// ✅ Optionnel: si tu veux importer depuis AppShell ailleurs
+export type { AccountType };
 
 function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(href + "/");
@@ -21,7 +24,7 @@ export default function AppShell({
   title: string;
   subtitle?: string;
   accountType?: AccountType;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -60,6 +63,7 @@ export default function AppShell({
       ];
     }
 
+    // ✅ entreprise (par défaut)
     return [
       { href: "/dashboard", label: "Dashboard" },
       { href: "/companies", label: "Ma société" },
@@ -78,53 +82,62 @@ export default function AppShell({
       await fetch("/logout", { method: "POST" });
     } finally {
       router.push("/login");
+      router.refresh();
     }
   }
 
   return (
-    <div className="ftn-app">
-      <aside className="ftn-sidebar">
-        <div className="ftn-brand">
-          <div className="ftn-logo">FT</div>
-          <div className="ftn-brand-text">
-            <div className="ftn-brand-title">FactureTN</div>
-            <div className="ftn-brand-sub">Facturation Électronique Tunisienne (TTN)</div>
+    <div className="ftn-shell">
+      <div className="ftn-app">
+        <aside className="ftn-sidebar">
+          <div className="ftn-brand">
+            <div className="ftn-logo">FT</div>
+            <div className="ftn-brand-text">
+              <div className="ftn-brand-title">FactureTN</div>
+              <div className="ftn-brand-sub">
+                Facturation Électronique Tunisienne (TTN)
+              </div>
+            </div>
           </div>
-        </div>
 
-        <nav className="ftn-nav">
-          {links.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              className={isActive(pathname, l.href) ? "ftn-nav-item active" : "ftn-nav-item"}
-            >
-              <span>{l.label}</span>
-              {l.badge ? <span className="ftn-badge">{l.badge}</span> : null}
-            </Link>
-          ))}
-        </nav>
+          <nav className="ftn-nav">
+            {links.map((l) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                className={
+                  isActive(pathname, l.href)
+                    ? "ftn-nav-item active"
+                    : "ftn-nav-item"
+                }
+              >
+                <span>{l.label}</span>
+                {l.badge ? <span className="ftn-badge">{l.badge}</span> : null}
+              </Link>
+            ))}
+          </nav>
 
-        <div className="ftn-sidebar-footer">
-          <button className="ftn-btn ftn-btn-ghost" onClick={doLogout}>
-            Se déconnecter
-          </button>
-          <div className="ftn-muted ftn-small">
-            Accès pour : <strong>votre compte</strong>
+          <div className="ftn-sidebar-footer">
+            <button className="ftn-btn ftn-btn-ghost" onClick={doLogout}>
+              Se déconnecter
+            </button>
+            <div className="ftn-muted ftn-small">
+              Accès pour : <strong>{accountType ?? "entreprise"}</strong>
+            </div>
           </div>
-        </div>
-      </aside>
+        </aside>
 
-      <main className="ftn-main">
-        <header className="ftn-header">
-          <div>
-            <h1 className="ftn-title">{title}</h1>
-            {subtitle ? <p className="ftn-subtitle">{subtitle}</p> : null}
-          </div>
-        </header>
+        <main className="ftn-main">
+          <header className="ftn-header">
+            <div>
+              <h1 className="ftn-title">{title}</h1>
+              {subtitle ? <p className="ftn-subtitle">{subtitle}</p> : null}
+            </div>
+          </header>
 
-        <section className="ftn-content">{children}</section>
-      </main>
+          <section className="ftn-content">{children}</section>
+        </main>
+      </div>
     </div>
   );
 }
