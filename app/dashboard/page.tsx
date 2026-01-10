@@ -20,7 +20,7 @@ export default async function DashboardPage() {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // Profile (on lit les champs utiles au cabinet)
+  // Profile
   const { data: profile, error } = await supabase
     .from("app_users")
     .select(
@@ -41,7 +41,7 @@ export default async function DashboardPage() {
 
   const accountType = profile.account_type as "client" | "cabinet" | "groupe";
 
-  // Message positif (commun, change chaque jour)
+  // Message positif (commun)
   const dayIndex = new Date().getDate();
   const dailyPositive = [
     "Votre espace est prêt : simplicité, conformité et organisation pour la facture électronique.",
@@ -57,39 +57,55 @@ export default async function DashboardPage() {
     (profile.full_name && profile.full_name.trim()) ||
     (profile.email ? profile.email.split("@")[0] : "Bienvenue");
 
-  // ✅ CABINET pending : page spéciale, pas d’équipe/invitations pour le moment
+  /**
+   * ✅ CABINET pending :
+   * - Le cabinet est déjà créé et utilisable
+   * - La validation sert à activer le BONUS "Accès gratuit Cabinet"
+   * - Le délai 2 mois = délai de traitement, pas une limite de gratuité
+   */
   if (accountType === "cabinet" && profile.accountant_status === "pending") {
     const pendingUntil = formatDateFR(profile.accountant_pending_until);
 
     return (
       <AppShell
         title="Validation Cabinet"
-        subtitle={`Bienvenue ${welcomeName} — votre compte cabinet est créé, validation en cours.`}
+        subtitle={`Bienvenue ${welcomeName} — votre cabinet est bien créé. La vérification professionnelle est en cours.`}
         accountType={accountType as any}
       >
         <div className="ftn-grid">
           <div className="ftn-grid-3">
-            <Card title="Statut" subtitle="Vérification en attente">
+            <Card title="Statut" subtitle="Vérification professionnelle">
               <div className="ftn-muted">
-                Statut actuel : <b className="ftn-strong">pending</b>
+                Statut actuel : <b className="ftn-strong">en vérification</b>
               </div>
 
               <div className="ftn-muted mt-3">
-                Délai maximum : <b className="ftn-strong">2 mois</b>
+                Délai de traitement : <b className="ftn-strong">jusqu’à 2 mois</b>
                 {pendingUntil ? (
                   <>
                     {" "}
-                    — Date limite : <b className="ftn-strong">{pendingUntil}</b>
+                    — Date indicative : <b className="ftn-strong">{pendingUntil}</b>
                   </>
                 ) : null}
               </div>
 
-              <div className="ftn-alert mt-4" style={{ background: "rgba(245,158,11,.10)", borderColor: "rgba(245,158,11,.25)", color: "rgba(120,53,15,.95)" }}>
-                Service gratuit pour les comptables, sous réserve de validation du statut professionnel
+              <div
+                className="ftn-alert mt-4"
+                style={{
+                  background: "rgba(245,158,11,.10)",
+                  borderColor: "rgba(245,158,11,.25)",
+                  color: "rgba(120,53,15,.95)",
+                }}
+              >
+                ✅ Vous pouvez déjà utiliser votre espace cabinet.
+                <br />
+                La validation sert à <b>activer le bonus “Accès gratuit Cabinet”</b> (service comptable).
+                <br />
+                <b>Le délai de 2 mois n’est pas une limite de gratuité</b>, c’est le délai maximum de vérification.
               </div>
             </Card>
 
-            <Card title="Informations cabinet" subtitle="Données envoyées">
+            <Card title="Informations envoyées" subtitle="Données cabinet">
               <div className="ftn-muted">
                 <div>
                   <span className="ftn-strong">MF :</span> {profile.accountant_mf || "—"}
@@ -100,8 +116,11 @@ export default async function DashboardPage() {
               </div>
 
               <div className="ftn-muted mt-3">
-                Une fois validé, vous pourrez créer <b className="ftn-strong">1 société cabinet</b> (accès gratuit)
-                et gérer vos clients.
+                Une fois validé, votre compte passe automatiquement en <b className="ftn-strong">Cabinet validé</b> :
+                <br />
+                • <b className="ftn-strong">Accès gratuit Cabinet</b> activé
+                <br />
+                • Gestion des clients et des accès (invitations) débloquée
               </div>
             </Card>
 
@@ -111,22 +130,25 @@ export default async function DashboardPage() {
           </div>
 
           <div className="mt-6">
-            <Card title="Besoin d’aide ?" subtitle="Support">
+            <Card title="Besoin d’aide ?" subtitle="Support & modification">
               <div className="ftn-muted">
-                Si vous voulez accélérer la vérification ou modifier MF/Patente, contactez notre support.
+                Si vous voulez accélérer la vérification ou corriger MF/Patente, contactez notre support.
               </div>
+
               <div className="mt-4 flex gap-2 flex-wrap">
                 <Link href="/help" className="ftn-btn">
                   Contacter le support
                 </Link>
-                <Link href="/account" className="ftn-btn-ghost">
+
+                {/* ✅ FIX 404: on remplace /account par une page cabinet existante */}
+                <Link href="/accountant/cabinet" className="ftn-btn-ghost">
                   Modifier mes informations
                 </Link>
               </div>
 
               <div className="ftn-muted mt-4">
-                Plan : <b className="ftn-strong">{profile.plan_code}</b> • Max sociétés :{" "}
-                <b className="ftn-strong">{profile.max_companies}</b>
+                Bonus “Accès gratuit Cabinet” :{" "}
+                <b className="ftn-strong">{profile.accountant_free_access ? "actif" : "en attente de validation"}</b>
               </div>
             </Card>
           </div>
@@ -143,7 +165,6 @@ export default async function DashboardPage() {
       accountType={accountType as any}
     >
       <div className="ftn-grid">
-        {/* 3 cartes (clean) */}
         <div className="ftn-grid-3">
           <Card title="Facture électronique TTN" subtitle="Solution clé en main">
             <div className="ftn-muted">
@@ -171,7 +192,6 @@ export default async function DashboardPage() {
           </Card>
         </div>
 
-        {/* Modules Premium (Soon) */}
         <div className="mt-6">
           <Card title="Modules Premium" subtitle="Bientôt disponibles (SOON)">
             <div className="ftn-muted">
