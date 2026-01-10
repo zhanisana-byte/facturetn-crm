@@ -10,14 +10,15 @@ export const dynamic = "force-dynamic";
 /* =========================
    Types (FIX Vercel TS)
 ========================= */
-type AccountType = "client" | "cabinet" | "groupe";
+type DbAccountType = "client" | "cabinet" | "groupe";
+type AppShellType = "entreprise" | "comptable" | "multi_societe";
 type AccountantStatus = "pending" | "verified" | "rejected" | null;
 
 type AppUser = {
   id: string;
   email: string | null;
   full_name: string | null;
-  account_type: AccountType | null;
+  account_type: DbAccountType | null;
 
   accountant_status: AccountantStatus;
   accountant_mf: string | null;
@@ -42,6 +43,11 @@ function formatDateFR(value: string | null | undefined) {
 function cn(...cls: Array<string | false | null | undefined>) {
   return cls.filter(Boolean).join(" ");
 }
+function mapToAppShellType(t: DbAccountType): AppShellType {
+  if (t === "cabinet") return "comptable";
+  if (t === "groupe") return "multi_societe";
+  return "entreprise";
+}
 
 /* =========================
    Local UI (luxe + anim)
@@ -64,10 +70,7 @@ function LuxCard({
   delay?: number;
 }) {
   return (
-    <div
-      className={cn("ftn-card-lux ftn-reveal", className)}
-      style={{ animationDelay: `${delay}ms` }}
-    >
+    <div className={cn("ftn-card-lux ftn-reveal", className)} style={{ animationDelay: `${delay}ms` }}>
       <div className="ftn-card-head">
         <div className="ftn-card-titleRow">
           {icon ? <div className="ftn-ic">{icon}</div> : null}
@@ -93,11 +96,7 @@ function Pill({
   children: React.ReactNode;
   pulse?: boolean;
 }) {
-  return (
-    <span className={cn("ftn-pill", `ftn-pill-${tone}`, pulse && "ftn-pill-pulse")}>
-      {children}
-    </span>
-  );
+  return <span className={cn("ftn-pill", `ftn-pill-${tone}`, pulse && "ftn-pill-pulse")}>{children}</span>;
 }
 
 function ButtonLink({
@@ -140,7 +139,7 @@ export default async function DashboardPage() {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // Profile (FIX: typing)
+  // Profile
   const { data, error } = await supabase
     .from("app_users")
     .select(
@@ -174,17 +173,18 @@ export default async function DashboardPage() {
 
   if (!profile.account_type) redirect("/onboarding");
 
-  const accountType = profile.account_type;
-  const isCabinet = accountType === "cabinet";
-  const isGroupe = accountType === "groupe";
-  const isClient = accountType === "client";
+  const dbType = profile.account_type; // client | cabinet | groupe
+  const shellType = mapToAppShellType(dbType); // entreprise | comptable | multi_societe
+
+  const isCabinet = dbType === "cabinet";
+  const isGroupe = dbType === "groupe";
 
   const welcomeName =
     (profile.full_name && profile.full_name.trim()) ||
     (profile.email ? profile.email.split("@")[0] : "Bienvenue");
 
-  // ✅ routes
-  const cabinetHref = "https://www.facturetn.com/accountant/cabinet";
+  // ✅ IMPORTANT FIX: liens internes (pas de https://www.facturetn.com)
+  const cabinetHref = "/accountant/cabinet"; // ✅ correction redirect/route
   const editInfoHref = isCabinet ? cabinetHref : "/profile";
   const supportHref = "/help";
 
@@ -192,24 +192,23 @@ export default async function DashboardPage() {
   const secondaryActionHref = isCabinet ? "/accountant/clients" : "/companies";
   const ttnHref = "/ttn";
 
-  const valueMsg =
-    "FactureTN — une expérience TTN claire, rapide et premium pour la facture électronique.";
+  const valueMsg = "FactureTN — une expérience TTN claire, rapide et premium pour la facture électronique.";
 
   const pendingUntil = formatDateFR(profile.accountant_pending_until);
 
   // Progress approx for cabinet pending (0..100) based on pending_until
-  let progressPct = 42; // fallback
+  let progressPct = 42;
   if (profile.accountant_status === "pending" && profile.accountant_pending_until) {
     const now = Date.now();
     const end = new Date(profile.accountant_pending_until).getTime();
-    const start = end - 60 * 24 * 60 * 60 * 1000; // ~60 days window
+    const start = end - 60 * 24 * 60 * 60 * 1000;
     if (!Number.isNaN(end) && end > start) {
       const p = ((now - start) / (end - start)) * 100;
       progressPct = Math.max(6, Math.min(96, Math.round(p)));
     }
   }
 
-  // Local luxe CSS (no need to edit global.css)
+  // Local luxe CSS
   const LuxeCSS = (
     <style>{`
 /* =========================================================
@@ -531,14 +530,14 @@ export default async function DashboardPage() {
   );
 
   /* =========================
-     CABINET PENDING (2 cards top)
+     CABINET PENDING
   ========================= */
   if (isCabinet && profile.accountant_status === "pending") {
     return (
       <AppShell
         title="Validation Cabinet"
         subtitle={`Bienvenue ${welcomeName} — votre cabinet est bien créé. La vérification professionnelle est en cours.`}
-        accountType={accountType as any}
+        accountType={shellType}
       >
         {LuxeCSS}
 
@@ -549,7 +548,7 @@ export default async function DashboardPage() {
                 <h1 className="ftn-heroTitle">Validation Cabinet</h1>
                 <div className="ftn-heroSub">
                   Votre espace cabinet est <b>déjà utilisable</b>. La vérification sert uniquement à activer le{" "}
-                  <b>bonus “Accès gratuit Cabinet”</b> (service comptable).
+                  <b>bonus “Accès gratuit Cabinet”</b>.
                 </div>
 
                 <div className="ftn-heroBadgeRow">
@@ -619,7 +618,7 @@ export default async function DashboardPage() {
                 <div>
                   <div className="ftn-itemTitle">Important</div>
                   <div className="ftn-itemSub">
-                    Le délai “2 mois” est un <b>délai administratif maximum</b> (pas une durée d’accès gratuit).
+                    Le délai “2 mois” est un <b>délai administratif maximum</b>.
                   </div>
                 </div>
               </div>
@@ -660,7 +659,7 @@ export default async function DashboardPage() {
 
               <div className="ftn-kv">
                 <div>
-                  Après validation : <b>bonus “Accès gratuit Cabinet”</b> + <b>gestion des accès / invitations</b>.
+                  Après validation : <b>bonus “Accès gratuit Cabinet”</b> + <b>gestion des invitations</b>.
                 </div>
               </div>
 
@@ -676,12 +675,7 @@ export default async function DashboardPage() {
           </div>
 
           <div className="ftn-grid2">
-            <LuxCard
-              title="Informations administratives"
-              subtitle="Données envoyées"
-              icon={<span>📄</span>}
-              delay={200}
-            >
+            <LuxCard title="Informations administratives" subtitle="Données envoyées" icon={<span>📄</span>} delay={200}>
               <div className="ftn-kv">
                 <div>
                   <b>MF :</b> {profile.accountant_mf || "—"}
@@ -719,7 +713,7 @@ export default async function DashboardPage() {
   }
 
   /* =========================
-     NORMAL DASHBOARD (client / groupe / cabinet verified)
+     NORMAL DASHBOARD
   ========================= */
   const topBadge = isCabinet ? (
     <Pill tone="success">✅ Cabinet</Pill>
@@ -733,7 +727,7 @@ export default async function DashboardPage() {
     <AppShell
       title="Dashboard"
       subtitle={`Bienvenue ${welcomeName} — votre espace FactureTN est prêt : TTN, organisation et performance.`}
-      accountType={accountType as any}
+      accountType={shellType}
     >
       {LuxeCSS}
 
@@ -860,8 +854,8 @@ export default async function DashboardPage() {
                 <div className="ftn-item">
                   <div className="ftn-dot-green" />
                   <div>
-                    <div className="ftn-itemTitle">Accès & équipes</div>
-                    <div className="ftn-itemSub">Invitez et contrôlez les permissions (selon votre version).</div>
+                    <div className="ftn-itemTitle">Récap & invitations</div>
+                    <div className="ftn-itemSub">Invitez et contrôlez les permissions (Récap).</div>
                   </div>
                 </div>
                 <div className="ftn-item">
