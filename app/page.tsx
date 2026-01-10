@@ -7,12 +7,20 @@ export default function Page() {
       title="Bienvenue sur FactureTN"
       subtitle="CRM & facturation électronique (Tunisie) — prêt pour TTN"
     >
+      {/* Texte intro */}
       <p className="ftn-muted">
-        Auth + Sociétés + memberships/roles + factures + exports PDF/XML (en cours).
+        Authentification sécurisée · Multi-sociétés · Rôles comptables ·
+        Facturation · Exports PDF / XML · Préparation TTN
       </p>
+
+      {/* Boutons */}
       <div className="mt-6 grid gap-3">
-        <Link className="ftn-btn w-full text-center" href="/login">Connexion</Link>
-        <Link className="ftn-btn-ghost w-full text-center" href="/register">Créer un compte</Link>
+        <Link href="/login" className="ftn-btn w-full text-center">
+          Connexion
+        </Link>
+        <Link href="/register" className="ftn-btn-ghost w-full text-center">
+          Créer un compte
+        </Link>
       </div>
     </AuthShell>
   );
