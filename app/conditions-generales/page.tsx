@@ -115,4 +115,36 @@ export default function ConditionsGeneralesPage() {
           <p className="ftn-legal-p">
             FactureTN traite des données nécessaires au service (comptes, sociétés, factures, accès). Des mesures raisonnables
             de sécurité sont mises en place.
-          </
+          </p>
+          <ul className="ftn-legal-list">
+            <li>Accès restreints selon rôles (membres, invitations, permissions).</li>
+            <li>Journaux techniques possibles pour sécurité et support.</li>
+          </ul>
+        </Section>
+
+        <Section id="support" title="7) Support & disponibilité">
+          <p className="ftn-legal-p">
+            Support via <b>[email support]</b>. Des interruptions peuvent survenir (maintenance, mises à jour, incidents).
+          </p>
+        </Section>
+
+        <Section id="misc" title="8) Dispositions finales">
+          <ul className="ftn-legal-list">
+            <li>FactureTN peut faire évoluer les CGU ; la version en ligne fait foi.</li>
+            <li>Si une clause est invalide, les autres restent applicables.</li>
+            <li><b>Droit applicable / juridiction :</b> [Tunisie — à confirmer juridiquement]</li>
+          </ul>
+        </Section>
+      </div>
+
+      <footer className="ftn-legal-footer">
+        <div>© {new Date().getFullYear()} FactureTN — Tous droits réservés.</div>
+        <div className="ftn-legal-footer-links">
+          <Link className="ftn-legal-footlink" href="/mentions-legales">Mentions légales</Link>
+          <span className="ftn-legal-sep">•</span>
+          <Link className="ftn-legal-footlink" href="/register">Inscription</Link>
+        </div>
+      </footer>
+    </main>
+  );
+}
