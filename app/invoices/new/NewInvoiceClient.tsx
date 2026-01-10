@@ -2,8 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import AppShell from "@/app/components/AppShell";
+import type { AccountType } from "@/app/types";
 
-type AccountType = "client" | "cabinet" | "groupe";
+type DbAccountType = "client" | "cabinet" | "groupe";
 
 type PageProps = {
   searchParams?: Promise<{ company?: string }>;
@@ -11,20 +12,28 @@ type PageProps = {
 
 type CompanyOption = { id: string; name: string };
 
+function mapDbAccountTypeToUi(t?: DbAccountType | null): AccountType {
+  if (t === "cabinet") return "comptable";
+  if (t === "groupe") return "multi_societe";
+  return "entreprise"; // client / null / undefined
+}
+
 export default async function InvoicesPage({ searchParams }: PageProps) {
   const supabase = await createClient();
 
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // ✅ profile (account_type) pour AppShell
+  // ✅ profile (account_type) -> converti pour AppShell
   const { data: profile } = await supabase
     .from("app_users")
     .select("account_type")
     .eq("id", auth.user.id)
     .maybeSingle();
 
-  const accountType = (profile?.account_type ?? undefined) as AccountType | undefined;
+  const accountType: AccountType = mapDbAccountTypeToUi(
+    (profile?.account_type ?? null) as DbAccountType | null
+  );
 
   const sp = (await searchParams) ?? {};
   const companyParam = sp?.company ?? "";
