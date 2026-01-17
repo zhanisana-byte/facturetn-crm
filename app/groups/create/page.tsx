@@ -43,12 +43,15 @@ async function createGroup(formData: FormData) {
   redirect(`/groups/success?id=${group.id}`);
 }
 
-type PageProps = {
-  searchParams?: { error?: string };
-};
+type SP = { error?: string };
 
-export default function GroupCreatePage({ searchParams }: PageProps) {
-  const error = searchParams?.error;
+export default async function GroupCreatePage({
+  searchParams,
+}: {
+  searchParams?: Promise<SP>;
+}) {
+  const sp = (await searchParams) ?? {};
+  const error = sp.error;
 
   return (
     <AppShell title="Créer un groupe">
