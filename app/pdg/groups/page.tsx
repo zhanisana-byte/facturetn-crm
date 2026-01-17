@@ -21,18 +21,21 @@ export default async function PdgGroupsPage({
 
   const supabase = await createClient();
 
+  // Auth
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
+  // Profil
   const { data: profile } = await supabase
     .from("app_users")
-    .select("id,account_type,subscription_status")
+    .select("id,account_type")
     .eq("id", auth.user.id)
     .single();
 
-  // Security: page PDG uniquement
+  // Sécurité PDG uniquement
   if (profile?.account_type !== "pdg") redirect("/dashboard");
 
+  // Query
   const like = q ? `%${q}%` : "";
   const { data: groups, error } = await (q
     ? supabase
@@ -48,8 +51,14 @@ export default async function PdgGroupsPage({
   const rows = groups ?? [];
 
   return (
-    <AppShell title="Groupes" subtitle="PDG — إدارة المجموعات" accountType="profil" isPdg>
+    <AppShell
+      title="Groupes"
+      subtitle="PDG — إدارة المجموعات"
+      accountType="profil"
+      isPdg
+    >
       <div className="ftn-grid">
+        {/* Recherche */}
         <Card title="Recherche" subtitle="Chercher un groupe par nom">
           <form className="flex gap-2" action="/pdg/groups" method="get">
             <input
@@ -69,6 +78,7 @@ export default async function PdgGroupsPage({
           </div>
         </Card>
 
+        {/* Liste */}
         <Card title="Liste des groupes" subtitle="Accès détails / équipe / archives">
           {error ? <div className="ftn-alert">{error.message}</div> : null}
 
@@ -88,7 +98,9 @@ export default async function PdgGroupsPage({
                 <tr key={g.id}>
                   <td className="font-semibold">{g.name ?? "Groupe"}</td>
                   <td>
-                    {g.created_at ? new Date(g.created_at).toLocaleDateString() : "—"}
+                    {g.created_at
+                      ? new Date(g.created_at).toLocaleDateString()
+                      : "—"}
                   </td>
                   <td className="flex flex-wrap gap-2">
                     <Link className="ftn-btn ftn-btn-soft" href={`/groups/${g.id}`}>
@@ -97,7 +109,10 @@ export default async function PdgGroupsPage({
                     <Link className="ftn-btn ftn-btn-soft" href={`/groups/${g.id}/team`}>
                       Équipe
                     </Link>
-                    <Link className="ftn-btn ftn-btn-soft" href={`/groups/${g.id}/archives`}>
+                    <Link
+                      className="ftn-btn ftn-btn-soft"
+                      href={`/groups/${g.id}/archives`}
+                    >
                       Archives
                     </Link>
                     <Link className="ftn-btn ftn-btn-soft" href={`/groups/${g.id}/ttn`}>
