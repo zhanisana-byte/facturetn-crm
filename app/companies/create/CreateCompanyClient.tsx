@@ -5,8 +5,6 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Card } from "@/components/ui";
 
-type CompanyInsertResult = { id: string };
-
 export default function CreateCompanyClient() {
   const supabase = createClient();
   const router = useRouter();
@@ -33,7 +31,7 @@ export default function CreateCompanyClient() {
         return;
       }
 
-      // ✅ RLS: insertion directe interdite. On crée via RPC SECURITY DEFINER.
+      // ✅ Création via RPC (SECURITY DEFINER)
       const { data: companyId, error: rpcErr } = await supabase.rpc("create_company_with_owner", {
         p_company_name: name.trim(),
         p_tax_id: taxId.trim() || null,
@@ -45,20 +43,10 @@ export default function CreateCompanyClient() {
       if (rpcErr) throw rpcErr;
       if (!companyId) throw new Error("Création société échouée (id manquant).");
 
-      // ✅ Activer le workspace société (UPsert, pas update)
-      const { error: wErr } = await supabase.from("user_workspace").upsert(
-        {
-          user_id: auth.user.id,
-          active_mode: "entreprise",
-          active_company_id: companyId,
-          active_group_id: null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" }
-      );
-      if (wErr) throw wErr;
+      // ✅ IMPORTANT : On ne change PAS le workspace ici.
+      // Le sidebar reste Profil.
+      // L’utilisateur passera en mode Société uniquement quand il clique la société / Switch.
 
-      // ✅ Redirect vers la société
       router.push(`/companies/success?id=${companyId}`);
       router.refresh();
     } catch (e: any) {
