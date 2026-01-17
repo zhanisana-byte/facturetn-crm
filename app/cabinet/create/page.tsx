@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import AppShell from "@/app/components/AppShell";
@@ -6,111 +7,108 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const runtime = "nodejs";
 
-export default async function CabinetCreateFromProfilPage() {
+export default async function CabinetPage() {
   const supabase = await createClient();
 
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth?.user) redirect("/login");
+  // ✅ rapide (cookie-based)
+  const { data: s } = await supabase.auth.getSession();
+  const user = s.session?.user;
+  if (!user) redirect("/login");
 
-  async function createCabinet(formData: FormData) {
-    "use server";
-    const supabase = await createClient();
+  // ✅ vérifier que c’est bien un compte cabinet / comptable
+  const { data: me } = await supabase
+    .from("app_users")
+    .select("id, account_type, full_name")
+    .eq("id", user.id)
+    .maybeSingle();
 
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) redirect("/login");
+  if (!me || !["cabinet", "comptable"].includes(me.account_type)) {
+    redirect("/dashboard");
+  }
 
-    const company_name = String(formData.get("company_name") || "").trim();
-    const tax_id = String(formData.get("tax_id") || "").trim();
-    const address = String(formData.get("address") || "").trim();
-    const vat_rate_raw = String(formData.get("vat_rate") || "").trim();
-    const stamp_duty_raw = String(formData.get("stamp_duty") || "").trim();
+  // ✅ récupérer le cabinet (company) via memberships
+  const { data: membership } = await supabase
+    .from("memberships")
+    .select("company_id, role")
+    .eq("user_id", user.id)
+    .eq("is_active", true)
+    .in("role", ["owner", "admin"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-    if (!company_name || !tax_id) redirect("/cabinet/create?err=missing");
+  // 👉 pas encore de cabinet
+  if (!membership?.company_id) {
+    return (
+      <AppShell title="Cabinet" subtitle="Espace Cabinet" accountType="comptable">
+        <div className="ftn-card p-4">
+          <p className="text-sm text-slate-600">
+            Aucun cabinet n’est encore créé.
+          </p>
 
-    const vat_rate = vat_rate_raw ? Number(vat_rate_raw) : null;
-    const stamp_duty = stamp_duty_raw ? Number(stamp_duty_raw) : null;
+          <div className="mt-4 flex gap-2">
+            <Link className="ftn-btn" href="/accountant/cabinet/new" prefetch>
+              Créer mon cabinet
+            </Link>
+            <Link className="ftn-btn ftn-btn-ghost" href="/switch" prefetch>
+              Switch
+            </Link>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
 
-    // 1) Créer la company (cabinet)
-    const { data, error } = await supabase
-      .from("companies")
-      .insert({
-        owner_user_id: auth.user.id,
-        company_name,
-        tax_id,
-        address: address || null,
-        vat_rate,
-        stamp_duty,
-      })
-      .select("id")
-      .single();
+  // ✅ charger infos cabinet (1 requête simple)
+  const { data: company, error: companyErr } = await supabase
+    .from("companies")
+    .select("id, company_name, tax_id")
+    .eq("id", membership.company_id)
+    .maybeSingle();
 
-    if (error || !data?.id) redirect("/cabinet/create?err=db");
-
-    const companyId = String(data.id);
-
-    // 2) Créer membership owner
-    await supabase.from("memberships").insert({
-      user_id: auth.user.id,
-      company_id: companyId,
-      role: "owner",
-      is_active: true,
-    });
-
-    // ✅ 3) IMPORTANT : donner accès Cabinet à l’utilisateur
-    // (sinon /accountant/cabinet va te jeter)
-    await supabase
-      .from("app_users")
-      .update({
-        account_type: "cabinet",
-        accountant_free_access: true,
-        accountant_status: "verified",
-        accountant_verified_at: new Date().toISOString(),
-      })
-      .eq("id", auth.user.id);
-
-    redirect(`/accountant/cabinet/success?id=${companyId}`);
+  // ✅ Fix build + sécurité runtime
+  if (companyErr || !company?.id) {
+    // Si membership existe mais company introuvable, on renvoie vers new
+    redirect("/accountant/cabinet/new");
   }
 
   return (
-    <AppShell title="Créer un cabinet" subtitle="Depuis Profil" accountType="profil">
-      <div className="mx-auto w-full max-w-2xl p-6">
-        <div className="ftn-card">
-          <h2 className="ftn-h2" style={{ marginTop: 0 }}>
-            Informations du cabinet
-          </h2>
+    <AppShell
+      title="Cabinet"
+      subtitle="Espace Cabinet"
+      accountType="comptable"
+      activeCompanyId={company.id}
+    >
+      <div className="ftn-card p-4">
+        <h3 className="font-semibold">{company.company_name}</h3>
+        <p className="text-sm text-slate-600 mt-1">
+          MF : <b>{company.tax_id ?? "—"}</b>
+        </p>
 
-          <form action={createCabinet} className="ftn-grid" style={{ marginTop: 14 }}>
-            <div>
-              <label className="ftn-label">Nom du cabinet *</label>
-              <input className="ftn-input" name="company_name" required />
-            </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link
+            className="ftn-btn"
+            href={`/accountant/cabinet/edit/${company.id}`}
+            prefetch
+          >
+            Mon cabinet
+          </Link>
 
-            <div>
-              <label className="ftn-label">Matricule fiscal (MF) *</label>
-              <input className="ftn-input" name="tax_id" required />
-            </div>
+          <Link
+            className="ftn-btn"
+            href={`/accountant/cabinet/ttn/${company.id}`}
+            prefetch
+          >
+            Paramètres TTN
+          </Link>
 
-            <div>
-              <label className="ftn-label">Adresse</label>
-              <input className="ftn-input" name="address" />
-            </div>
+          <Link className="ftn-btn" href="/accountant/clients" prefetch>
+            Mes clients
+          </Link>
 
-            <div className="ftn-grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
-              <div>
-                <label className="ftn-label">TVA (%)</label>
-                <input className="ftn-input" name="vat_rate" type="number" step="0.01" />
-              </div>
-              <div>
-                <label className="ftn-label">Timbre (TND)</label>
-                <input className="ftn-input" name="stamp_duty" type="number" step="0.001" />
-              </div>
-            </div>
-
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button className="ftn-btn" type="submit">Créer le cabinet</button>
-              <a className="ftn-btn ftn-btn-ghost" href="/pages/new">Annuler</a>
-            </div>
-          </form>
+          <Link className="ftn-btn ftn-btn-ghost" href="/switch" prefetch>
+            Switch
+          </Link>
         </div>
       </div>
     </AppShell>
