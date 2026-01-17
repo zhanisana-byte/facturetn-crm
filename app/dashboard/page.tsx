@@ -167,7 +167,8 @@ export default async function DashboardPage() {
 
   if (error || !profile) {
     return (
-      <AppShell title="Dashboard" subtitle="" accountType={undefined}>
+      // Fallback: sans profil on affiche quand meme un shell valide pour le build
+      <AppShell title="Dashboard" subtitle="" accountType="profil">
         <div className="ftn-alert">{error?.message || "Profil introuvable."}</div>
       </AppShell>
     );
@@ -340,148 +341,120 @@ export default async function DashboardPage() {
   .ftn-barFill::after{ animation:none; }
 }
 
-/* Pill */
+/* Pills */
 .ftn-pill{
   display:inline-flex; align-items:center; gap:6px;
   padding: 6px 10px;
   border-radius: 999px;
-  font-size: 12px;
-  border: 1px solid rgba(148,163,184,.28);
-  background: rgba(255,255,255,.55);
-  color: rgba(11,18,32,.88);
-  white-space:nowrap;
-  position:relative;
+  font-size: 12px; font-weight: 750;
+  border: 1px solid rgba(148,163,184,.26);
+  background: rgba(255,255,255,.70);
+  color: rgba(11,18,32,.86);
+  position: relative;
+  overflow:hidden;
 }
-.ftn-pill-warning{
-  border-color: rgba(245,158,11,.30);
-  background: rgba(245,158,11,.10);
-  color: rgba(120,53,15,.95);
-}
-.ftn-pill-success{
-  border-color: rgba(16,185,129,.30);
-  background: rgba(16,185,129,.10);
-  color: rgba(6,95,70,.95);
-}
-.ftn-pill-info{
-  border-color: rgba(59,130,246,.25);
-  background: rgba(59,130,246,.10);
-  color: rgba(30,64,175,.95);
-}
+.ftn-pill-warning{ background: rgba(245,158,11,.14); border-color: rgba(245,158,11,.28); }
+.ftn-pill-success{ background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.25); }
+.ftn-pill-info{ background: rgba(59,130,246,.12); border-color: rgba(59,130,246,.24); }
+
 .ftn-pill-pulse::before{
   content:"";
-  position:absolute;
-  inset:-4px;
-  border-radius:999px;
-  background: radial-gradient(circle at 50% 50%, rgba(245,158,11,.18), transparent 60%);
-  animation: ftn-pulse 1.6s ease-in-out infinite;
-  pointer-events:none;
+  position:absolute; inset:-2px;
+  background: radial-gradient(circle at 30% 40%, rgba(245,158,11,.22), transparent 60%);
+  opacity:.9;
+  animation: ftn-pulse 2.4s ease-in-out infinite;
 }
 @keyframes ftn-pulse{
-  0%,100%{ transform: scale(.96); opacity:.55; }
-  50%{ transform: scale(1.06); opacity:.95; }
+  0%,100%{ transform: scale(1); opacity:.35; }
+  50%{ transform: scale(1.12); opacity:.75; }
 }
 
 /* Buttons */
 .ftn-btn-lux{
-  position:relative;
+  position: relative;
   display:inline-flex; align-items:center; justify-content:center;
-  gap:8px;
-  padding: 10px 14px;
-  border-radius: 14px;
-  font-weight: 700;
-  font-size: 13.5px;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: -0.01em;
   border: 1px solid rgba(148,163,184,.28);
-  transition: transform .12s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease;
   text-decoration:none;
-  user-select:none;
+  transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease;
   overflow:hidden;
 }
-.ftn-btn-lux:hover{ transform: translateY(-1px); box-shadow: 0 14px 34px rgba(2,6,23,.12); }
-.ftn-btn-primary{
-  background: linear-gradient(180deg, rgba(186,134,52,1), rgba(161,110,34,1));
-  color: white;
-  border-color: rgba(186,134,52,.45);
-}
-.ftn-btn-success{
-  background: linear-gradient(180deg, rgba(16,185,129,1), rgba(5,150,105,1));
-  color: white;
-  border-color: rgba(16,185,129,.40);
-}
-.ftn-btn-soft{
-  background: rgba(186,134,52,.10);
-  border-color: rgba(186,134,52,.25);
-  color: rgba(120,53,15,.95);
-}
-.ftn-btn-ghost{
-  background: rgba(255,255,255,.55);
-  color: rgba(11,18,32,.90);
-}
-.ftn-btn-text{ position:relative; z-index:2; }
+.ftn-btn-text{ position: relative; z-index: 2; }
 .ftn-btn-shine{
-  position:absolute; inset:-40%;
-  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,.22) 40%, transparent 70%);
-  transform: rotate(12deg) translateX(-30%);
-  opacity:.0;
-  transition: opacity .2s ease;
-}
-.ftn-btn-lux:hover .ftn-btn-shine{
-  opacity:.95;
-  animation: ftn-shine 1.2s ease forwards;
+  position:absolute; inset:-50%;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,.18) 40%, transparent 70%);
+  transform: rotate(10deg);
+  animation: ftn-shine 5.5s linear infinite;
+  opacity:.45;
 }
 @keyframes ftn-shine{
-  0%{ transform: rotate(12deg) translateX(-30%); }
-  100%{ transform: rotate(12deg) translateX(30%); }
+  0%{ transform: translateX(-35%) rotate(10deg); }
+  100%{ transform: translateX(35%) rotate(10deg); }
+}
+.ftn-btn-primary{
+  background: linear-gradient(180deg, rgba(186,134,52,.95), rgba(146,103,32,.92));
+  border-color: rgba(186,134,52,.45);
+  color: white;
+  box-shadow: 0 12px 40px rgba(186,134,52,.22);
+}
+.ftn-btn-ghost{
+  background: rgba(255,255,255,.72);
+  color: rgba(11,18,32,.88);
+}
+.ftn-btn-soft{
+  background: rgba(59,130,246,.10);
+  border-color: rgba(59,130,246,.22);
+  color: rgba(11,18,32,.90);
+}
+.ftn-btn-success{
+  background: rgba(34,197,94,.14);
+  border-color: rgba(34,197,94,.26);
+  color: rgba(11,18,32,.92);
+}
+.ftn-btn-lux:hover{
+  transform: translateY(-1px);
+  border-color: rgba(186,134,52,.40);
+  box-shadow: 0 16px 55px rgba(2,6,23,.12);
 }
 
 /* Divider */
-.ftn-divider{ height:1px; background: rgba(148,163,184,.22); margin: 12px 0; }
-
-/* KV / lists */
-.ftn-kv{ display:flex; flex-direction:column; gap:10px; color: rgba(102,112,133,.98); font-size: 13.5px; }
-.ftn-kv b{ color: rgba(11,18,32,.92); }
-
-/* Status row */
-.ftn-statrow{
-  display:flex; align-items:center; justify-content:space-between;
-  padding: 10px 12px;
-  border-radius: 16px;
-  border: 1px solid rgba(148,163,184,.22);
-  background: rgba(255,255,255,.55);
+.ftn-divider{
+  height:1px;
+  background: linear-gradient(90deg, transparent, rgba(148,163,184,.40), transparent);
+  margin: 14px 0;
 }
-.ftn-statlabel{ font-size: 12.8px; color: rgba(102,112,133,.98); }
-.ftn-statvalue{ font-size: 13.5px; font-weight: 750; color: rgba(11,18,32,.92); }
+
+/* KV */
+.ftn-kv{
+  display:flex; flex-direction:column; gap:8px;
+  font-size: 13px;
+  color: rgba(11,18,32,.86);
+}
 
 /* Progress */
-.ftn-progress{
-  margin-top: 10px;
-  padding: 10px 12px;
-  border-radius: 16px;
-  border: 1px solid rgba(148,163,184,.22);
-  background: rgba(255,255,255,.55);
-}
+.ftn-progress{ display:flex; flex-direction:column; gap:8px; }
 .ftn-progressTop{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
-.ftn-progressLabel{ font-size: 12.8px; color: rgba(102,112,133,.98); }
-.ftn-progressPct{ font-size: 12.8px; font-weight: 800; color: rgba(11,18,32,.92); }
+.ftn-progressLabel{ font-size: 12.5px; color: rgba(102,112,133,.92); font-weight: 760; }
+.ftn-progressPct{ font-size: 12.5px; font-weight: 880; color: rgba(11,18,32,.90); }
 .ftn-bar{
-  margin-top: 10px;
   height: 10px;
   border-radius: 999px;
-  background: rgba(148,163,184,.18);
+  background: rgba(148,163,184,.20);
+  border: 1px solid rgba(148,163,184,.24);
   overflow:hidden;
-  position:relative;
 }
 .ftn-barFill{
-  height:100%;
+  height: 100%;
+  width: var(--pct);
   border-radius: 999px;
-  width: var(--pct, 40%);
-  background: linear-gradient(90deg, rgba(186,134,52,1), rgba(245,158,11,1));
-  box-shadow: 0 10px 30px rgba(186,134,52,.24);
-  position:relative;
-  animation: ftn-barIn .75s cubic-bezier(.2,.8,.2,1) forwards;
-}
-@keyframes ftn-barIn{
-  from{ width: 6%; }
-  to{ width: var(--pct, 40%); }
+  background: linear-gradient(90deg, rgba(245,158,11,.85), rgba(186,134,52,.92));
+  position: relative;
+  overflow:hidden;
 }
 .ftn-barFill::after{
   content:"";
