@@ -20,6 +20,16 @@ function isPublicAsset(pathname: string) {
   );
 }
 
+type CookieOptions = {
+  path?: string;
+  domain?: string;
+  maxAge?: number;
+  expires?: Date;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: "lax" | "strict" | "none";
+};
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -32,33 +42,33 @@ export async function middleware(req: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name) {
+        get(name: string) {
           return req.cookies.get(name)?.value;
         },
-        set(name, value, options) {
+        set(name: string, value: string, options: CookieOptions) {
           res.cookies.set({ name, value, ...options });
         },
-        remove(name, options) {
-          res.cookies.set({ name, value: "", ...options });
+        remove(name: string, options: CookieOptions) {
+          res.cookies.set({ name, value: "", ...options, maxAge: 0 });
         },
       },
     }
   );
 
-  // ✅ IMPORTANT: getSession() = rapide (pas d'appel réseau)
+  // ✅ Rapide: pas d'appel réseau
   const { data } = await supabase.auth.getSession();
   const session = data.session;
 
   const isAuthRoute =
     pathname.startsWith("/login") || pathname.startsWith("/register");
 
-  // routes publiques
   const isPublicRoute =
     isAuthRoute ||
     pathname === "/" ||
     pathname.startsWith("/pricing") ||
     pathname.startsWith("/legal") ||
-    pathname.startsWith("/api/public");
+    pathname.startsWith("/api/public") ||
+    pathname.startsWith("/api/health");
 
   if (!session && !isPublicRoute) {
     const url = req.nextUrl.clone();
@@ -77,5 +87,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api/health).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
