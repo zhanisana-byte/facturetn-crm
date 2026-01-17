@@ -37,12 +37,12 @@ function label(reason?: string) {
   }
 }
 
-type PageProps = {
-  searchParams?: SP;
-};
-
-export default async function BlockedPage({ searchParams }: PageProps) {
-  const sp = searchParams ?? {};
+export default async function BlockedPage({
+  searchParams,
+}: {
+  searchParams?: Promise<SP>;
+}) {
+  const sp = (await searchParams) ?? {};
 
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
