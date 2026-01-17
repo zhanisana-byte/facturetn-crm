@@ -1,134 +1,123 @@
-import type { AccountType } from "@/app/types";
+// REMPLACE TOUT LE CONTENU DE TON FICHIER SIDEBAR PAR CE CODE :
+'use client';
 
-export type PageType = "cabinet" | "group" | "company";
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { memo, useMemo } from 'react';
 
-export type ActivePage =
-  | { id: string; type: PageType; role?: "owner" | "admin" | "member" | "viewer" }
-  | null;
+// 1. Importe ton hook Supabase actuel ou utilise celui-ci :
+// Si tu as un hook personnalisé, utilise-le ici :
+// import { useSupabase } from '@/lib/supabase/client';
+// Sinon, utilise celui du Provider :
+import { useSupabase } from '@/app/providers/SupabaseProvider';
 
-export type SidebarItem =
-  | { kind: "link"; key: string; label: string; href: string; badge?: string; exact?: boolean }
-  | { kind: "divider"; key: string }
-  | { kind: "title"; key: string; label: string };
+const MenuItem = memo(({ href, icon, label, isActive }: any) => (
+  <Link
+    href={href}
+    className={`flex items-center p-3 rounded-lg transition-colors ${
+      isActive 
+        ? 'bg-blue-50 text-blue-700 border-l-4 border-blue-500' 
+        : 'hover:bg-gray-50 text-gray-700 hover:text-gray-900'
+    }`}
+    prefetch={true}
+  >
+    <span className="mr-3 text-lg">{icon}</span>
+    <span className="font-medium">{label}</span>
+  </Link>
+));
+MenuItem.displayName = 'MenuItem';
 
-export type SidebarContext = {
-  accountType: AccountType; // profil | entreprise | comptable | multi_societe
-  activePage: ActivePage;
+const MenuItemsList = memo(({ items, pathname }: any) => (
+  <nav className="space-y-1">
+    {items.map((item: any) => (
+      <MenuItem
+        key={item.href}
+        href={item.href}
+        icon={item.icon}
+        label={item.label}
+        isActive={pathname === item.href || pathname.startsWith(item.href + '/')}
+      />
+    ))}
+  </nav>
+));
+MenuItemsList.displayName = 'MenuItemsList';
 
-  activeCompanyId?: string | null;
-  activeGroupId?: string | null;
+export default function Sidebar() {
+  const pathname = usePathname();
+  const { user, isLoading } = useSupabase(); // ✅ Plus d'appels répétés
 
-  hasPagesToSwitch: boolean;
+  // CALCUL DU MENU UNE SEULE FOIS
+  const menuItems = useMemo(() => {
+    if (isLoading || !user) return [];
 
-  isPdg?: boolean;
-};
-
-const L = (key: string, label: string, href: string, badge?: string, exact?: boolean): SidebarItem => ({
-  kind: "link",
-  key,
-  label,
-  href,
-  badge,
-  exact,
-});
-const T = (key: string, label: string): SidebarItem => ({ kind: "title", key, label });
-const D = (key: string): SidebarItem => ({ kind: "divider", key });
-
-export function getSidebarItems(ctx: SidebarContext): SidebarItem[] {
-  const { accountType, hasPagesToSwitch, activePage } = ctx;
-  const isPdg = ctx.isPdg ?? false;
-
-  const activeCompanyId = ctx.activeCompanyId ?? null;
-  const activeGroupId = ctx.activeGroupId ?? null;
-
-  // =========================
-  // CABINET (workspace comptable)
-  // =========================
-  if (accountType === "comptable") {
-    return [
-      T("cabinet_title", "Cabinet"),
-      L("cabinet_dashboard", "Dashboard", "/accountant/cabinet", undefined, true),
-      L("cabinet_profile", "Mon cabinet", "/accountant/profile"),
-      L("cabinet_companies", "Mes sociétés", "/accountant/clients"),
-      L("cabinet_perm", "Accès & permissions", "/accountant/permissions"),
-      L("cabinet_roles", "Rôles", "/accountant/roles"),
-      L("cabinet_inv", "Invitations", "/accountant/team"),
-      L("cabinet_sub", "Abonnement", "/subscription", "Gratuit"),
-      D("cabinet_div1"),
-      L("cabinet_switch", "Switch", "/switch"),
-    ];
-  }
-
-  // =========================
-  // GROUPE (workspace multi_societe)
-  // =========================
-  if (accountType === "multi_societe") {
-    const groupId = activeGroupId ?? (activePage?.type === "group" ? activePage.id : null);
-
-    return [
-      T("group_title", "Groupe"),
-      L("group_home", "Dashboard", groupId ? `/groups/${groupId}` : "/groups/select", undefined, true),
-      L("group_profile", "Profil Groupe", groupId ? `/groups/${groupId}/profile` : "/groups/select"),
-      L("group_companies", "Mes sociétés", groupId ? `/groups/${groupId}/clients` : "/groups/select"),
-      L("group_access", "Accès & permissions", groupId ? `/groups/${groupId}/droits` : "/groups/select"),
-      L("group_inv", "Invitations", "/groups/invitations"),
-      L("group_sub", "Abonnement", "/subscription", "Gratuit"),
-      D("group_div1"),
-      L("group_switch", "Switch", "/switch"),
-    ];
-  }
-
-  // =========================
-  // PROFIL (workspace profil)
-  // =========================
-  if (accountType === "profil") {
-    const items: SidebarItem[] = [
-      T("pro_title", "Profil"),
-      L("pro_dashboard", "Dashboard", "/dashboard", undefined, true),
-      L("pro_pages_new", "Création de page", "/pages/new"),
-      L("pro_invoices", "Factures", "/invoices"),
-      L("pro_recurring", "Facture permanente", "/recurring"),
-      // Historique: la route s'appelle /clients mais le libellé business = Mes sociétés
-      L("pro_companies", "Mes sociétés", "/clients"),
-      L("pro_invitations", "Invitations reçues", "/invitations"),
-      L("pro_roles", "Rôles & pages", "/roles"),
-      L("pro_help", "Aide & Support", "/help"),
-      D("pro_div1"),
-      L("pro_switch", "Switch", "/switch", hasPagesToSwitch ? undefined : "Créer une page"),
+    const baseItems = [
+      { href: '/dashboard', icon: '🏠', label: 'Tableau de bord' },
+      { href: '/dashboard/invoices', icon: '🧾', label: 'Factures' },
+      { href: '/dashboard/clients', icon: '👥', label: 'Clients' },
     ];
 
-    if (isPdg) {
-      items.push(D("pdg_div"));
-      items.push(T("pdg_title", "PDG (CRM)"));
-      items.push(L("pdg_home", "Dashboard PDG", "/pdg", undefined, true));
-      items.push(L("pdg_users", "Inscrits", "/pdg/users"));
-      items.push(L("pdg_subs", "Abonnements", "/pdg/subscriptions"));
-      items.push(L("pdg_payments", "Paiements", "/pdg/payments"));
-      items.push(L("pdg_reports", "Rapports", "/pdg/reports"));
+    // ADAPTE CES LIENS À TON PROJET :
+    switch (user.user_type) {
+      case 'societe':
+        return [...baseItems, 
+          { href: '/dashboard/societe', icon: '🏢', label: 'Ma Société' }
+        ];
+      case 'cabinet':
+        return [...baseItems, 
+          { href: '/dashboard/cabinet', icon: '⚖️', label: 'Mon Cabinet' },
+          { href: '/dashboard/societes', icon: '🏢', label: 'Sociétés Gérées' }
+        ];
+      case 'groupe':
+        return [...baseItems,
+          { href: '/dashboard/groupe', icon: '🏛️', label: 'Mon Groupe' },
+          { href: '/dashboard/filiales', icon: '🏢', label: 'Filiales' }
+        ];
+      default:
+        return baseItems;
     }
+  }, [user, isLoading]);
 
-    return items;
+  if (isLoading) {
+    return (
+      <div className="w-64 bg-white border-r border-gray-200 p-4">
+        <div className="animate-pulse space-y-3">
+          <div className="h-4 bg-gray-200 rounded"></div>
+          <div className="h-4 bg-gray-200 rounded"></div>
+          <div className="h-4 bg-gray-200 rounded"></div>
+        </div>
+      </div>
+    );
   }
 
-  // =========================
-  // SOCIÉTÉ (workspace entreprise)
-  // =========================
-  const companyId = activeCompanyId ?? (activePage?.type === "company" ? activePage.id : null);
-  const companyHome = companyId ? `/companies/${companyId}` : "/companies";
-  // If no active company is selected, send the user to Switch (single source of truth).
-  const ttnHref = companyId ? `/companies/${companyId}/ttn` : "/switch";
-
-  return [
-    T("co_title", "Société"),
-    L("co_home", "Dashboard", companyHome, undefined, true),
-    L("co_profile", "Ma société", companyId ? `/companies/edit/${companyId}` : "/switch"),
-    // Dans ce ZIP: les droits/roles sont gérés dans /droits (avec des tabs).
-    L("co_permissions", "Accès & permissions", companyId ? `/companies/${companyId}/droits?tab=permissions` : "/switch"),
-    L("co_roles", "Rôles", companyId ? `/companies/${companyId}/droits?tab=roles` : "/switch"),
-    L("co_invitations", "Invitations", companyId ? `/companies/${companyId}/invitations` : "/switch"),
-    L("co_ttn", "Paramètres TTN", ttnHref),
-    L("co_sub", "Abonnement", "/subscription", "Gratuit"),
-    D("co_div1"),
-    L("co_switch", "Switch", "/switch"),
-  ];
+  return (
+    <div className="w-64 bg-white border-r border-gray-200 p-4 sticky top-0 h-screen overflow-y-auto">
+      <div className="mb-8">
+        <h1 className="text-xl font-bold text-gray-800">FactureTN</h1>
+        {user && (
+          <p className="text-sm text-gray-500 mt-1">
+            {user.user_type === 'societe' && 'Société'}
+            {user.user_type === 'cabinet' && 'Cabinet'}
+            {user.user_type === 'groupe' && 'Groupe'}
+          </p>
+        )}
+      </div>
+      
+      <MenuItemsList items={menuItems} pathname={pathname} />
+      
+      <div className="mt-8 pt-4 border-t border-gray-200">
+        <MenuItem
+          href="/dashboard/settings"
+          icon="⚙️"
+          label="Paramètres"
+          isActive={pathname === '/dashboard/settings'}
+        />
+        <MenuItem
+          href="/logout"
+          icon="🚪"
+          label="Déconnexion"
+          isActive={false}
+        />
+      </div>
+    </div>
+  );
 }
