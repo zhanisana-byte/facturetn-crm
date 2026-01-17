@@ -11,12 +11,13 @@ type SearchParamsShape = {
   q?: string;
 };
 
-type PageProps = {
-  searchParams?: SearchParamsShape;
-};
-
-export default async function PdgGroupsPage({ searchParams }: PageProps) {
-  const q = (searchParams?.q ?? "").trim();
+export default async function PdgGroupsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<SearchParamsShape>;
+}) {
+  const sp = (await searchParams) ?? {};
+  const q = (sp.q ?? "").trim();
 
   const supabase = await createClient();
 
@@ -29,6 +30,7 @@ export default async function PdgGroupsPage({ searchParams }: PageProps) {
     .eq("id", auth.user.id)
     .single();
 
+  // Security: page PDG uniquement
   if (profile?.account_type !== "pdg") redirect("/dashboard");
 
   const like = q ? `%${q}%` : "";
@@ -46,12 +48,7 @@ export default async function PdgGroupsPage({ searchParams }: PageProps) {
   const rows = groups ?? [];
 
   return (
-    <AppShell
-      title="Groupes"
-      subtitle="PDG — إدارة المجموعات"
-      accountType="profil"
-      isPdg
-    >
+    <AppShell title="Groupes" subtitle="PDG — إدارة المجموعات" accountType="profil" isPdg>
       <div className="ftn-grid">
         <Card title="Recherche" subtitle="Chercher un groupe par nom">
           <form className="flex gap-2" action="/pdg/groups" method="get">
@@ -91,9 +88,7 @@ export default async function PdgGroupsPage({ searchParams }: PageProps) {
                 <tr key={g.id}>
                   <td className="font-semibold">{g.name ?? "Groupe"}</td>
                   <td>
-                    {g.created_at
-                      ? new Date(g.created_at).toLocaleDateString()
-                      : "—"}
+                    {g.created_at ? new Date(g.created_at).toLocaleDateString() : "—"}
                   </td>
                   <td className="flex flex-wrap gap-2">
                     <Link className="ftn-btn ftn-btn-soft" href={`/groups/${g.id}`}>
