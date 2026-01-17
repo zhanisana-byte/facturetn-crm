@@ -8,7 +8,7 @@ export default async function CabinetValidationPage() {
     <AppShell
       title="Validation cabinet"
       subtitle="Valider les sociétés / clients et gérer les accès"
-      accountType="cabinet"
+      accountType="accountant"
     >
       <div className="ftn-card p-6">
         <div className="ftn-muted">
