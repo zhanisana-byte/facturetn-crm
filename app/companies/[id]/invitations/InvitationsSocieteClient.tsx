@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { Card, Table, Badge, Btn } from "@/components/ui";
+import { Card, Table, Badge, Btn, BtnGhost } from "@/components/ui";
 
 type InviteRow = {
   id: string;
@@ -191,7 +191,10 @@ export default function InvitationsSocieteClient({
                 ["TTN", "can_submit_ttn"],
               ] as const
             ).map(([label, key]) => (
-              <label key={key} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs flex items-center justify-between">
+              <label
+                key={key}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs flex items-center justify-between"
+              >
                 <span className="text-slate-700">{label}</span>
                 <input
                   type="checkbox"
@@ -233,19 +236,22 @@ export default function InvitationsSocieteClient({
             {rows.map((r) => (
               <tr key={r.id}>
                 <td className="font-medium">{r.invited_email}</td>
-                <td><Badge>{String(r.objective || "—")}</Badge></td>
-                <td><Badge>{String(r.role || "—")}</Badge></td>
+                <td>
+                  <Badge>{String(r.objective || "—")}</Badge>
+                </td>
+                <td>
+                  <Badge>{String(r.role || "—")}</Badge>
+                </td>
                 <td>{fmtDate(r.created_at)}</td>
                 <td>{fmtDate(r.expires_at)}</td>
                 <td className="text-right">
                   {isManager ? (
-                    <Btn
-                      variant="ghost" asChild={false}
+                    <BtnGhost
                       disabled={pending}
                       onClick={() => startTransition(async () => cancelInvite(r.id))}
                     >
                       Annuler
-                    </Btn>
+                    </BtnGhost>
                   ) : (
                     <span className="text-xs opacity-70">—</span>
                   )}
