@@ -21,7 +21,9 @@ export default async function NewCabinetPage() {
     .eq("id", userId)
     .maybeSingle();
 
-  if (!profile || profile.account_type !== "comptable") {
+  // Si ton type est "comptable" ou "cabinet", accepte les deux
+  const t = String(profile?.account_type ?? "");
+  if (!profile || !["comptable", "cabinet"].includes(t)) {
     redirect("/dashboard");
   }
 
@@ -45,11 +47,11 @@ export default async function NewCabinetPage() {
     const vat_rate = vat_rate_raw ? Number(vat_rate_raw) : null;
     const stamp_duty = stamp_duty_raw ? Number(stamp_duty_raw) : null;
 
-    // NOTE: return the created company id so we can show a success page.
+    // ✅ 1) créer la company "cabinet"
     const { data, error } = await supabase
       .from("companies")
       .insert({
-        owner_user: auth.user.id,
+        owner_user_id: auth.user.id, // ✅ FIX ICI
         company_name,
         tax_id,
         address: address || null,
@@ -63,7 +65,18 @@ export default async function NewCabinetPage() {
       redirect("/accountant/cabinet/new?err=db");
     }
 
-    redirect(`/accountant/cabinet/success?id=${data.id}`);
+    const companyId = data.id as string;
+
+    // ✅ 2) créer le membership owner (pour accès + affichage)
+    await supabase.from("memberships").insert({
+      user_id: auth.user.id,
+      company_id: companyId,
+      role: "owner",
+      is_active: true,
+    });
+
+    // ✅ 3) ne pas switch auto -> reste en cabinet, redirection success
+    redirect(`/accountant/cabinet/success?id=${companyId}`);
   }
 
   return (
@@ -85,22 +98,12 @@ export default async function NewCabinetPage() {
           <form action={createCabinet} className="ftn-grid" style={{ marginTop: 14 }}>
             <div>
               <label className="ftn-label">Nom du cabinet *</label>
-              <input
-                className="ftn-input"
-                name="company_name"
-                placeholder="Ex : Cabinet Sana"
-                required
-              />
+              <input className="ftn-input" name="company_name" placeholder="Ex : Cabinet Sana" required />
             </div>
 
             <div>
               <label className="ftn-label">Matricule fiscal (MF) *</label>
-              <input
-                className="ftn-input"
-                name="tax_id"
-                placeholder="Ex : 1234567/A"
-                required
-              />
+              <input className="ftn-input" name="tax_id" placeholder="Ex : 1234567/A" required />
             </div>
 
             <div>
@@ -108,10 +111,7 @@ export default async function NewCabinetPage() {
               <input className="ftn-input" name="address" placeholder="Ex : Tunis, Ariana..." />
             </div>
 
-            <div
-              className="ftn-grid"
-              style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}
-            >
+            <div className="ftn-grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
               <div>
                 <label className="ftn-label">TVA (%)</label>
                 <input className="ftn-input" name="vat_rate" type="number" step="0.01" placeholder="Ex : 19" />
