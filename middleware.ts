@@ -1,95 +1,81 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
+function isPublicAsset(pathname: string) {
+  return (
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/favicon") ||
+    pathname.startsWith("/icons") ||
+    pathname.startsWith("/images") ||
+    pathname.startsWith("/fonts") ||
+    pathname.endsWith(".png") ||
+    pathname.endsWith(".jpg") ||
+    pathname.endsWith(".jpeg") ||
+    pathname.endsWith(".webp") ||
+    pathname.endsWith(".svg") ||
+    pathname.endsWith(".ico") ||
+    pathname.endsWith(".css") ||
+    pathname.endsWith(".js") ||
+    pathname.endsWith(".map")
+  );
+}
+
 export async function middleware(req: NextRequest) {
-  let res = NextResponse.next();
+  const { pathname } = req.nextUrl;
 
-  const path = req.nextUrl.pathname;
+  if (isPublicAsset(pathname)) return NextResponse.next();
 
-  // Routes publiques
-  const isPublic =
-    path === "/" ||
-    path.startsWith("/login") ||
-    path.startsWith("/register") ||
-    path.startsWith("/forgot-password") ||
-    path.startsWith("/auth/callback") ||
-    path.startsWith("/mentions-legales") ||
-    path.startsWith("/conditions-generales") ||
-    path.startsWith("/help") ||
-    path.startsWith("/blocked");
+  const res = NextResponse.next();
 
-  const isAuthPage =
-    path.startsWith("/login") || path.startsWith("/register") || path.startsWith("/forgot-password");
-
-  // Guards (blocked)
-  const block = (reason: string) => {
-    const url = new URL("/blocked", req.url);
-    url.searchParams.set("reason", reason);
-    url.searchParams.set("next", "/switch");
-    return NextResponse.redirect(url);
-  };
-
-  // Facturation interdite hors Profil
-  if (
-    path.startsWith("/accountant/invoices") ||
-    path.startsWith("/accountant/recurring") ||
-    path.startsWith("/accountant/declaration")
-  ) {
-    return block("cabinet_facturation");
-  }
-  if (/^\/companies\/[^\/]+\/(invoices|recurring)(\/|$)/.test(path)) {
-    return block("societe_facturation");
-  }
-  if (/^\/groups\/[^\/]+\/(invoices|recurring)(\/|$)/.test(path)) {
-    return block("groupe_facturation");
-  }
-
-  // Legacy / deprecated routes
-  if (
-    path === "/declaration" ||
-    path.startsWith("/declarations") ||
-    path.startsWith("/company/select") ||
-    path.startsWith("/cabinet/")
-  ) {
-    return block("deprecated");
-  }
-
-  // ✅ IMPORTANT : session via cookies (rapide, pas de réseau)
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
+        get(name) {
           return req.cookies.get(name)?.value;
         },
-        set(name: string, value: string, options: any) {
+        set(name, value, options) {
           res.cookies.set({ name, value, ...options });
         },
-        remove(name: string, options: any) {
-          res.cookies.set({ name, value: "", ...options, maxAge: 0 });
+        remove(name, options) {
+          res.cookies.set({ name, value: "", ...options });
         },
       },
     }
   );
 
-  const { data: sessionData } = await supabase.auth.getSession();
-  const hasSession = !!sessionData.session;
+  // ✅ IMPORTANT: getSession() = rapide (pas d'appel réseau)
+  const { data } = await supabase.auth.getSession();
+  const session = data.session;
 
-  // Pas connecté => tout sauf public vers login
-  if (!hasSession && !isPublic) {
-    return NextResponse.redirect(new URL("/login", req.url));
+  const isAuthRoute =
+    pathname.startsWith("/login") || pathname.startsWith("/register");
+
+  // routes publiques
+  const isPublicRoute =
+    isAuthRoute ||
+    pathname === "/" ||
+    pathname.startsWith("/pricing") ||
+    pathname.startsWith("/legal") ||
+    pathname.startsWith("/api/public");
+
+  if (!session && !isPublicRoute) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/login";
+    url.searchParams.set("next", pathname);
+    return NextResponse.redirect(url);
   }
 
-  // Connecté => bloquer pages auth
-  if (hasSession && isAuthPage) {
-    return NextResponse.redirect(new URL("/dashboard", req.url));
+  if (session && isAuthRoute) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/dashboard";
+    return NextResponse.redirect(url);
   }
 
   return res;
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api).*)"],
+  matcher: ["/((?!api/health).*)"],
 };
