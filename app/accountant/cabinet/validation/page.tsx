@@ -1,19 +1,20 @@
 import AppShell from "@/app/components/AppShell";
-import ValidationClient from "./ValidationClient";
-import { requireAppUser } from "@/lib/auth/guards";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function CabinetValidationPage() {
-  // Accès réservé au comptable/cabinet (validation)
-  await requireAppUser(["comptable", "cabinet"]);
-
   return (
     <AppShell
       title="Validation cabinet"
       subtitle="Valider les sociétés / clients et gérer les accès"
+      accountType="cabinet"
     >
-      <ValidationClient />
+      <div className="ftn-card p-6">
+        <div className="ftn-muted">
+          Page de validation Cabinet (à compléter selon tes règles).
+        </div>
+      </div>
     </AppShell>
   );
 }
