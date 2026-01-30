@@ -56,15 +56,13 @@ function Modal({
 
   return (
     <div className="fixed inset-0 z-[80] flex items-start justify-center p-4">
-      <div className="absolute inset-0 bg-black/35" onClick={onClose} />
-      <div className="relative w-full max-w-xl rounded-2xl border bg-white p-4 shadow-xl">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-base font-semibold">{title}</div>
-            <div className="mt-1 text-sm text-slate-700 whitespace-pre-wrap">{message}</div>
-          </div>
-          <button className="ftn-btn ftn-btn-ghost" type="button" onClick={onClose}>
-            Fermer
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full max-w-lg ftn-card p-5">
+        <div className="text-lg font-semibold">{title}</div>
+        <div className="mt-2 text-sm text-[var(--muted)] whitespace-pre-wrap">{message}</div>
+        <div className="mt-4 flex justify-end">
+          <button className="ftn-btn" onClick={onClose}>
+            OK
           </button>
         </div>
       </div>
@@ -72,37 +70,30 @@ function Modal({
   );
 }
 
-export default function NewInvoiceClient({ companies }: { companies: Company[] }) {
-  const supabase = createClient();
+export default function NewInvoiceClient({
+  companies,
+  defaultCompanyId,
+}: {
+  companies: Company[];
+  defaultCompanyId?: string | null;
+}) {
   const router = useRouter();
-  const [saving, startSaving] = useTransition();
+  const supabase = createClient();
+  const [isPending, startTransition] = useTransition();
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalTitle, setModalTitle] = useState("Erreur");
-  const [modalMsg, setModalMsg] = useState("");
+  const [modal, setModal] = useState<{ open: boolean; title: string; message: string }>({
+    open: false,
+    title: "",
+    message: "",
+  });
 
-  const openError = (msg: string) => {
-    setModalTitle("Erreur");
-    setModalMsg(msg);
-    setModalOpen(true);
-  };
-
-  const openInfo = (msg: string) => {
-    setModalTitle("Information");
-    setModalMsg(msg);
-    setModalOpen(true);
-  };
-
-  const closeModal = () => setModalOpen(false);
-
-  const [companyId, setCompanyId] = useState<string>(companies?.[0]?.id ?? "");
+  const [companyId, setCompanyId] = useState<string>(defaultCompanyId || companies?.[0]?.id || "");
   const [documentType, setDocumentType] = useState<DocumentType>("facture");
+  const [customerType, setCustomerType] = useState<CustomerType>("entreprise");
 
   const [issueDate, setIssueDate] = useState<string>(todayISO());
   const [invoiceNumber, setInvoiceNumber] = useState<string>("");
-  const [uniqueRef, setUniqueRef] = useState<string>("");
 
-  const [customerType, setCustomerType] = useState<CustomerType>("entreprise");
   const [customerName, setCustomerName] = useState<string>("");
   const [customerTaxId, setCustomerTaxId] = useState<string>("");
   const [customerEmail, setCustomerEmail] = useState<string>("");
@@ -110,7 +101,7 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
   const [customerAddress, setCustomerAddress] = useState<string>("");
 
   const [currency, setCurrency] = useState<string>("TND");
-  const [stampAmount, setStampAmount] = useState<number>(1.0);
+  const [stampAmount, setStampAmount] = useState<number>(1);
 
   const [items, setItems] = useState<ItemRow[]>([
     { line_no: 1, description: "", quantity: 1, unit_price_ht: 0, vat_pct: 19, discount_pct: 0 },
@@ -151,30 +142,33 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
     ]);
   }
 
-  function removeLine(lineNo: number) {
-    setItems((prev) => {
-      const filtered = prev.filter((x) => x.line_no !== lineNo);
-      const renum = filtered.map((x, idx) => ({ ...x, line_no: idx + 1 }));
-      return renum.length ? renum : prev;
-    });
+  function removeLine(i: number) {
+    setItems((prev) => prev.filter((_, idx) => idx !== i).map((x, idx) => ({ ...x, line_no: idx + 1 })));
   }
 
-  function updateLine(lineNo: number, patch: Partial<ItemRow>) {
-    setItems((prev) => prev.map((x) => (x.line_no === lineNo ? { ...x, ...patch } : x)));
+  function updateLine(i: number, key: keyof ItemRow, value: any) {
+    setItems((prev) =>
+      prev.map((row, idx) => {
+        if (idx !== i) return row;
+        return { ...row, [key]: value };
+      })
+    );
   }
 
-  function validateForm(): string | null {
-    if (!companyId) return "Société obligatoire.";
-    if (!issueDate) return "Date d’émission obligatoire.";
-    if (!iso4217OK(currency)) return "Devise invalide (ex: TND, EUR, USD).";
+  function openError(msg: string) {
+    setModal({ open: true, title: "Erreur", message: msg });
+  }
+  function openInfo(msg: string) {
+    setModal({ open: true, title: "Info", message: msg });
+  }
 
-    if (!customerName.trim()) return "Client obligatoire.";
+  async function onCreate() {
+    if (!companyId) return openError("Veuillez choisir une société.");
+    if (!customerName.trim()) return openError("Veuillez saisir le nom du client.");
+    if (!issueDate) return openError("Veuillez choisir une date.");
+    if (!iso4217OK(currency)) return openError("Devise invalide (ex: TND, EUR, USD).");
 
-    if (customerType === "entreprise" && !customerTaxId.trim()) {
-      return "Matricule fiscal obligatoire pour un client entreprise.";
-    }
-
-    const clean = items
+    const validItems = items
       .map((it) => ({
         ...it,
         description: (it.description || "").trim(),
@@ -183,27 +177,15 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
         vat_pct: toNum(it.vat_pct, 0),
         discount_pct: toNum(it.discount_pct, 0),
       }))
-      .filter((x) => x.description);
+      .filter((it) => it.description && it.quantity > 0);
 
-    if (!clean.length) return "Au moins une ligne (description) est obligatoire.";
-    if (clean.some((x) => x.quantity <= 0)) return "Quantité doit être > 0.";
-    if (clean.some((x) => x.unit_price_ht < 0)) return "PU HT ne peut pas être négatif.";
-    if (clean.some((x) => x.vat_pct < 0 || x.vat_pct > 100)) return "TVA % doit être entre 0 et 100.";
-    if (toNum(stampAmount, 0) < 0) return "Timbre fiscal invalide.";
+    if (!validItems.length) return openError("Ajoutez au moins une ligne avec description et quantité > 0.");
 
-    return null;
-  }
-
-  async function handleSave() {
-    const v = validateForm();
-    if (v) return openError(v);
-
-    startSaving(async () => {
+    startTransition(async () => {
       try {
         const payload: any = {
           company_id: companyId,
-
-          unique_reference: uniqueRef.trim() || null,
+          customer_type: customerType,
           document_type: documentType,
           invoice_mode: "normal",
 
@@ -237,16 +219,34 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
         const invoiceId = String((data as any)?.id);
         if (!invoiceId) throw new Error("ID facture manquant.");
 
+        // ✅ IMPORTANT : Calculer et enregistrer les totaux des lignes
         const cleanItems = items
-          .map((it, idx) => ({
-            invoice_id: invoiceId,
-            line_no: idx + 1,
-            description: (it.description || "").trim(),
-            quantity: round3(toNum(it.quantity, 0)),
-            unit_price_ht: round3(toNum(it.unit_price_ht, 0)),
-            vat_pct: round3(toNum(it.vat_pct, 0)),
-            discount_pct: round3(toNum(it.discount_pct, 0)),
-          }))
+          .map((it, idx) => {
+            const qty = round3(toNum(it.quantity, 0));
+            const pu = round3(toNum(it.unit_price_ht, 0));
+            const vat = round3(toNum(it.vat_pct, 0));
+            const disc = round3(toNum(it.discount_pct, 0));
+
+            const line_ht = qty * pu;
+            const line_disc = line_ht * (disc / 100);
+            const net_ht = line_ht - line_disc;
+
+            const vat_amount = net_ht * (vat / 100);
+            const line_ttc = net_ht + vat_amount;
+
+            return {
+              invoice_id: invoiceId,
+              line_no: idx + 1,
+              description: (it.description || "").trim(),
+              quantity: qty,
+              unit_price_ht: pu,
+              vat_pct: vat,
+              discount_pct: disc,
+              line_total_ht: round3(net_ht),
+              line_vat_amount: round3(vat_amount),
+              line_total_ttc: round3(line_ttc),
+            };
+          })
           .filter((x) => x.description && x.quantity > 0);
 
         if (cleanItems.length) {
@@ -258,259 +258,221 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
         router.push(`/invoices/${invoiceId}`);
         router.refresh();
       } catch (e: any) {
-        openError(e?.message || "Erreur enregistrement.");
+        openError(e?.message || "Erreur inconnue.");
       }
     });
   }
 
-  const Req = () => <span className="text-rose-600 font-semibold ml-1">*</span>;
-
   return (
-    <div className="p-6">
-      <Modal open={modalOpen} title={modalTitle} message={modalMsg} onClose={closeModal} />
+    <div className="ftn-page">
+      <Modal open={modal.open} title={modal.title} message={modal.message} onClose={() => setModal((m) => ({ ...m, open: false }))} />
 
-      <div className="ftn-card p-6">
-        <div className="mb-4">
-          <div className="text-xl font-semibold">Créer un document</div>
-          <div className="text-sm text-slate-600">
-            Création = Enregistrer. Signature, XML signé et dépôt TTN se font dans Voir facture.
-          </div>
+      <div className="ftn-page-head">
+        <div>
+          <h1 className="ftn-h1">Nouvelle facture</h1>
+          <p className="ftn-subtitle">Créer une facture, devis ou avoir avec calcul TVA et timbre.</p>
         </div>
-
-        <div className="grid gap-3 md:grid-cols-2">
-          <div>
-            <label className="text-sm font-medium">
-              Type de document <Req />
-            </label>
-            <select
-              className="ftn-input mt-1 w-full"
-              value={documentType}
-              onChange={(e) => setDocumentType(e.target.value as DocumentType)}
-            >
-              <option value="facture">Facture</option>
-              <option value="devis">Devis</option>
-              <option value="avoir">Avoir</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">
-              Société <Req />
-            </label>
-            <select className="ftn-input mt-1 w-full" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
-              {companies.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.company_name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">
-              Date d’émission <Req />
-            </label>
-            <input
-              type="date"
-              className="ftn-input mt-1 w-full"
-              value={issueDate}
-              onChange={(e) => setIssueDate(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">
-              Devise <Req />
-            </label>
-            <input
-              className="ftn-input mt-1 w-full"
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              placeholder="TND"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">Numéro (optionnel)</label>
-            <input className="ftn-input mt-1 w-full" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">Référence / Renommer (optionnel)</label>
-            <input className="ftn-input mt-1 w-full" value={uniqueRef} onChange={(e) => setUniqueRef(e.target.value)} />
-          </div>
-        </div>
-
-        <div className="mt-6 grid gap-3 md:grid-cols-2">
-          <div>
-            <label className="text-sm font-medium">
-              Type client <Req />
-            </label>
-            <select
-              className="ftn-input mt-1 w-full"
-              value={customerType}
-              onChange={(e) => setCustomerType(e.target.value as CustomerType)}
-            >
-              <option value="entreprise">Entreprise (assujetti)</option>
-              <option value="particulier">Particulier</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">
-              Client <Req />
-            </label>
-            <input className="ftn-input mt-1 w-full" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">
-              Matricule fiscal {customerType === "entreprise" ? <Req /> : null}
-            </label>
-            <input
-              className="ftn-input mt-1 w-full"
-              value={customerTaxId}
-              onChange={(e) => setCustomerTaxId(e.target.value)}
-              placeholder={customerType === "entreprise" ? "Obligatoire" : "Optionnel"}
-            />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">Téléphone (optionnel)</label>
-            <input className="ftn-input mt-1 w-full" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">Email (optionnel)</label>
-            <input className="ftn-input mt-1 w-full" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} />
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="text-sm font-medium">Adresse (optionnel)</label>
-            <input className="ftn-input mt-1 w-full" value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} />
-          </div>
-        </div>
-
-        <div className="mt-6">
-          <div className="flex items-center justify-between gap-2">
-            <div className="font-semibold">
-              Lignes <Req />
-            </div>
-            <button className="ftn-btn" type="button" onClick={addLine}>
-              Ajouter ligne
-            </button>
-          </div>
-
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-slate-600">
-                <tr>
-                  <th className="text-left font-medium px-3 py-2 w-[52px]">#</th>
-                  <th className="text-left font-medium px-3 py-2 min-w-[240px]">Description</th>
-                  <th className="text-left font-medium px-3 py-2 w-[110px]">Qté</th>
-                  <th className="text-left font-medium px-3 py-2 w-[140px]">PU HT</th>
-                  <th className="text-left font-medium px-3 py-2 w-[110px]">TVA %</th>
-                  <th className="text-left font-medium px-3 py-2 w-[120px]">Remise %</th>
-                  <th className="text-right font-medium px-3 py-2 w-[70px]">—</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {items.map((r) => (
-                  <tr key={r.line_no} className="border-t">
-                    <td className="px-3 py-2 text-slate-500">{r.line_no}</td>
-
-                    <td className="px-3 py-2">
-                      <input
-                        className="ftn-input w-full"
-                        placeholder="Produit / service"
-                        value={r.description}
-                        onChange={(e) => updateLine(r.line_no, { description: e.target.value })}
-                      />
-                    </td>
-
-                    <td className="px-3 py-2">
-                      <input
-                        className="ftn-input w-full"
-                        value={r.quantity}
-                        onChange={(e) => updateLine(r.line_no, { quantity: toNum(e.target.value, 1) })}
-                      />
-                    </td>
-
-                    <td className="px-3 py-2">
-                      <input
-                        className="ftn-input w-full"
-                        value={r.unit_price_ht}
-                        onChange={(e) => updateLine(r.line_no, { unit_price_ht: toNum(e.target.value, 0) })}
-                      />
-                    </td>
-
-                    <td className="px-3 py-2">
-                      <input className="ftn-input w-full" value={r.vat_pct} onChange={(e) => updateLine(r.line_no, { vat_pct: toNum(e.target.value, 0) })} />
-                    </td>
-
-                    <td className="px-3 py-2">
-                      <input
-                        className="ftn-input w-full"
-                        value={r.discount_pct}
-                        onChange={(e) => updateLine(r.line_no, { discount_pct: toNum(e.target.value, 0) })}
-                      />
-                    </td>
-
-                    <td className="px-3 py-2 text-right">
-                      <button className="ftn-btn ftn-btn-ghost" type="button" onClick={() => removeLine(r.line_no)}>
-                        X
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mt-4 grid gap-3 md:grid-cols-4">
-            <div className="rounded-2xl border bg-white p-4">
-              <div className="text-sm text-slate-500">Total HT</div>
-              <div className="mt-1 text-2xl font-semibold">
-                {fmt3(totals.subtotal_ht)} {currency.toUpperCase()}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border bg-white p-4">
-              <div className="text-sm text-slate-500">TVA</div>
-              <div className="mt-1 text-2xl font-semibold">
-                {fmt3(totals.total_vat)} {currency.toUpperCase()}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border bg-white p-4">
-              <div className="text-sm text-slate-500">Timbre fiscal</div>
-              <div className="mt-2 flex items-center gap-2">
-                <input className="ftn-input w-[110px]" value={stampAmount} onChange={(e) => setStampAmount(toNum(e.target.value, 1))} />
-                <div className="text-sm text-slate-500">{currency.toUpperCase()}</div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border bg-white p-4">
-              <div className="text-sm text-slate-500">Net à payer</div>
-              <div className="mt-1 text-2xl font-semibold">
-                {fmt3(totals.net_to_pay)} {currency.toUpperCase()}
-              </div>
-              <div className="mt-1 text-xs text-slate-500">
-                TTC sans timbre: {fmt3(totals.total_ttc)} {currency.toUpperCase()}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
-          <Link className="ftn-btn ftn-btn-ghost" href="/invoices" prefetch={false}>
+        <div className="flex gap-2">
+          <Link className="ftn-btn ftn-btn-ghost" href="/invoices">
             Retour
           </Link>
-
-          <button className="ftn-btn" type="button" onClick={handleSave} disabled={saving}>
-            {saving ? "Enregistrement..." : "Enregistrer"}
+          <button className="ftn-btn" onClick={onCreate} disabled={isPending}>
+            {isPending ? "En cours..." : "Enregistrer"}
           </button>
+        </div>
+      </div>
+
+      <div className="ftn-grid-2">
+        <div className="ftn-card p-5">
+          <div className="ftn-section-title">Document</div>
+
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div>
+              <label className="ftn-label">Société</label>
+              <select className="ftn-input" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+                <option value="">-- Choisir --</option>
+                {companies.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.company_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="ftn-label">Type</label>
+              <select className="ftn-input" value={documentType} onChange={(e) => setDocumentType(e.target.value as any)}>
+                <option value="facture">Facture</option>
+                <option value="devis">Devis</option>
+                <option value="avoir">Avoir</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="ftn-label">Date</label>
+              <input className="ftn-input" type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
+            </div>
+
+            <div>
+              <label className="ftn-label">Numéro (optionnel)</label>
+              <input className="ftn-input" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} placeholder="Ex: F-2026-0001" />
+            </div>
+
+            <div>
+              <label className="ftn-label">Devise</label>
+              <input className="ftn-input" value={currency} onChange={(e) => setCurrency(e.target.value)} placeholder="TND" />
+            </div>
+
+            <div>
+              <label className="ftn-label">Timbre (DT)</label>
+              <input className="ftn-input" type="number" step="0.001" value={stampAmount} onChange={(e) => setStampAmount(toNum(e.target.value, 0))} />
+            </div>
+          </div>
+        </div>
+
+        <div className="ftn-card p-5">
+          <div className="ftn-section-title">Client</div>
+
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div>
+              <label className="ftn-label">Type client</label>
+              <select className="ftn-input" value={customerType} onChange={(e) => setCustomerType(e.target.value as any)}>
+                <option value="entreprise">Entreprise</option>
+                <option value="particulier">Particulier</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="ftn-label">Nom</label>
+              <input className="ftn-input" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Nom client" />
+            </div>
+
+            <div>
+              <label className="ftn-label">MF (optionnel)</label>
+              <input className="ftn-input" value={customerTaxId} onChange={(e) => setCustomerTaxId(e.target.value)} placeholder="Matricule fiscal" />
+            </div>
+
+            <div>
+              <label className="ftn-label">Email (optionnel)</label>
+              <input className="ftn-input" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="client@email.tn" />
+            </div>
+
+            <div>
+              <label className="ftn-label">Téléphone (optionnel)</label>
+              <input className="ftn-input" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="+216 ..." />
+            </div>
+
+            <div>
+              <label className="ftn-label">Adresse (optionnel)</label>
+              <input className="ftn-input" value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} placeholder="Adresse" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="ftn-card p-5 mt-4">
+        <div className="flex items-center justify-between">
+          <div className="ftn-section-title">Lignes</div>
+          <button className="ftn-btn ftn-btn-ghost" onClick={addLine}>
+            + Ajouter ligne
+          </button>
+        </div>
+
+        <div className="mt-4 overflow-x-auto">
+          <table className="ftn-table">
+            <thead>
+              <tr>
+                <th style={{ width: 52 }}>#</th>
+                <th>Description</th>
+                <th style={{ width: 110 }}>Qté</th>
+                <th style={{ width: 130 }}>PU HT</th>
+                <th style={{ width: 110 }}>TVA%</th>
+                <th style={{ width: 120 }}>Remise%</th>
+                <th style={{ width: 80 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it, idx) => (
+                <tr key={idx}>
+                  <td>{idx + 1}</td>
+                  <td>
+                    <input
+                      className="ftn-input"
+                      value={it.description}
+                      onChange={(e) => updateLine(idx, "description", e.target.value)}
+                      placeholder="Description"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className="ftn-input"
+                      type="number"
+                      step="0.001"
+                      value={it.quantity}
+                      onChange={(e) => updateLine(idx, "quantity", toNum(e.target.value, 0))}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className="ftn-input"
+                      type="number"
+                      step="0.001"
+                      value={it.unit_price_ht}
+                      onChange={(e) => updateLine(idx, "unit_price_ht", toNum(e.target.value, 0))}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className="ftn-input"
+                      type="number"
+                      step="0.001"
+                      value={it.vat_pct}
+                      onChange={(e) => updateLine(idx, "vat_pct", toNum(e.target.value, 0))}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className="ftn-input"
+                      type="number"
+                      step="0.001"
+                      value={it.discount_pct}
+                      onChange={(e) => updateLine(idx, "discount_pct", toNum(e.target.value, 0))}
+                    />
+                  </td>
+                  <td className="text-right">
+                    {items.length > 1 ? (
+                      <button className="ftn-btn ftn-btn-danger ftn-btn-sm" onClick={() => removeLine(idx)}>
+                        Supprimer
+                      </button>
+                    ) : (
+                      <span className="text-xs text-[var(--muted)]">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-5 flex justify-end">
+          <div className="w-full max-w-sm ftn-card p-4">
+            <div className="flex justify-between text-sm">
+              <span className="text-[var(--muted)]">Total HT</span>
+              <span className="font-medium">{fmt3(totals.subtotal_ht)}</span>
+            </div>
+            <div className="flex justify-between text-sm mt-1">
+              <span className="text-[var(--muted)]">Total TVA</span>
+              <span className="font-medium">{fmt3(totals.total_vat)}</span>
+            </div>
+            <div className="flex justify-between text-sm mt-1">
+              <span className="text-[var(--muted)]">Timbre</span>
+              <span className="font-medium">{fmt3(totals.stamp_amount)}</span>
+            </div>
+            <div className="flex justify-between text-sm mt-2 pt-2 border-t border-[var(--border)]">
+              <span className="font-semibold">Total TTC</span>
+              <span className="font-semibold">{fmt3(totals.net_to_pay)}</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
