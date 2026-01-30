@@ -35,7 +35,7 @@ export default function InvoiceActions({
   ttnStatus: string;
   ttnScheduledAt: string | null;
   ttnSendMode: "api" | "manual";
-  signatureProvider: string; // "usb_agent" | "digigo" | "none"
+  signatureProvider: string;
   signatureRequired: boolean;
   invoiceSigned: boolean;
   signaturePending: boolean;
@@ -44,7 +44,6 @@ export default function InvoiceActions({
   viewedBeforeSignatureAt: string | null;
 }) {
   const [loading, setLoading] = useState<string | null>(null);
-
   const [viewConfirmed, setViewConfirmed] = useState<boolean>(() => !!viewedBeforeSignatureAt);
   const [viewLoading, setViewLoading] = useState<boolean>(false);
 
@@ -56,7 +55,7 @@ export default function InvoiceActions({
     )}`;
   });
 
-    async function markViewed() {
+  async function markViewed() {
     try {
       setViewLoading(true);
       const res = await fetch(`/api/invoices/${invoiceId}/viewed`, { method: "POST" });
@@ -75,7 +74,7 @@ export default function InvoiceActions({
     }
   }
 
-async function download(url: string, label: string, fallbackName: string) {
+  async function download(url: string, label: string, fallbackName: string) {
     try {
       setLoading(label);
       const res = await fetch(url, { method: "GET" });
@@ -165,19 +164,18 @@ async function download(url: string, label: string, fallbackName: string) {
   const xmlUrl = `/api/invoices/${invoiceId}/xml`;
   const xmlSignedUrl = `/api/invoices/${invoiceId}/xml-signed`;
 
-  const isScheduled = ttnStatus === "scheduled";
-  const docType = String(documentType || "facture");
+  const docType = String(documentType || "facture").toLowerCase();
   const isQuote = docType === "devis";
   const isManualMode = ttnSendMode === "manual";
   const st = String(status || "draft");
 
+  const ttnLocked = String(ttnStatus || "not_sent") !== "not_sent";
+
   const showSubmitForValidation = validationRequired && !validatedAt && st === "draft";
   const showValidate = validationRequired && !validatedAt && st === "pending_validation";
 
-  // ✅ règle : si facture doit être signée avant TTN
-  const mustSignBeforeTTN = !isQuote && signatureRequired && !invoiceSigned;
+  const mustViewBeforeSignature = !isQuote && signatureRequired && !invoiceSigned;
 
-  // ✅ Normaliser provider
   const provider = String(signatureProvider || "none");
 
   const signatureUi = useMemo(() => {
@@ -187,8 +185,14 @@ async function download(url: string, label: string, fallbackName: string) {
     return { label: "à faire", tone: "text-slate-700" };
   }, [signatureRequired, invoiceSigned, signaturePending]);
 
+  const canDeclareManual =
+    !isQuote && !ttnLocked && canSendTTN && (signatureRequired ? invoiceSigned : true);
+
+  const canSendTTNNow =
+    !isQuote && !ttnLocked && canSendTTN && (signatureRequired ? invoiceSigned : true) && !isManualMode;
+
   async function startUsbSignature() {
-    if (mustSignBeforeTTN && !viewConfirmed) {
+    if (mustViewBeforeSignature && !viewConfirmed) {
       alert("Vous devez d’abord voir la facture avant signature.");
       return;
     }
@@ -255,7 +259,7 @@ async function download(url: string, label: string, fallbackName: string) {
   }
 
   async function startDigigoSignature() {
-    if (mustSignBeforeTTN && !viewConfirmed) {
+    if (mustViewBeforeSignature && !viewConfirmed) {
       alert("Vous devez d’abord voir la facture avant signature.");
       return;
     }
@@ -368,6 +372,10 @@ async function download(url: string, label: string, fallbackName: string) {
   }
 
   async function declareManual() {
+    if (!canDeclareManual) {
+      alert("Action bloquée.");
+      return;
+    }
     const ref = window.prompt("Référence (optionnel) :") || "";
     const note = window.prompt("Note (optionnel) :") || "";
     await callWithBody(`/api/invoices/${invoiceId}/declaration`, "Déclaration manuelle", {
@@ -377,26 +385,23 @@ async function download(url: string, label: string, fallbackName: string) {
     });
   }
 
-  // ✅ Un seul bouton “Signer”
   async function startSignatureAuto() {
     if (invoiceSigned) return;
-
-    // Si pas configuré du tout
     if (provider !== "usb_agent" && provider !== "digigo") {
       alert("Aucune méthode de signature configurée. Allez dans Paramètres TTN → Signature.");
       return;
     }
-
     if (provider === "usb_agent") {
       await startUsbSignature();
       return;
     }
-
     if (provider === "digigo") {
       await startDigigoSignature();
       return;
     }
   }
+
+  const showSignButton = signatureRequired && !invoiceSigned;
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5">
@@ -417,7 +422,6 @@ async function download(url: string, label: string, fallbackName: string) {
       </p>
 
       <div className="mt-4 flex gap-2 flex-wrap">
-        {/* PDF */}
         <button
           type="button"
           disabled={loading !== null}
@@ -427,7 +431,6 @@ async function download(url: string, label: string, fallbackName: string) {
           {loading === "Téléchargement PDF" ? "Téléchargement..." : "Télécharger PDF (sans signature)"}
         </button>
 
-        {/* XML */}
         <button
           type="button"
           disabled={loading !== null}
@@ -437,24 +440,19 @@ async function download(url: string, label: string, fallbackName: string) {
           {loading === "Téléchargement XML" ? "Téléchargement..." : "Télécharger XML (TEIF)"}
         </button>
 
-        {/* XML signé */}
         <button
           type="button"
           disabled={loading !== null || !invoiceSigned}
           className="px-4 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50 disabled:opacity-60"
           onClick={() => download(xmlSignedUrl, "Téléchargement XML signé", `facture-${invoiceId}-signed.xml`)}
-          title={!invoiceSigned ? "Signature requise" : "Télécharger XML signé"}
         >
           {loading === "Téléchargement XML signé" ? "Téléchargement..." : "Télécharger XML (signé)"}
         </button>
 
-        {/* DSS/DigiGo: consultation obligatoire avant signature */}
-        {mustSignBeforeTTN ? (
+        {mustViewBeforeSignature ? (
           <div className="w-full mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
             <div className="font-medium">Voir la facture avant signature</div>
-            <div className="text-slate-600 mt-1">
-              Pour respecter DigiGo/DSS, le signataire doit consulter la facture complète avant de signer.
-            </div>
+            <div className="text-slate-600 mt-1">Le signataire doit consulter la facture avant de signer.</div>
 
             <div className="mt-3 flex flex-wrap gap-2 items-center">
               <button
@@ -483,122 +481,114 @@ async function download(url: string, label: string, fallbackName: string) {
           </div>
         ) : null}
 
-        {/* TTN */}
-        {!isQuote ? (
-          <>
-            <button
-              disabled={!canSendTTN || loading !== null || (!isManualMode ? isScheduled : false) || mustSignBeforeTTN}
-              className={`px-4 py-2 rounded-xl text-sm disabled:opacity-60 ${
-                canSendTTN ? "bg-indigo-600 text-white hover:bg-indigo-700" : "bg-slate-200 text-slate-500"
-              }`}
-              onClick={() => (isManualMode ? declareManual() : call(`/api/invoices/${invoiceId}/ttn`, "TTN"))}
-              title={
-                !canSendTTN
-                  ? validationRequired
-                    ? "Validation requise avant l’envoi"
-                    : "Accès refusé ou document non prêt"
-                  : mustSignBeforeTTN
-                  ? "Signature requise avant l’envoi à TTN"
-                  : isScheduled
-                  ? "Déjà programmé"
-                  : isManualMode
-                  ? "Déclaration manuelle"
-                  : "Envoyer à TTN"
-              }
-            >
-              {loading === (isManualMode ? "Déclaration manuelle" : "TTN")
-                ? isManualMode
-                  ? "Déclaration..."
-                  : "Envoi à TTN..."
-                : isManualMode
-                ? "Déclaration manuelle"
-                : "Envoyer à TTN"}
-            </button>
-
-            <button
-              disabled={loading !== null || isManualMode}
-              className="px-4 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50 disabled:opacity-60"
-              onClick={() => callGet(`/api/invoices/${invoiceId}/ttn/status`, "Actualiser TTN")}
-              title="Mettre à jour le statut depuis TTN"
-            >
-              {loading === "Actualiser TTN" ? "Actualisation..." : "Actualiser le statut TTN"}
-            </button>
-
-            {!isManualMode ? (
-              <div className="flex items-center gap-2">
-                <input
-                  type="datetime-local"
-                  value={scheduleAt}
-                  onChange={(e) => setScheduleAt(e.target.value)}
-                  className="px-3 py-2 rounded-xl border border-slate-200 text-sm"
-                  disabled={!canSendTTN || loading !== null || isScheduled || mustSignBeforeTTN}
-                />
-                <button
-                  disabled={!canSendTTN || loading !== null || isScheduled || mustSignBeforeTTN}
-                  className="px-4 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50 disabled:opacity-60"
-                  onClick={() =>
-                    callWithBody(`/api/invoices/${invoiceId}/ttn/schedule`, "Programmer l’envoi TTN", {
-                      scheduled_at: scheduleAt,
-                    })
-                  }
-                >
-                  {loading === "Programmer l’envoi TTN" ? "Programmation..." : "Programmer l’envoi"}
-                </button>
-              </div>
-            ) : null}
-
-            {isScheduled && !isManualMode ? (
-              <button
-                disabled={loading !== null}
-                className="px-4 py-2 rounded-xl bg-amber-600 text-white text-sm hover:bg-amber-700 disabled:opacity-60"
-                onClick={() => call(`/api/invoices/${invoiceId}/ttn/cancel`, "Annuler l’envoi")}
-              >
-                {loading === "Annuler l’envoi" ? "Annulation..." : "Annuler l’envoi"}
-              </button>
-            ) : null}
-          </>
-        ) : null}
-
-        {/* ✅ Signature : UN SEUL bouton */}
-        {signatureRequired && !invoiceSigned ? (
+        {showSignButton ? (
           <>
             <button
               disabled={loading !== null}
               className="px-4 py-2 rounded-xl bg-violet-600 text-white text-sm hover:bg-violet-700 disabled:opacity-60"
               onClick={() => startSignatureAuto()}
-              title={provider === "usb_agent" ? "Signature via clé USB" : provider === "digigo" ? "Signature via DigiGO" : "Configurer la signature"}
             >
               {loading === "Signature" || loading === "DigiGO" ? "Signature..." : "Signer"}
             </button>
 
-            {/* ✅ uniquement si DigiGO en attente: bouton OTP */}
             {provider === "digigo" && (signaturePending || digigoOtpId) ? (
               <button
                 disabled={loading !== null}
                 className="px-4 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50 disabled:opacity-60"
                 onClick={() => confirmDigigoLater()}
-                title="Confirmer l’OTP si vous l’avez reçu après"
               >
-                {loading === "DigiGO" ? "DigiGO..." : "Confirmer OTP DigiGO"}
+                {loading === "DigiGO" ? "Validation..." : "Saisir OTP DigiGO"}
               </button>
             ) : null}
           </>
         ) : null}
 
-        {/* Supprimer */}
-        <button
-          disabled={loading !== null}
-          className="px-4 py-2 rounded-xl bg-red-600 text-white text-sm hover:bg-red-700 disabled:opacity-60"
-          onClick={() => {
-            if (confirm("Supprimer cette facture ?")) call(`/api/invoices/${invoiceId}/delete`, "Suppression");
-          }}
-        >
-          {loading === "Suppression" ? "Suppression..." : "Supprimer"}
-        </button>
-      </div>
+        {!isQuote ? (
+          <>
+            <button
+              disabled={!canSendTTNNow || loading !== null}
+              className={`px-4 py-2 rounded-xl text-sm disabled:opacity-60 ${
+                canSendTTNNow ? "bg-indigo-600 text-white hover:bg-indigo-700" : "bg-slate-200 text-slate-500"
+              }`}
+              onClick={() => call(`/api/invoices/${invoiceId}/ttn`, "TTN")}
+              title={
+                ttnLocked
+                  ? "TTN bloqué (déjà envoyé / soumis / accepté / rejeté / programmé)"
+                  : signatureRequired && !invoiceSigned
+                  ? "Signature requise avant l’envoi"
+                  : "Envoyer à TTN"
+              }
+            >
+              {loading === "TTN" ? "Envoi à TTN..." : "Envoyer à TTN"}
+            </button>
 
-      <div className="mt-3 text-xs text-slate-500">
-        En cas d’erreur, un message vous indique la cause (par exemple : connexion requise ou accès refusé).
+            <button
+              disabled={loading !== null}
+              className="px-4 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50 disabled:opacity-60"
+              onClick={() => callGet(`/api/invoices/${invoiceId}/ttn/status`, "Actualiser TTN")}
+            >
+              {loading === "Actualiser TTN" ? "Actualisation..." : "Actualiser statut TTN"}
+            </button>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="datetime-local"
+                value={scheduleAt}
+                onChange={(e) => setScheduleAt(e.target.value)}
+                className="px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                disabled={!canSendTTNNow || loading !== null}
+              />
+              <button
+                disabled={!canSendTTNNow || loading !== null}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50 disabled:opacity-60"
+                onClick={() =>
+                  callWithBody(`/api/invoices/${invoiceId}/ttn/schedule`, "Programmer TTN", { scheduled_at: scheduleAt })
+                }
+              >
+                {loading === "Programmer TTN" ? "Programmation..." : "Programmer l’envoi"}
+              </button>
+            </div>
+          </>
+        ) : null}
+
+        {isManualMode && !isQuote ? (
+          <button
+            disabled={loading !== null || !canDeclareManual}
+            className={`px-4 py-2 rounded-xl text-sm disabled:opacity-60 ${
+              canDeclareManual ? "bg-indigo-600 text-white hover:bg-indigo-700" : "bg-slate-200 text-slate-500"
+            }`}
+            onClick={() => declareManual()}
+            title={
+              ttnLocked
+                ? "TTN bloqué (déjà envoyé / soumis / accepté / rejeté / programmé)"
+                : signatureRequired && !invoiceSigned
+                ? "Télécharger d’abord le XML signé, puis déclarer"
+                : "Déclaration manuelle"
+            }
+          >
+            {loading === "Déclaration manuelle" ? "Déclaration..." : "Déclaration manuelle"}
+          </button>
+        ) : null}
+
+        {showSubmitForValidation ? (
+          <button
+            disabled={loading !== null || invoiceSigned || ttnLocked}
+            className="px-4 py-2 rounded-xl border border-slate-200 text-sm hover:bg-slate-50 disabled:opacity-60"
+            onClick={() => call(`/api/invoices/${invoiceId}/submit`, "Soumettre")}
+          >
+            {loading === "Soumettre" ? "Soumission..." : "Soumettre pour validation"}
+          </button>
+        ) : null}
+
+        {showValidate ? (
+          <button
+            disabled={loading !== null || invoiceSigned || ttnLocked || !canValidate}
+            className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm hover:bg-emerald-700 disabled:opacity-60"
+            onClick={() => call(`/api/invoices/${invoiceId}/validate`, "Valider")}
+          >
+            {loading === "Valider" ? "Validation..." : "Valider (comptable)"}
+          </button>
+        ) : null}
       </div>
     </div>
   );
