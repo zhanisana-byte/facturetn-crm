@@ -30,17 +30,16 @@ type Item = {
   line_total?: number | null;
 };
 
-function money(n: any, currency: string) {
-  const v = Number(n ?? 0);
+function money(n: number, currency: string) {
   return new Intl.NumberFormat("fr-TN", {
     style: "currency",
     currency: currency || "TND",
     maximumFractionDigits: 3,
-  }).format(v);
+  }).format(n);
 }
 
-function safe(s: any) {
-  return String(s ?? "").trim();
+function safe(v: any) {
+  return String(v ?? "").trim();
 }
 
 export async function buildInvoicePdf(opts: {
@@ -60,6 +59,7 @@ export async function buildInvoicePdf(opts: {
   const margin = 40;
   let y = height - margin;
 
+  // Header
   page.drawText(safe(company.company_name) || "Société", {
     x: margin,
     y,
@@ -81,32 +81,55 @@ export async function buildInvoicePdf(opts: {
 
   const companyLines = [
     safe(company.tax_id) ? `MF: ${safe(company.tax_id)}` : "",
-    safe(company.address) ? safe(company.address) : "",
+    safe(company.address),
     [safe(company.postal_code), safe(company.city)].filter(Boolean).join(" "),
-    safe(company.country) ? safe(company.country) : "",
+    safe(company.country),
   ].filter(Boolean);
 
   companyLines.forEach((line) => {
-    page.drawText(line, { x: margin, y, size: 10, font, color: rgb(0.2, 0.2, 0.25) });
+    page.drawText(line, {
+      x: margin,
+      y,
+      size: 10,
+      font,
+      color: rgb(0.2, 0.2, 0.25),
+    });
     y -= 14;
   });
 
+  // Meta (fix TS)
   const metaYTop = height - margin - 28;
-  const issue = safe(invoice.issue_date).slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const issueDate =
+    safe(invoice.issue_date).slice(0, 10) ||
+    new Date().toISOString().slice(0, 10);
 
   const meta: [string, string][] = [
     ["N°", safe(invoice.invoice_no) || safe(invoice.id).slice(0, 8).toUpperCase()],
-    ["Date", issue],
-    ...(invoice.due_date ? [["Échéance", safe(invoice.due_date).slice(0, 10)]] : []),
+    ["Date", issueDate],
   ];
+
+  if (invoice.due_date) {
+    meta.push(["Échéance", safe(invoice.due_date).slice(0, 10)]);
+  }
 
   let my = metaYTop;
   meta.forEach(([k, v]) => {
-    page.drawText(`${k}:`, { x: rightX, y: my, size: 10, font: fontBold });
-    page.drawText(String(v), { x: rightX + 70, y: my, size: 10, font });
+    page.drawText(`${k}:`, {
+      x: rightX,
+      y: my,
+      size: 10,
+      font: fontBold,
+    });
+    page.drawText(v, {
+      x: rightX + 70,
+      y: my,
+      size: 10,
+      font,
+    });
     my -= 14;
   });
 
+  // Client
   y -= 12;
   page.drawText("Client", { x: margin, y, size: 12, font: fontBold });
   y -= 16;
@@ -124,8 +147,8 @@ export async function buildInvoicePdf(opts: {
     y -= 14;
   });
 
+  // Table
   y -= 12;
-  const tableTop = y;
   const cols = {
     desc: margin,
     qty: width - margin - 200,
@@ -133,17 +156,10 @@ export async function buildInvoicePdf(opts: {
     total: width - margin - 70,
   };
 
-  page.drawLine({
-    start: { x: margin, y: tableTop + 18 },
-    end: { x: width - margin, y: tableTop + 18 },
-    thickness: 1,
-    color: rgb(0.8, 0.8, 0.85),
-  });
-
-  page.drawText("Désignation", { x: cols.desc, y: tableTop, size: 10, font: fontBold });
-  page.drawText("Qté", { x: cols.qty, y: tableTop, size: 10, font: fontBold });
-  page.drawText("PU", { x: cols.unit, y: tableTop, size: 10, font: fontBold });
-  page.drawText("Total", { x: cols.total, y: tableTop, size: 10, font: fontBold });
+  page.drawText("Désignation", { x: cols.desc, y, size: 10, font: fontBold });
+  page.drawText("Qté", { x: cols.qty, y, size: 10, font: fontBold });
+  page.drawText("PU", { x: cols.unit, y, size: 10, font: fontBold });
+  page.drawText("Total", { x: cols.total, y, size: 10, font: fontBold });
 
   y -= 18;
 
@@ -153,12 +169,11 @@ export async function buildInvoicePdf(opts: {
   const sliced = items.slice(0, maxLines);
 
   sliced.forEach((it) => {
-    const desc = safe(it.description) || "-";
     const qty = Number(it.qty ?? 0);
     const pu = Number(it.unit_price ?? 0);
     const lineTotal = Number(it.line_total ?? qty * pu);
 
-    page.drawText(desc.slice(0, 70), { x: cols.desc, y, size: 10, font });
+    page.drawText(safe(it.description), { x: cols.desc, y, size: 10, font });
     page.drawText(String(qty), { x: cols.qty, y, size: 10, font });
     page.drawText(money(pu, currency), { x: cols.unit, y, size: 10, font });
     page.drawText(money(lineTotal, currency), { x: cols.total, y, size: 10, font });
@@ -166,14 +181,8 @@ export async function buildInvoicePdf(opts: {
     y -= 14;
   });
 
-  y -= 8;
-  page.drawLine({
-    start: { x: margin, y },
-    end: { x: width - margin, y },
-    thickness: 1,
-    color: rgb(0.8, 0.8, 0.85),
-  });
-  y -= 18;
+  // Totals
+  y -= 10;
 
   const subtotal = sliced.reduce((s, it) => {
     const qty = Number(it.qty ?? 0);
@@ -196,11 +205,22 @@ export async function buildInvoicePdf(opts: {
   let ty = y;
   totals.forEach(([k, v], i) => {
     const isTotal = i === totals.length - 1;
-    page.drawText(k, { x: width - margin - 200, y: ty, size: isTotal ? 12 : 10, font: isTotal ? fontBold : font });
-    page.drawText(v, { x: width - margin - 80, y: ty, size: isTotal ? 12 : 10, font: isTotal ? fontBold : font });
+    page.drawText(k, {
+      x: width - margin - 200,
+      y: ty,
+      size: isTotal ? 12 : 10,
+      font: isTotal ? fontBold : font,
+    });
+    page.drawText(v, {
+      x: width - margin - 80,
+      y: ty,
+      size: isTotal ? 12 : 10,
+      font: isTotal ? fontBold : font,
+    });
     ty -= isTotal ? 18 : 14;
   });
 
+  // Footer
   page.drawText("Généré par FactureTN", {
     x: margin,
     y: margin - 10,
