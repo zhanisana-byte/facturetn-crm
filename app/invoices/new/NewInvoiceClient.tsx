@@ -163,10 +163,20 @@ export default function NewInvoiceClient({
   }
 
   async function onCreate() {
+    if (isPending) return;
+
     if (!companyId) return openError("Veuillez choisir une société.");
     if (!customerName.trim()) return openError("Veuillez saisir le nom du client.");
     if (!issueDate) return openError("Veuillez choisir une date.");
     if (!iso4217OK(currency)) return openError("Devise invalide (ex: TND, EUR, USD).");
+
+    //  MF obligatoire si entreprise
+    if (customerType === "entreprise") {
+      const mf = (customerTaxId || "").trim();
+      if (!mf) return openError("MF obligatoire pour un client Entreprise.");
+      // (optionnel) mini contrôle longueur
+      if (mf.length < 4) return openError("MF invalide (trop court).");
+    }
 
     const validItems = items
       .map((it) => ({
@@ -183,9 +193,10 @@ export default function NewInvoiceClient({
 
     startTransition(async () => {
       try {
+        // IMPORTANT:
+        // on NE met PAS customer_type car ta DB n'a pas cette colonne.
         const payload: any = {
           company_id: companyId,
-          customer_type: customerType,
           document_type: documentType,
           invoice_mode: "normal",
 
@@ -219,7 +230,7 @@ export default function NewInvoiceClient({
         const invoiceId = String((data as any)?.id);
         if (!invoiceId) throw new Error("ID facture manquant.");
 
-        // ✅ IMPORTANT : Calculer et enregistrer les totaux des lignes
+        // Calcul + insert des totaux de lignes 
         const cleanItems = items
           .map((it, idx) => {
             const qty = round3(toNum(it.quantity, 0));
@@ -263,8 +274,11 @@ export default function NewInvoiceClient({
     });
   }
 
+  const mfLabel = customerType === "entreprise" ? "MF (obligatoire)" : "MF (optionnel)";
+  const mfPlaceholder = customerType === "entreprise" ? "Matricule fiscal (obligatoire)" : "Matricule fiscal";
+
   return (
-    <div className="ftn-page">
+    <div className="ftn-page pb-24">
       <Modal open={modal.open} title={modal.title} message={modal.message} onClose={() => setModal((m) => ({ ...m, open: false }))} />
 
       <div className="ftn-page-head">
@@ -272,6 +286,8 @@ export default function NewInvoiceClient({
           <h1 className="ftn-h1">Nouvelle facture</h1>
           <p className="ftn-subtitle">Créer une facture, devis ou avoir avec calcul TVA et timbre.</p>
         </div>
+
+        {/* Boutons haut (tu peux garder) */}
         <div className="flex gap-2">
           <Link className="ftn-btn ftn-btn-ghost" href="/invoices">
             Retour
@@ -348,8 +364,16 @@ export default function NewInvoiceClient({
             </div>
 
             <div>
-              <label className="ftn-label">MF (optionnel)</label>
-              <input className="ftn-input" value={customerTaxId} onChange={(e) => setCustomerTaxId(e.target.value)} placeholder="Matricule fiscal" />
+              <label className="ftn-label">{mfLabel}</label>
+              <input
+                className="ftn-input"
+                value={customerTaxId}
+                onChange={(e) => setCustomerTaxId(e.target.value)}
+                placeholder={mfPlaceholder}
+              />
+              {customerType === "entreprise" ? (
+                <div className="mt-1 text-xs text-[var(--muted)]">Obligatoire pour TVA / entreprise.</div>
+              ) : null}
             </div>
 
             <div>
@@ -471,6 +495,26 @@ export default function NewInvoiceClient({
             <div className="flex justify-between text-sm mt-2 pt-2 border-t border-[var(--border)]">
               <span className="font-semibold">Total TTC</span>
               <span className="font-semibold">{fmt3(totals.net_to_pay)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/*  Barre sticky EN BAS */}
+      <div className="fixed left-0 right-0 bottom-0 z-[70]">
+        <div className="mx-auto max-w-[1200px] px-4 pb-4">
+          <div className="ftn-card p-3 flex items-center justify-between gap-3">
+            <div className="text-sm">
+              <div className="font-semibold">Total TTC : {fmt3(totals.net_to_pay)}</div>
+              <div className="text-[var(--muted)] text-xs">Timbre inclus.</div>
+            </div>
+            <div className="flex gap-2">
+              <Link className="ftn-btn ftn-btn-ghost" href="/invoices">
+                Annuler
+              </Link>
+              <button className="ftn-btn" onClick={onCreate} disabled={isPending}>
+                {isPending ? "Enregistrement..." : "Enregistrer"}
+              </button>
             </div>
           </div>
         </div>
