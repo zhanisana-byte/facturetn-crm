@@ -38,7 +38,6 @@ export default async function SignatureChoosePage({ params }: Props) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* DigiGo */}
         <a
           href={`/companies/${companyId}/ttn/signature/digigo`}
           className="rounded-2xl border p-5 hover:bg-slate-50 transition"
@@ -50,7 +49,6 @@ export default async function SignatureChoosePage({ params }: Props) {
           <div className="mt-4 text-sm font-medium">Configurer →</div>
         </a>
 
-        {/* Clé USB — VERROUILLÉE */}
         {lockedUSB ? (
           <div className="rounded-2xl border p-5 bg-slate-50 opacity-70">
             <div className="text-lg font-semibold">Clé USB (Agent local)</div>
@@ -74,7 +72,6 @@ export default async function SignatureChoosePage({ params }: Props) {
           </a>
         )}
 
-        {/* Autre signature — VERROUILLÉE */}
         {lockedOther ? (
           <div className="rounded-2xl border p-5 bg-slate-50 opacity-70">
             <div className="text-lg font-semibold">Autre signature</div>
@@ -91,9 +88,7 @@ export default async function SignatureChoosePage({ params }: Props) {
             className="rounded-2xl border p-5 hover:bg-slate-50 transition"
           >
             <div className="text-lg font-semibold">Autre signature</div>
-            <div className="text-sm opacity-70 mt-2">
-              Configurer une autre méthode.
-            </div>
+            <div className="text-sm opacity-70 mt-2">Configurer une autre méthode.</div>
             <div className="mt-4 text-sm font-medium">Configurer →</div>
           </a>
         )}
