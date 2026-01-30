@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { canCompanyAction } from "@/lib/permissions/companyPerms";
@@ -11,21 +12,21 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-/**
- * DigiGO - Confirmation OTP + récupération document signé.
- * Requiert:
- * - invoice_id
- * - otp_id
- * - otp
- *
- * Le start() a déjà :
- * - authentifié l'utilisateur (PIN)
- * - demandé un otpId (requestSignWithOtp)
- * - stocké unsigned_xml dans invoice_signatures.meta (fallback).
- */
+function maybeAllowInsecureTls() {
+  if (String(process.env.DIGIGO_ALLOW_INSECURE || "").toLowerCase() === "true") {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+  }
+}
+
+function sha256Base64Utf8(input: string) {
+  return crypto.createHash("sha256").update(input, "utf8").digest("base64");
+}
+
 export async function POST(req: Request) {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
+  maybeAllowInsecureTls();
+
   if (!auth?.user) {
     return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
   }
@@ -41,11 +42,11 @@ export async function POST(req: Request) {
 
   const { data: inv } = await supabase
     .from("invoices")
-    .select("id,company_id")
+    .select("id,company_id,ttn_status")
     .eq("id", invoice_id)
     .maybeSingle();
 
-  const company_id = String((inv as any)?.company_id || "");
+  const company_id = s((inv as any)?.company_id);
   if (!company_id) {
     return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
   }
@@ -58,23 +59,18 @@ export async function POST(req: Request) {
   const service = createServiceClient();
   const { data: sig } = await service
     .from("invoice_signatures")
-    .select("meta")
+    .select("meta, session_id, provider_tx_id, unsigned_xml, unsigned_hash")
     .eq("invoice_id", invoice_id)
     .maybeSingle();
 
   const meta = (sig as any)?.meta ?? {};
-  const session_id = s(meta.session_id);
-  const unsigned_xml = s(meta.unsigned_xml);
+  const session_id = s((sig as any)?.session_id) || s(meta.session_id);
+  const provider_tx_id = s((sig as any)?.provider_tx_id) || s(meta.transaction_id);
 
-  if (!session_id) {
-    return NextResponse.json({ ok: false, error: "NO_SESSION" }, { status: 400 });
-  }
+  const ctx = (meta as any)?.digigo_ctx ?? null;
+  const toBeSignedWithParameters = ctx?.toBeSignedWithParameters ?? null;
 
-  // Appel DigiGO: signDocumentWithOtp
-  // Doc: POST /signDocumentWithOtp/{otpId}/{otpValue} avec body toBeSignedWithParameters
-  const toBeSignedWithParameters = meta?.toBeSignedWithParameters ?? null;
-
-  if (!toBeSignedWithParameters) {
+  if (!session_id || !toBeSignedWithParameters) {
     return NextResponse.json({ ok: false, error: "MISSING_SIGNATURE_CONTEXT" }, { status: 400 });
   }
 
@@ -84,28 +80,42 @@ export async function POST(req: Request) {
     toBeSignedWithParameters,
   };
 
-  // On supporte la forme URL-paramétrée (doc) + fallback camelCase
   let r = await digigoCall(`signDocumentWithOtp/${otp_id}/${otp}`, payload);
   if (!r.ok) {
     r = await digigoCall("signDocumentWithOtp", { ...payload, sessionId: session_id, otpId: otp_id, otp });
   }
+
   if (!r.ok) {
-    return NextResponse.json(
-      { ok: false, error: r.error || "DIGIGO_SIGN_FAILED", digigo: r.data ?? null },
-      { status: 502 }
+    await service.from("invoice_signatures").upsert(
+      {
+        invoice_id,
+        company_id,
+        environment: "production",
+        provider: "digigo",
+        signed_xml: "",
+        provider_tx_id: provider_tx_id || null,
+        session_id,
+        otp_id,
+        signer_user_id: auth.user.id,
+        state: "sign_failed",
+        meta: {
+          ...meta,
+          transaction_id: provider_tx_id || null,
+          session_id,
+          otp_id,
+          state: "sign_failed",
+          signer_user_id: auth.user.id,
+          digigo_error: r.error || "DIGIGO_SIGN_FAILED",
+        },
+      },
+      { onConflict: "invoice_id" }
     );
+
+    return NextResponse.json({ ok: false, error: r.error || "DIGIGO_SIGN_FAILED", digigo: r.data ?? null }, { status: 502 });
   }
 
   const data = r.data as any;
 
-  // --- FIX VERCEL: la variable signedXml doit exister (sinon TS casse le build)
-  const signedXml =
-    s(data?.signedXml) ||
-    s(data?.signed_xml) ||
-    s(data?.documentSigned) ||
-    "";
-
-  // DigiGo (doc) renvoie souvent un document signé en binaire (Bytes/bytes) + métadonnées.
   const bytesB64 =
     s(data?.bytes) ||
     s(data?.Bytes) ||
@@ -113,40 +123,49 @@ export async function POST(req: Request) {
     s(data?.signedBytes) ||
     "";
 
-  let finalSignedTeif = "";
+  const signedXmlText =
+    s(data?.signedXml) ||
+    s(data?.signed_xml) ||
+    s(data?.documentSigned) ||
+    "";
+
+  let signedTeif = "";
 
   if (bytesB64) {
     try {
-      finalSignedTeif = Buffer.from(bytesB64, "base64").toString("utf8").trim();
+      signedTeif = Buffer.from(bytesB64, "base64").toString("utf8").trim();
     } catch {
-      finalSignedTeif = "";
+      signedTeif = "";
     }
   }
 
-  // Fallback: certaines implémentations renvoient directement du XML signé en texte
-  if (!finalSignedTeif) {
-    const maybeXml = signedXml;
-    finalSignedTeif = maybeXml || (typeof data === "string" ? data : JSON.stringify(data));
+  if (!signedTeif) {
+    signedTeif = signedXmlText;
   }
 
-  // Garde-fou: on attend un TEIF/XML signé (présence d'une signature XMLDSIG)
   const looksSigned =
-    finalSignedTeif.includes("<ds:Signature") ||
-    finalSignedTeif.includes(":Signature");
+    signedTeif.includes("<ds:Signature") ||
+    signedTeif.includes(":Signature");
 
-  if (!looksSigned) {
-    // On n'écrase pas l'état "signed" si le retour n'est pas exploitable TEIF/TTN
+  if (!signedTeif || !looksSigned) {
     await service.from("invoice_signatures").upsert(
       {
         invoice_id,
         company_id,
         environment: "production",
         provider: "digigo",
-        signed_xml: null,
+        signed_xml: "",
+        provider_tx_id: provider_tx_id || null,
+        session_id,
+        otp_id,
+        signer_user_id: auth.user.id,
+        state: "invalid_signed_xml",
         meta: {
           ...meta,
+          transaction_id: provider_tx_id || null,
+          session_id,
           otp_id,
-          state: "sign_failed",
+          state: "invalid_signed_xml",
           signer_user_id: auth.user.id,
           digigo_raw: data,
         },
@@ -154,21 +173,24 @@ export async function POST(req: Request) {
       { onConflict: "invoice_id" }
     );
 
-    return NextResponse.json(
-      { ok: false, error: "DIGIGO_NO_XML_SIGNATURE", digigo: data },
-      { status: 502 }
-    );
+    return NextResponse.json({ ok: false, error: "DIGIGO_NO_XML_SIGNATURE", digigo: data }, { status: 502 });
   }
 
-  // Si l'API ne renvoie pas directement l'XML signé, on garde aussi le non signé pour debug.
+  const signedHash = sha256Base64Utf8(signedTeif);
+  const unsignedHash = s((sig as any)?.unsigned_hash) || s(meta.unsigned_hash) || null;
+  const unsignedXml = s((sig as any)?.unsigned_xml) || s(meta.unsigned_xml) || null;
+
   const finalMeta = {
     ...meta,
+    transaction_id: provider_tx_id || null,
+    session_id,
     otp_id,
     state: "signed",
     signer_user_id: auth.user.id,
-    // si signedXml existe, on évite de stocker tout le raw (souvent très lourd)
-    digigo_raw: signedXml ? null : data,
-    unsigned_xml: unsigned_xml || null,
+    unsigned_hash: unsignedHash,
+    signed_hash: signedHash,
+    unsigned_xml: unsignedXml ? null : null,
+    digigo_raw: null,
   };
 
   const { error: upErr } = await service
@@ -179,7 +201,13 @@ export async function POST(req: Request) {
         company_id,
         environment: "production",
         provider: "digigo",
-        signed_xml: finalSignedTeif,
+        signed_xml: signedTeif,
+        signed_hash: signedHash,
+        provider_tx_id: provider_tx_id || null,
+        session_id,
+        otp_id,
+        signer_user_id: auth.user.id,
+        state: "signed",
         meta: finalMeta,
       },
       { onConflict: "invoice_id" }
@@ -189,7 +217,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });
   }
 
-  // Sortie de l'état "pending_signature"
   await service.from("invoices").update({ ttn_status: "not_sent" }).eq("id", invoice_id);
 
   return NextResponse.json({ ok: true });
