@@ -1,6 +1,6 @@
-// app/api/invoices/[id]/ttn/status/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { canCompanyAction } from "@/lib/permissions/companyPerms";
 import { consultEfactSOAP, type TTNWebserviceConfig } from "@/lib/ttn/webservice";
 
 export const runtime = "nodejs";
@@ -27,25 +27,11 @@ function clean(s: string | null) {
 function mapEtatToStatus(etatRaw: string | null): "submitted" | "accepted" | "rejected" {
   const e = clean(etatRaw).toUpperCase();
 
-  if (
-    e.includes("ACCEP") ||
-    e.includes("VALI") ||
-    e === "OK" ||
-    e === "ACCEPTED" ||
-    e === "VALIDATED" ||
-    e === "V"
-  ) {
+  if (e.includes("ACCEP") || e.includes("VALI") || e === "OK" || e === "ACCEPTED" || e === "VALIDATED" || e === "V") {
     return "accepted";
   }
 
-  if (
-    e.includes("REJET") ||
-    e.includes("REFUS") ||
-    e.includes("ERREUR") ||
-    e === "KO" ||
-    e === "REJECTED" ||
-    e === "R"
-  ) {
+  if (e.includes("REJET") || e.includes("REFUS") || e.includes("ERREUR") || e === "KO" || e === "REJECTED" || e === "R") {
     return "rejected";
   }
 
@@ -58,9 +44,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     const supabase = await createClient();
 
     const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) {
-      return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
-    }
+    if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
     const { data: invoice, error: invErr } = await supabase
       .from("invoices")
@@ -69,21 +53,22 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       .single();
 
     if (invErr || !invoice) {
-      return NextResponse.json(
-        { ok: false, error: invErr?.message ?? "INVOICE_NOT_FOUND" },
-        { status: 404 }
-      );
+      return NextResponse.json({ ok: false, error: invErr?.message ?? "INVOICE_NOT_FOUND" }, { status: 404 });
     }
+
+    const companyId = String((invoice as any).company_id || "");
+    if (!companyId) return NextResponse.json({ ok: false, error: "COMPANY_ID_MISSING" }, { status: 400 });
+
+    const allowed = await canCompanyAction(supabase, auth.user.id, companyId, "submit_ttn");
+    if (!allowed) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
 
     const { data: ttn, error: ttnErr } = await supabase
       .from("company_ttn_settings")
       .select("ws_url, ws_login, ws_password, ttn_matricule")
-      .eq("company_id", invoice.company_id)
+      .eq("company_id", companyId)
       .maybeSingle();
 
-    if (ttnErr) {
-      return NextResponse.json({ ok: false, error: ttnErr.message }, { status: 500 });
-    }
+    if (ttnErr) return NextResponse.json({ ok: false, error: ttnErr.message }, { status: 500 });
 
     if (!ttn?.ws_login || !ttn?.ws_password) {
       return NextResponse.json({ ok: true, mode: "no_webservice", invoice });
@@ -96,11 +81,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       matricule: String(ttn.ttn_matricule || ""),
     };
 
-    if (!invoice.ttn_save_id && !invoice.ttn_generated_ref && !invoice.ttn_reference) {
-      return NextResponse.json(
-        { ok: false, error: "Aucune référence TTN pour consulter la facture." },
-        { status: 400 }
-      );
+    if (!(invoice as any).ttn_save_id && !(invoice as any).ttn_generated_ref && !(invoice as any).ttn_reference) {
+      return NextResponse.json({ ok: false, error: "NO_TTN_REFERENCE" }, { status: 400 });
     }
 
     const soap = await consultEfactSOAP(cfg, {
@@ -111,20 +93,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
     const raw = soap.raw;
 
-    const generatedRef =
-      extractAny(["generatedRef", "generatedREF", "GeneratedRef"], raw) || null;
-
+    const generatedRef = extractAny(["generatedRef", "generatedREF", "GeneratedRef"], raw) || null;
     const etat =
-      extractAny(
-        ["etat", "ETAT", "etatEfact", "ETATEFACT", "state", "STATUS", "status"],
-        raw
-      ) || null;
-
+      extractAny(["etat", "ETAT", "etatEfact", "ETATEFACT", "state", "STATUS", "status"], raw) || null;
     const message =
-      extractAny(
-        ["message", "Message", "libelle", "LIBELLE", "errorMessage", "ERRORMESSAGE"],
-        raw
-      ) || null;
+      extractAny(["message", "Message", "libelle", "LIBELLE", "errorMessage", "ERRORMESSAGE"], raw) || null;
 
     const mapped = mapEtatToStatus(etat);
 
@@ -154,9 +127,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       raw,
     });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: String(e?.message ?? "SERVER_ERROR") },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: String(e?.message ?? "SERVER_ERROR") }, { status: 500 });
   }
 }
