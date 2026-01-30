@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 type Company = { id: string; company_name: string };
-
 type DocumentType = "facture" | "devis" | "avoir";
 type CustomerType = "entreprise" | "particulier";
 
@@ -42,12 +41,59 @@ function fmt3(n: number) {
   return round3(n).toFixed(3);
 }
 
+function Modal({
+  open,
+  title,
+  message,
+  onClose,
+}: {
+  open: boolean;
+  title: string;
+  message: string;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-start justify-center p-4">
+      <div className="absolute inset-0 bg-black/35" onClick={onClose} />
+      <div className="relative w-full max-w-xl rounded-2xl border bg-white p-4 shadow-xl">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-base font-semibold">{title}</div>
+            <div className="mt-1 text-sm text-slate-700 whitespace-pre-wrap">{message}</div>
+          </div>
+          <button className="ftn-btn ftn-btn-ghost" type="button" onClick={onClose}>
+            Fermer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function NewInvoiceClient({ companies }: { companies: Company[] }) {
   const supabase = createClient();
   const router = useRouter();
   const [saving, startSaving] = useTransition();
 
-  const [err, setErr] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalTitle, setModalTitle] = useState("Erreur");
+  const [modalMsg, setModalMsg] = useState("");
+
+  const openError = (msg: string) => {
+    setModalTitle("Erreur");
+    setModalMsg(msg);
+    setModalOpen(true);
+  };
+
+  const openInfo = (msg: string) => {
+    setModalTitle("Information");
+    setModalMsg(msg);
+    setModalOpen(true);
+  };
+
+  const closeModal = () => setModalOpen(false);
 
   const [companyId, setCompanyId] = useState<string>(companies?.[0]?.id ?? "");
   const [documentType, setDocumentType] = useState<DocumentType>("facture");
@@ -57,7 +103,6 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
   const [uniqueRef, setUniqueRef] = useState<string>("");
 
   const [customerType, setCustomerType] = useState<CustomerType>("entreprise");
-
   const [customerName, setCustomerName] = useState<string>("");
   const [customerTaxId, setCustomerTaxId] = useState<string>("");
   const [customerEmail, setCustomerEmail] = useState<string>("");
@@ -125,8 +170,8 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
 
     if (!customerName.trim()) return "Client obligatoire.";
 
-    if (customerType === "entreprise") {
-      if (!customerTaxId.trim()) return "Matricule fiscal obligatoire pour un client entreprise.";
+    if (customerType === "entreprise" && !customerTaxId.trim()) {
+      return "Matricule fiscal obligatoire pour un client entreprise.";
     }
 
     const clean = items
@@ -150,9 +195,8 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
   }
 
   async function handleSave() {
-    setErr(null);
     const v = validateForm();
-    if (v) return setErr(v);
+    if (v) return openError(v);
 
     startSaving(async () => {
       try {
@@ -165,8 +209,6 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
 
           issue_date: issueDate,
           invoice_number: invoiceNumber.trim() || null,
-
-          customer_type: customerType,
 
           customer_name: customerName.trim(),
           customer_tax_id: customerTaxId.trim() || null,
@@ -212,10 +254,11 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
           if (eItems) throw new Error(eItems.message);
         }
 
+        openInfo("Enregistrement réussi.");
         router.push(`/invoices/${invoiceId}`);
         router.refresh();
       } catch (e: any) {
-        setErr(e?.message || "Erreur enregistrement.");
+        openError(e?.message || "Erreur enregistrement.");
       }
     });
   }
@@ -224,24 +267,26 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
 
   return (
     <div className="p-6">
+      <Modal open={modalOpen} title={modalTitle} message={modalMsg} onClose={closeModal} />
+
       <div className="ftn-card p-6">
         <div className="mb-4">
           <div className="text-xl font-semibold">Créer un document</div>
           <div className="text-sm text-slate-600">
-            Création = Enregistrer. Signature, XML signé, dépôt TTN se font dans Voir facture.
+            Création = Enregistrer. Signature, XML signé et dépôt TTN se font dans Voir facture.
           </div>
         </div>
-
-        {err ? (
-          <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div>
-        ) : null}
 
         <div className="grid gap-3 md:grid-cols-2">
           <div>
             <label className="text-sm font-medium">
               Type de document <Req />
             </label>
-            <select className="ftn-input mt-1 w-full" value={documentType} onChange={(e) => setDocumentType(e.target.value as DocumentType)}>
+            <select
+              className="ftn-input mt-1 w-full"
+              value={documentType}
+              onChange={(e) => setDocumentType(e.target.value as DocumentType)}
+            >
               <option value="facture">Facture</option>
               <option value="devis">Devis</option>
               <option value="avoir">Avoir</option>
@@ -265,14 +310,24 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
             <label className="text-sm font-medium">
               Date d’émission <Req />
             </label>
-            <input type="date" className="ftn-input mt-1 w-full" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
+            <input
+              type="date"
+              className="ftn-input mt-1 w-full"
+              value={issueDate}
+              onChange={(e) => setIssueDate(e.target.value)}
+            />
           </div>
 
           <div>
             <label className="text-sm font-medium">
               Devise <Req />
             </label>
-            <input className="ftn-input mt-1 w-full" value={currency} onChange={(e) => setCurrency(e.target.value)} placeholder="TND" />
+            <input
+              className="ftn-input mt-1 w-full"
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+              placeholder="TND"
+            />
           </div>
 
           <div>
@@ -291,7 +346,11 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
             <label className="text-sm font-medium">
               Type client <Req />
             </label>
-            <select className="ftn-input mt-1 w-full" value={customerType} onChange={(e) => setCustomerType(e.target.value as CustomerType)}>
+            <select
+              className="ftn-input mt-1 w-full"
+              value={customerType}
+              onChange={(e) => setCustomerType(e.target.value as CustomerType)}
+            >
               <option value="entreprise">Entreprise (assujetti)</option>
               <option value="particulier">Particulier</option>
             </select>
@@ -371,11 +430,19 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
                     </td>
 
                     <td className="px-3 py-2">
-                      <input className="ftn-input w-full" value={r.quantity} onChange={(e) => updateLine(r.line_no, { quantity: toNum(e.target.value, 1) })} />
+                      <input
+                        className="ftn-input w-full"
+                        value={r.quantity}
+                        onChange={(e) => updateLine(r.line_no, { quantity: toNum(e.target.value, 1) })}
+                      />
                     </td>
 
                     <td className="px-3 py-2">
-                      <input className="ftn-input w-full" value={r.unit_price_ht} onChange={(e) => updateLine(r.line_no, { unit_price_ht: toNum(e.target.value, 0) })} />
+                      <input
+                        className="ftn-input w-full"
+                        value={r.unit_price_ht}
+                        onChange={(e) => updateLine(r.line_no, { unit_price_ht: toNum(e.target.value, 0) })}
+                      />
                     </td>
 
                     <td className="px-3 py-2">
@@ -383,7 +450,11 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
                     </td>
 
                     <td className="px-3 py-2">
-                      <input className="ftn-input w-full" value={r.discount_pct} onChange={(e) => updateLine(r.line_no, { discount_pct: toNum(e.target.value, 0) })} />
+                      <input
+                        className="ftn-input w-full"
+                        value={r.discount_pct}
+                        onChange={(e) => updateLine(r.line_no, { discount_pct: toNum(e.target.value, 0) })}
+                      />
                     </td>
 
                     <td className="px-3 py-2 text-right">
@@ -400,12 +471,16 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
           <div className="mt-4 grid gap-3 md:grid-cols-4">
             <div className="rounded-2xl border bg-white p-4">
               <div className="text-sm text-slate-500">Total HT</div>
-              <div className="mt-1 text-2xl font-semibold">{fmt3(totals.subtotal_ht)} {currency.toUpperCase()}</div>
+              <div className="mt-1 text-2xl font-semibold">
+                {fmt3(totals.subtotal_ht)} {currency.toUpperCase()}
+              </div>
             </div>
 
             <div className="rounded-2xl border bg-white p-4">
               <div className="text-sm text-slate-500">TVA</div>
-              <div className="mt-1 text-2xl font-semibold">{fmt3(totals.total_vat)} {currency.toUpperCase()}</div>
+              <div className="mt-1 text-2xl font-semibold">
+                {fmt3(totals.total_vat)} {currency.toUpperCase()}
+              </div>
             </div>
 
             <div className="rounded-2xl border bg-white p-4">
@@ -418,8 +493,12 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
 
             <div className="rounded-2xl border bg-white p-4">
               <div className="text-sm text-slate-500">Net à payer</div>
-              <div className="mt-1 text-2xl font-semibold">{fmt3(totals.net_to_pay)} {currency.toUpperCase()}</div>
-              <div className="mt-1 text-xs text-slate-500">TTC sans timbre: {fmt3(totals.total_ttc)} {currency.toUpperCase()}</div>
+              <div className="mt-1 text-2xl font-semibold">
+                {fmt3(totals.net_to_pay)} {currency.toUpperCase()}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                TTC sans timbre: {fmt3(totals.total_ttc)} {currency.toUpperCase()}
+              </div>
             </div>
           </div>
         </div>
