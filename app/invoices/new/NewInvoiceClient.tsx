@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 type Company = { id: string; company_name: string };
 
 type DocumentType = "facture" | "devis" | "avoir";
+type CustomerType = "entreprise" | "particulier";
 
 type ItemRow = {
   id?: string;
@@ -46,23 +47,8 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
   const router = useRouter();
   const [saving, startSaving] = useTransition();
 
-  // UI popup
   const [err, setErr] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
-  const closePopup = () => {
-    setErr(null);
-    setInfo(null);
-  };
-  const showError = (m: string) => {
-    setInfo(null);
-    setErr(m);
-  };
-  const showInfo = (m: string) => {
-    setErr(null);
-    setInfo(m);
-  };
 
-  // Form state
   const [companyId, setCompanyId] = useState<string>(companies?.[0]?.id ?? "");
   const [documentType, setDocumentType] = useState<DocumentType>("facture");
 
@@ -70,7 +56,8 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
   const [invoiceNumber, setInvoiceNumber] = useState<string>("");
   const [uniqueRef, setUniqueRef] = useState<string>("");
 
-  // Customer (TTN)
+  const [customerType, setCustomerType] = useState<CustomerType>("entreprise");
+
   const [customerName, setCustomerName] = useState<string>("");
   const [customerTaxId, setCustomerTaxId] = useState<string>("");
   const [customerEmail, setCustomerEmail] = useState<string>("");
@@ -78,16 +65,12 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
   const [customerAddress, setCustomerAddress] = useState<string>("");
 
   const [currency, setCurrency] = useState<string>("TND");
-
-  // Timbre fiscal (Tunisie)
   const [stampAmount, setStampAmount] = useState<number>(1.0);
 
-  // Items
   const [items, setItems] = useState<ItemRow[]>([
     { line_no: 1, description: "", quantity: 1, unit_price_ht: 0, vat_pct: 19, discount_pct: 0 },
   ]);
 
-  // Calcul totaux (règle Tunisie)
   const totals = useMemo(() => {
     let subtotal_ht = 0;
     let total_vat = 0;
@@ -109,23 +92,13 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
     subtotal_ht = round3(subtotal_ht);
     total_vat = round3(total_vat);
 
-    // Total TTC (sans timbre)
     const total_ttc = round3(subtotal_ht + total_vat);
-
-    // Net à payer (avec timbre)
     const stamp = round3(toNum(stampAmount, 0));
     const net_to_pay = round3(total_ttc + stamp);
 
-    return {
-      subtotal_ht,
-      total_vat,
-      total_ttc,
-      stamp_amount: stamp,
-      net_to_pay,
-    };
+    return { subtotal_ht, total_vat, total_ttc, stamp_amount: stamp, net_to_pay };
   }, [items, stampAmount]);
 
-  // Helpers items
   function addLine() {
     setItems((prev) => [
       ...prev,
@@ -146,14 +119,17 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
   }
 
   function validateForm(): string | null {
-    if (!companyId) return "Veuillez choisir une société.";
-    if (!issueDate) return "La date d’émission est obligatoire.";
+    if (!companyId) return "Société obligatoire.";
+    if (!issueDate) return "Date d’émission obligatoire.";
     if (!iso4217OK(currency)) return "Devise invalide (ex: TND, EUR, USD).";
 
-    // TTN pratique : nom client obligatoire (au minimum)
-    if (!customerName.trim()) return "Le champ Client est obligatoire.";
+    if (!customerName.trim()) return "Client obligatoire.";
 
-    const cleanItems = items
+    if (customerType === "entreprise") {
+      if (!customerTaxId.trim()) return "Matricule fiscal obligatoire pour un client entreprise.";
+    }
+
+    const clean = items
       .map((it) => ({
         ...it,
         description: (it.description || "").trim(),
@@ -164,35 +140,34 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
       }))
       .filter((x) => x.description);
 
-    if (!cleanItems.length) return "Ajoutez au moins une ligne (description).";
-    if (cleanItems.some((x) => x.quantity <= 0)) return "Quantité doit être > 0.";
-    if (cleanItems.some((x) => x.unit_price_ht < 0)) return "PU HT ne peut pas être négatif.";
-    if (cleanItems.some((x) => x.vat_pct < 0 || x.vat_pct > 100)) return "TVA % doit être entre 0 et 100.";
+    if (!clean.length) return "Au moins une ligne (description) est obligatoire.";
+    if (clean.some((x) => x.quantity <= 0)) return "Quantité doit être > 0.";
+    if (clean.some((x) => x.unit_price_ht < 0)) return "PU HT ne peut pas être négatif.";
+    if (clean.some((x) => x.vat_pct < 0 || x.vat_pct > 100)) return "TVA % doit être entre 0 et 100.";
     if (toNum(stampAmount, 0) < 0) return "Timbre fiscal invalide.";
 
     return null;
   }
 
   async function handleSave() {
-    closePopup();
-
+    setErr(null);
     const v = validateForm();
-    if (v) return showError(v);
+    if (v) return setErr(v);
 
     startSaving(async () => {
       try {
         const payload: any = {
           company_id: companyId,
 
-          // Identifiants doc
           unique_reference: uniqueRef.trim() || null,
           document_type: documentType,
           invoice_mode: "normal",
 
-          issue_date: issueDate || todayISO(),
+          issue_date: issueDate,
           invoice_number: invoiceNumber.trim() || null,
 
-          // ✅ IMPORTANT : champs DB corrects (customer_*)
+          customer_type: customerType,
+
           customer_name: customerName.trim(),
           customer_tax_id: customerTaxId.trim() || null,
           customer_email: customerEmail.trim() || null,
@@ -201,7 +176,6 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
 
           currency: currency.trim().toUpperCase(),
 
-          // Totaux
           subtotal_ht: totals.subtotal_ht,
           total_vat: totals.total_vat,
           total_ttc: totals.total_ttc,
@@ -210,19 +184,17 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
           stamp_amount: totals.stamp_amount,
           net_to_pay: totals.net_to_pay,
 
-          // ✅ Créer = juste enregistrer (TTN & signature = page Voir facture)
           send_mode: "manual",
           ttn_status: "not_sent",
+          status: "draft",
         };
 
-        // 1) insert invoice
         const { data, error } = await supabase.from("invoices").insert(payload).select("id").single();
         if (error) throw new Error(error.message);
 
         const invoiceId = String((data as any)?.id);
         if (!invoiceId) throw new Error("ID facture manquant.");
 
-        // 2) insert items (table correcte : invoice_items)
         const cleanItems = items
           .map((it, idx) => ({
             invoice_id: invoiceId,
@@ -240,56 +212,34 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
           if (eItems) throw new Error(eItems.message);
         }
 
-        showInfo("Enregistré ✅");
-        router.push(`/invoices/${invoiceId}`); // Page Voir facture : signature + TTN
+        router.push(`/invoices/${invoiceId}`);
         router.refresh();
       } catch (e: any) {
-        showError(e?.message || "Erreur enregistrement.");
+        setErr(e?.message || "Erreur enregistrement.");
       }
     });
   }
 
-  const Req = ({ children }: { children: any }) => (
-    <span className="text-rose-600 font-semibold ml-1" title="Obligatoire">
-      {children}
-    </span>
-  );
+  const Req = () => <span className="text-rose-600 font-semibold ml-1">*</span>;
 
   return (
     <div className="p-6">
-      {(err || info) ? (
-        <div className="fixed inset-0 z-[80] flex items-start justify-center p-4">
-          <div className="absolute inset-0 bg-black/30" onClick={closePopup} />
-          <div className="relative w-full max-w-xl rounded-2xl border bg-white p-4 shadow-xl">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-base font-semibold">{err ? "Erreur" : "Information"}</div>
-                <div className={`mt-1 text-sm ${err ? "text-rose-800" : "text-emerald-900"}`}>{err || info}</div>
-              </div>
-              <button className="ftn-btn ftn-btn-ghost" type="button" onClick={closePopup}>
-                Fermer
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       <div className="ftn-card p-6">
         <div className="mb-4">
           <div className="text-xl font-semibold">Créer un document</div>
           <div className="text-sm text-slate-600">
-            Créer = <b>Enregistrer</b> فقط. Signature DigiGo + Téléchargements + Envoi TTN se font dans <b>Voir facture</b>.
-          </div>
-          <div className="mt-2 text-xs text-slate-500">
-            Champs obligatoires : marqués par <span className="text-rose-600 font-semibold">*</span>
+            Création = Enregistrer. Signature, XML signé, dépôt TTN se font dans Voir facture.
           </div>
         </div>
 
-        {/* Bloc haut: type + société + date */}
+        {err ? (
+          <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div>
+        ) : null}
+
         <div className="grid gap-3 md:grid-cols-2">
           <div>
             <label className="text-sm font-medium">
-              Type de document <Req>*</Req>
+              Type de document <Req />
             </label>
             <select className="ftn-input mt-1 w-full" value={documentType} onChange={(e) => setDocumentType(e.target.value as DocumentType)}>
               <option value="facture">Facture</option>
@@ -300,7 +250,7 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
 
           <div>
             <label className="text-sm font-medium">
-              Société <Req>*</Req>
+              Société <Req />
             </label>
             <select className="ftn-input mt-1 w-full" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
               {companies.map((c) => (
@@ -313,13 +263,15 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
 
           <div>
             <label className="text-sm font-medium">
-              Date d’émission <Req>*</Req>
+              Date d’émission <Req />
             </label>
             <input type="date" className="ftn-input mt-1 w-full" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
           </div>
 
           <div>
-            <label className="text-sm font-medium">Devise <Req>*</Req></label>
+            <label className="text-sm font-medium">
+              Devise <Req />
+            </label>
             <input className="ftn-input mt-1 w-full" value={currency} onChange={(e) => setCurrency(e.target.value)} placeholder="TND" />
           </div>
 
@@ -334,28 +286,44 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
           </div>
         </div>
 
-        {/* Client */}
         <div className="mt-6 grid gap-3 md:grid-cols-2">
           <div>
             <label className="text-sm font-medium">
-              Client <Req>*</Req>
+              Type client <Req />
+            </label>
+            <select className="ftn-input mt-1 w-full" value={customerType} onChange={(e) => setCustomerType(e.target.value as CustomerType)}>
+              <option value="entreprise">Entreprise (assujetti)</option>
+              <option value="particulier">Particulier</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">
+              Client <Req />
             </label>
             <input className="ftn-input mt-1 w-full" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
           </div>
 
           <div>
-            <label className="text-sm font-medium">Matricule fiscal (optionnel)</label>
-            <input className="ftn-input mt-1 w-full" value={customerTaxId} onChange={(e) => setCustomerTaxId(e.target.value)} />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">Email (optionnel)</label>
-            <input className="ftn-input mt-1 w-full" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} />
+            <label className="text-sm font-medium">
+              Matricule fiscal {customerType === "entreprise" ? <Req /> : null}
+            </label>
+            <input
+              className="ftn-input mt-1 w-full"
+              value={customerTaxId}
+              onChange={(e) => setCustomerTaxId(e.target.value)}
+              placeholder={customerType === "entreprise" ? "Obligatoire" : "Optionnel"}
+            />
           </div>
 
           <div>
             <label className="text-sm font-medium">Téléphone (optionnel)</label>
             <input className="ftn-input mt-1 w-full" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">Email (optionnel)</label>
+            <input className="ftn-input mt-1 w-full" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} />
           </div>
 
           <div className="md:col-span-2">
@@ -364,14 +332,13 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
           </div>
         </div>
 
-        {/* Lignes */}
         <div className="mt-6">
           <div className="flex items-center justify-between gap-2">
             <div className="font-semibold">
-              Lignes <Req>*</Req>
+              Lignes <Req />
             </div>
             <button className="ftn-btn" type="button" onClick={addLine}>
-              + Ajouter ligne
+              Ajouter ligne
             </button>
           </div>
 
@@ -397,7 +364,7 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
                     <td className="px-3 py-2">
                       <input
                         className="ftn-input w-full"
-                        placeholder="Produit / service..."
+                        placeholder="Produit / service"
                         value={r.description}
                         onChange={(e) => updateLine(r.line_no, { description: e.target.value })}
                       />
@@ -430,20 +397,15 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
             </table>
           </div>
 
-          {/* Totaux (moins “gros” que ton ancien écran) */}
           <div className="mt-4 grid gap-3 md:grid-cols-4">
             <div className="rounded-2xl border bg-white p-4">
               <div className="text-sm text-slate-500">Total HT</div>
-              <div className="mt-1 text-2xl font-semibold">
-                {fmt3(totals.subtotal_ht)} {currency.toUpperCase()}
-              </div>
+              <div className="mt-1 text-2xl font-semibold">{fmt3(totals.subtotal_ht)} {currency.toUpperCase()}</div>
             </div>
 
             <div className="rounded-2xl border bg-white p-4">
               <div className="text-sm text-slate-500">TVA</div>
-              <div className="mt-1 text-2xl font-semibold">
-                {fmt3(totals.total_vat)} {currency.toUpperCase()}
-              </div>
+              <div className="mt-1 text-2xl font-semibold">{fmt3(totals.total_vat)} {currency.toUpperCase()}</div>
             </div>
 
             <div className="rounded-2xl border bg-white p-4">
@@ -455,16 +417,13 @@ export default function NewInvoiceClient({ companies }: { companies: Company[] }
             </div>
 
             <div className="rounded-2xl border bg-white p-4">
-              <div className="text-sm text-slate-500">Net à payer (TTC + timbre)</div>
-              <div className="mt-1 text-2xl font-semibold">
-                {fmt3(totals.net_to_pay)} {currency.toUpperCase()}
-              </div>
-              <div className="mt-1 text-xs text-slate-500">(TTC sans timbre = {fmt3(totals.total_ttc)} {currency.toUpperCase()})</div>
+              <div className="text-sm text-slate-500">Net à payer</div>
+              <div className="mt-1 text-2xl font-semibold">{fmt3(totals.net_to_pay)} {currency.toUpperCase()}</div>
+              <div className="mt-1 text-xs text-slate-500">TTC sans timbre: {fmt3(totals.total_ttc)} {currency.toUpperCase()}</div>
             </div>
           </div>
         </div>
 
-        {/* ✅ Actions EN BAS */}
         <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
           <Link className="ftn-btn ftn-btn-ghost" href="/invoices" prefetch={false}>
             Retour
