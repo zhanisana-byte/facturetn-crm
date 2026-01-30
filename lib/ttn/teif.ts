@@ -1,0 +1,442 @@
+// lib/ttn/teif.ts
+// TEIF XML builder (TTN / El Fatoora) – compatible with facture_INVOIC_V1.8.8_withoutSig.xsd
+// Note: The official XSD root element is <TEIF> with InvoiceHeader + InvoiceBody.
+// This builder focuses on the mandatory parts used by TTN webservice "saveEfact".
+
+export type TeifBuildInput = {
+  invoiceId: string;
+  companyId: string;
+
+  documentType?: 'facture' | 'avoir' | 'devis' | string | null;
+
+  invoiceNumber?: string | null;
+  issueDate?: string | null;
+  dueDate?: string | null;
+
+  currency?: string | null;
+
+  customer?: {
+    name?: string | null;
+    taxId?: string | null;
+    address?: string | null;
+    city?: string | null;
+    postalCode?: string | null;
+    country?: string | null;
+  } | null;
+
+  supplier?: {
+    name?: string | null;
+    taxId?: string | null;
+    address?: string | null;
+    street?: string | null;
+    city?: string | null;
+    postalCode?: string | null;
+    country?: string | null;
+  } | null;
+
+  totals?: {
+    ht: number;
+    tva: number;
+    ttc: number;
+    stampEnabled?: boolean;
+    stampAmount?: number;
+  } | null;
+
+  notes?: string | null;
+
+  purpose?: 'preview' | 'ttn' | null;
+
+  items?: Array<{
+    description: string;
+    qty: number;
+    price: number;
+    vat: number;
+    discount?: number;
+  }>;
+};
+
+// ------------------------------------------------------------
+// Helpers
+// ------------------------------------------------------------
+function escXml(v: unknown): string {
+  const s = String(v ?? "");
+  return s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function toNum(n: unknown): number {
+  const x = Number(n);
+  return Number.isFinite(x) ? x : 0;
+}
+
+function fmtAmount(n: unknown): string {
+  const x = toNum(n);
+  // TTN examples use 3 decimals for TND
+  return x.toFixed(3);
+}
+
+function onlyDigits(s: string) {
+  return String(s || "").replace(/[^\d]/g, "");
+}
+
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function toDdMmYy(d: string | null | undefined): string {
+  // XSD examples typically use ddMMyy with attribute format="ddMMyy"
+  // Accept ISO date or datetime.
+  const s = String(d ?? "").trim();
+  if (!s) return "";
+  const dt = new Date(s);
+  if (Number.isNaN(dt.getTime())) return "";
+  const dd = pad2(dt.getDate());
+  const mm = pad2(dt.getMonth() + 1);
+  const yy = pad2(dt.getFullYear() % 100);
+  return `${dd}${mm}${yy}`;
+}
+
+function requireNonEmpty(label: string, v: string) {
+  const x = (v ?? "").trim();
+  if (!x) throw new Error(`${label} manquant`);
+  return x;
+}
+
+function nonEmpty(v: unknown): string {
+  return String(v ?? "").trim();
+}
+
+// ------------------------------------------------------------
+// Minimal XSD-aligned builder
+// ------------------------------------------------------------
+export function buildTeifXml(input: TeifBuildInput): string {
+  const currency = (input.currency ?? "TND").toUpperCase();
+
+  const invoiceNumber = nonEmpty(input.invoiceNumber || input.invoiceId);
+  const issueDd = toDdMmYy(input.issueDate);
+  const dueDd = toDdMmYy(input.dueDate);
+
+  const supplierName = nonEmpty(input.supplier?.name || "");
+  const supplierTax = nonEmpty(input.supplier?.taxId || "");
+  const supplierAddr = nonEmpty(input.supplier?.address || "");
+
+  const purpose = (input.purpose ?? "preview") as "preview" | "ttn";
+  const docType = String(input.documentType ?? "facture").toLowerCase();
+  const requireStrict = purpose === "ttn" && docType !== "devis";
+
+  if (requireStrict) {
+    requireNonEmpty("Le matricule fiscal (MF) de la société", supplierTax);
+    requireNonEmpty("Le nom de la société", supplierName);
+    requireNonEmpty("L’adresse de la société", supplierAddr);
+  }
+  const supplierStreet = nonEmpty(input.supplier?.street || "");
+  const supplierCity = nonEmpty(input.supplier?.city || "");
+  const supplierPostal = nonEmpty(input.supplier?.postalCode || "");
+  const supplierCountry = nonEmpty(input.supplier?.country || "TN").toUpperCase() || "TN";
+
+  const customerName = nonEmpty(input.customer?.name || "");
+  const customerTax = nonEmpty(input.customer?.taxId || "NA");
+  const customerAddr = nonEmpty(input.customer?.address || "");
+  const customerCity = nonEmpty(input.customer?.city || "");
+  const customerPostal = nonEmpty(input.customer?.postalCode || "");
+  const customerCountry = nonEmpty(input.customer?.country || "TN").toUpperCase() || "TN";
+
+  const ht = toNum(input.totals?.ht);
+  const tva = toNum(input.totals?.tva);
+  const ttc = toNum(input.totals?.ttc);
+
+  const stampEnabled = Boolean(input.totals?.stampEnabled);
+  const stampAmount = toNum(input.totals?.stampAmount);
+
+  const notes = nonEmpty(input.notes || "");
+
+  const items = Array.isArray(input.items) ? input.items : [];
+
+  // --- Lines (LinSection/Lin)
+  const linesXml = items
+    .map((it, idx) => {
+      const qty = toNum(it.qty);
+      const price = toNum(it.price);
+      const vat = toNum(it.vat);
+
+      // Amounts: basic HT line amount
+      const discountPct = toNum((it as any).discount ?? 0);
+      const lineHt = qty * price * (1 - Math.min(Math.max(discountPct, 0), 100) / 100);
+return `
+      <Lin>
+        <ItemIdentifier>${escXml(String(idx + 1))}</ItemIdentifier>
+        <LinImd>
+          <ItemCode>${escXml(String(idx + 1))}</ItemCode>
+          <ItemDescription>${escXml(it.description || "")}</ItemDescription>
+        </LinImd>
+        <LinQty>
+          <Quantity measurementUnit="C62">${escXml(String(qty || 1))}</Quantity>
+        </LinQty>
+        <LinTax>
+          <TaxTypeName code="I-1602">TVA</TaxTypeName>
+          <TaxDetails>
+            <TaxRate>${escXml(String(vat || 0))}</TaxRate>
+          </TaxDetails>
+        </LinTax>
+        <LinMoa>
+          <MoaDetails>
+            <Moa amountTypeCode="I-176" currencyCodeList="ISO_4217">
+              <Amount currencyIdentifier="${escXml(currency)}">${escXml(fmtAmount(lineHt))}</Amount>
+            </Moa>
+          </MoaDetails>
+        </LinMoa>
+      </Lin>`;
+    })
+    .join("");
+
+  // --- PartnerSection (2 partners): supplier (I-62) + customer (I-64) like TTN example
+  const partnerSupplier = `
+      <PartnerDetails functionCode="I-62">
+        <Nad>
+          <PartnerIdentifier type="I-01">${escXml(supplierTax || "NA")}</PartnerIdentifier>
+          <PartnerName nameType="Qualification">${escXml(supplierName || "Société")}</PartnerName>
+          <PartnerAdresses lang="fr">
+            <AdressDescription>${escXml(supplierAddr)}</AdressDescription>
+            <Street>${escXml(supplierStreet)}</Street>
+            <CityName>${escXml(supplierCity)}</CityName>
+            <PostalCode>${escXml(supplierPostal)}</PostalCode>
+            <Country codeList="ISO_3166-1">${escXml(supplierCountry)}</Country>
+          </PartnerAdresses>
+        </Nad>
+      </PartnerDetails>`;
+
+  const partnerCustomer = `
+      <PartnerDetails functionCode="I-64">
+        <Nad>
+          <PartnerIdentifier type="I-01">${escXml(customerTax)}</PartnerIdentifier>
+          <PartnerName nameType="Qualification">${escXml(customerName || "Client")}</PartnerName>
+          <PartnerAdresses lang="fr">
+            <AdressDescription>${escXml(customerAddr)}</AdressDescription>
+            <Street></Street>
+            <CityName>${escXml(customerCity)}</CityName>
+            <PostalCode>${escXml(customerPostal)}</PostalCode>
+            <Country codeList="ISO_3166-1">${escXml(customerCountry)}</Country>
+          </PartnerAdresses>
+        </Nad>
+      </PartnerDetails>`;
+
+  // --- InvoiceMoa totals (HT, TVA, TTC)
+  const invoiceMoa = `
+    <InvoiceMoa>
+      <AmountDetails>
+        <Moa amountTypeCode="I-176" currencyCodeList="ISO_4217">
+          <Amount currencyIdentifier="${escXml(currency)}">${escXml(fmtAmount(ht))}</Amount>
+        </Moa>
+      </AmountDetails>
+      <AmountDetails>
+        <Moa amountTypeCode="I-181" currencyCodeList="ISO_4217">
+          <Amount currencyIdentifier="${escXml(currency)}">${escXml(fmtAmount(tva))}</Amount>
+        </Moa>
+      </AmountDetails>
+      <AmountDetails>
+        <Moa amountTypeCode="I-180" currencyCodeList="ISO_4217">
+          <Amount currencyIdentifier="${escXml(currency)}">${escXml(fmtAmount(ttc))}</Amount>
+        </Moa>
+      </AmountDetails>
+    </InvoiceMoa>`;
+
+  // --- InvoiceTax: VAT + (optional) stamp
+  // Build VAT breakdown per rate to better match TEIF/XSD expectations (multiple rates possible)
+  const vatMap = new Map<number, { base: number; tax: number }>();
+  for (const it of items) {
+    const qty = toNum((it as any).qty);
+    const price = toNum((it as any).price);
+    const discountPct = toNum((it as any).discount ?? 0);
+    const vatRate = toNum((it as any).vat);
+    const lineBase = qty * price * (1 - Math.min(Math.max(discountPct, 0), 100) / 100);
+    const lineTax = lineBase * (vatRate / 100);
+    const key = Number.isFinite(vatRate) ? vatRate : 0;
+    const prev = vatMap.get(key) ?? { base: 0, tax: 0 };
+    vatMap.set(key, { base: prev.base + lineBase, tax: prev.tax + lineTax });
+  }
+
+  const vatRates = Array.from(vatMap.keys()).sort((a, b) => a - b);
+  if (vatRates.length === 0) vatRates.push(0);
+
+  const vatTax = vatRates
+    .map((rate) => {
+      const agg = vatMap.get(rate) ?? { base: ht, tax: tva };
+      return `
+      <InvoiceTaxDetails>
+        <Tax>
+          <TaxTypeName code="I-1602">TVA</TaxTypeName>
+          <TaxDetails>
+            <TaxRate>${escXml(String(rate))}</TaxRate>
+          </TaxDetails>
+        </Tax>
+        <AmountDetails>
+          <Moa amountTypeCode="I-177" currencyCodeList="ISO_4217">
+            <Amount currencyIdentifier="${escXml(currency)}">${escXml(fmtAmount(agg.base))}</Amount>
+          </Moa>
+        </AmountDetails>
+        <AmountDetails>
+          <Moa amountTypeCode="I-178" currencyCodeList="ISO_4217">
+            <Amount currencyIdentifier="${escXml(currency)}">${escXml(fmtAmount(agg.tax))}</Amount>
+          </Moa>
+        </AmountDetails>
+      </InvoiceTaxDetails>`;
+    })
+    .join("");
+
+  const stampTax = stampEnabled
+    ? `
+      <InvoiceTaxDetails>
+        <Tax>
+          <TaxTypeName code="I-1601">droit de timbre</TaxTypeName>
+          <TaxDetails>
+            <TaxRate>0</TaxRate>
+          </TaxDetails>
+        </Tax>
+        <AmountDetails>
+          <Moa amountTypeCode="I-178" currencyCodeList="ISO_4217">
+            <Amount currencyIdentifier="${escXml(currency)}">${escXml(fmtAmount(stampAmount))}</Amount>
+          </Moa>
+        </AmountDetails>
+      </InvoiceTaxDetails>`
+    : "";
+
+  const invoiceTax = `
+    <InvoiceTax>
+      ${stampTax}
+      ${vatTax}
+    </InvoiceTax>`;
+
+  // --- Optional notes (Ftx)
+  const ftx = notes
+    ? `
+    <Ftx>
+      <FtxDetail functionCode="I-451">
+        <Text lang="fr">${escXml(notes)}</Text>
+      </FtxDetail>
+    </Ftx>`
+    : "";
+
+  // --- Dtm (issue date required; due date optional)
+  const dtm = `
+    <Dtm>
+      <DateText format="ddMMyy" functionCode="I-31">${escXml(issueDd)}</DateText>
+      ${dueDd ? `<DateText format="ddMMyy" functionCode="I-32">${escXml(dueDd)}</DateText>` : ""}
+    </Dtm>`;
+
+  // --- Bgm: DocumentIdentifier + DocumentType
+  const docKind = String(input.documentType ?? "facture").toLowerCase();
+  const docTypeCode = docKind === "avoir" ? "I-12" : "I-11";
+  const docTypeLabel = docKind === "avoir" ? "Facture d’avoir" : "Facture";
+
+  const bgm = `
+    <Bgm>
+      <DocumentIdentifier>${escXml(invoiceNumber)}</DocumentIdentifier>
+      <DocumentType code="${escXml(docTypeCode)}">${escXml(docTypeLabel)}</DocumentType>
+    </Bgm>`;
+
+  // --- Header sender/receiver
+  // Sender = supplier tax id (I-01). Receiver can be customer tax id, like TTN example.
+  const header = `
+  <InvoiceHeader>
+    <MessageSenderIdentifier type="I-01">${escXml(supplierTax || "NA")}</MessageSenderIdentifier>
+    <MessageRecieverIdentifier type="I-01">${escXml(customerTax || "NA")}</MessageRecieverIdentifier>
+  </InvoiceHeader>`;
+
+  const body = `
+  <InvoiceBody>
+    ${bgm}
+    ${dtm}
+    <PartnerSection>
+      ${partnerSupplier}
+      ${partnerCustomer}
+    </PartnerSection>
+    ${ftx}
+    <LinSection>
+      ${linesXml}
+    </LinSection>
+    ${invoiceMoa}
+    ${invoiceTax}
+  </InvoiceBody>`;
+
+  // Root attributes per example
+  return `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<TEIF controlingAgency="TTN" version="1.8.8">` +
+    `${header}` +
+    `${body}` +
+    `</TEIF>`;
+}
+
+// Backwards-compatible export used by app/api
+export function buildCompactTeifXml(input: TeifBuildInput) {
+  return buildTeifXml(input);
+}
+
+// ------------------------------------------------------------
+// Minimal validation (server-side) before send
+// ------------------------------------------------------------
+export function validateTeifMinimum(xml: string): string[] {
+  const problems: string[] = [];
+
+  // Basic structure
+  if (!xml.includes("<TEIF")) problems.push("Missing <TEIF> root");
+  if (!xml.includes('controlingAgency="TTN"')) problems.push('Missing controlingAgency="TTN"');
+  if (!xml.includes('version="1.8.8"')) problems.push('Missing version="1.8.8"');
+  if (!xml.includes("<InvoiceHeader>")) problems.push("Missing <InvoiceHeader>");
+  if (!xml.includes("<InvoiceBody>")) problems.push("Missing <InvoiceBody>");
+  if (!xml.includes("<Bgm>")) problems.push("Missing <Bgm>");
+  if (!xml.includes("<DocumentIdentifier>")) problems.push("Missing DocumentIdentifier");
+  if (!xml.match(/<DocumentIdentifier>\s*[^<\s][^<]*<\/DocumentIdentifier>/))
+    problems.push("Empty DocumentIdentifier");
+
+  if (!xml.includes("<Dtm>")) problems.push("Missing <Dtm>");
+  const issueMatch = xml.match(/functionCode="I-31"[^>]*>([^<]+)</);
+  if (!issueMatch) problems.push("Missing IssueDate (I-31)");
+  else if (!/^\d{6}$/.test(issueMatch[1].trim())) problems.push("Invalid IssueDate format (expected ddMMyy)");
+
+  if (!xml.includes("<PartnerSection>")) problems.push("Missing PartnerSection");
+  if (!xml.includes('functionCode="I-62"')) problems.push("Missing Supplier partner (I-62)");
+  if (!xml.includes('functionCode="I-64"')) problems.push("Missing Customer partner (I-64)");
+
+  // Supplier + customer identifiers (must not be empty)
+  if (!xml.match(/functionCode="I-62"[\s\S]*?<PartnerIdentifier[^>]*>\s*[^<\s][^<]*<\/PartnerIdentifier>/))
+    problems.push("Missing/empty Supplier PartnerIdentifier");
+  if (!xml.match(/functionCode="I-64"[\s\S]*?<PartnerIdentifier[^>]*>\s*[^<\s][^<]*<\/PartnerIdentifier>/))
+    problems.push("Missing/empty Customer PartnerIdentifier");
+
+  // Lines
+  if (!xml.includes("<LinSection>")) problems.push("Missing LinSection");
+  const lineCount = (xml.match(/<Lin>/g) || []).length;
+  if (lineCount < 1) problems.push("Missing at least one line");
+
+  // Totals & tax
+  if (!xml.includes("<InvoiceMoa>")) problems.push("Missing InvoiceMoa totals");
+  if (!xml.includes("<InvoiceTax>")) problems.push("Missing InvoiceTax");
+  if (!xml.includes('TaxTypeName code="I-1602"')) problems.push("Missing VAT tax block (I-1602)");
+
+  return problems;
+}
+
+export function enforceMaxSize(xml: string, maxBytes = 50_000) {
+  const originalSize = Buffer.byteLength(xml, "utf8");
+  if (originalSize <= maxBytes) {
+    return { xml, originalSize, finalSize: originalSize, trimmed: false };
+  }
+  // Trim notes first (FTX)
+  let trimmedXml = xml.replace(/<Ftx>[\s\S]*?<\/Ftx>/g, "");
+  const finalSize = Buffer.byteLength(trimmedXml, "utf8");
+  if (finalSize <= maxBytes) {
+    return { xml: trimmedXml, originalSize, finalSize, trimmed: true };
+  }
+  // As last resort, remove AmountDescription if any
+  trimmedXml = trimmedXml.replace(/<AmountDescription[\s\S]*?<\/AmountDescription>/g, "");
+  return {
+    xml: trimmedXml,
+    originalSize,
+    finalSize: Buffer.byteLength(trimmedXml, "utf8"),
+    trimmed: true,
+  };
+}
