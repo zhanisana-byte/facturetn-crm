@@ -7,13 +7,11 @@ import { mapDbAccountType } from "@/app/types";
 
 export const dynamic = "force-dynamic";
 
-export default async function Page({
-  searchParams,
-}: {
-  searchParams?: Promise<{ edit?: string }>;
-}) {
-  const sp = (await searchParams) ?? {};
+type Company = { id: string; company_name: string };
+
+export default async function Page() {
   const supabase = await createClient();
+
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
@@ -25,14 +23,18 @@ export default async function Page({
 
   const t = mapDbAccountType(profile?.account_type);
 
+  // Charge les sociétés pour l’écran création
+  const { data: companiesRaw } = await supabase
+    .from("companies")
+    .select("id,company_name")
+    .order("company_name", { ascending: true });
+
+  const companies = (companiesRaw ?? []) as Company[];
+
   return (
-    <AppShell
-      title={sp.edit ? "Modifier document" : "Nouveau document"}
-      subtitle="Facture / Devis / Avoir"
-      accountType={t}
-    >
+    <AppShell title="Nouveau document" subtitle="Facture / Devis / Avoir" accountType={t}>
       <Suspense fallback={<div className="p-6">Chargement...</div>}>
-        <NewInvoiceClient initialEditId={sp.edit ?? null} />
+        <NewInvoiceClient companies={companies} />
       </Suspense>
     </AppShell>
   );
