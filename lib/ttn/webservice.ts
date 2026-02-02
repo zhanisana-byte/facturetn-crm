@@ -9,6 +9,14 @@ export type TTNWebserviceConfig = {
   timeoutMs?: number;
 };
 
+export type TTNWsResult = {
+  ok: boolean;
+  status: number;
+  text: string;
+  idSaveEfact?: string | null;
+  uuidEfact?: string | null;
+};
+
 function escXml(s: string) {
   return String(s)
     .replace(/&/g, "&amp;")
@@ -28,6 +36,23 @@ function normalizeEndpoint(cfg: TTNWebserviceConfig) {
   if (a) return a;
   const b = String(cfg.url || "").trim();
   return b;
+}
+
+function pickTag(text: string, tag: string) {
+  const t = String(text || "");
+  const re = new RegExp(`<(?:\\w+:)?${tag}\\b[^>]*>([\\s\\S]*?)<\\/(?:\\w+:)?${tag}>`, "i");
+  const m = t.match(re);
+  if (!m) return null;
+  const v = String(m[1] ?? "").trim();
+  return v || null;
+}
+
+function parseSaveId(text: string) {
+  return pickTag(text, "idSaveEfact") ?? pickTag(text, "saveEfactResult") ?? null;
+}
+
+function parseUuid(text: string) {
+  return pickTag(text, "uuidEfact") ?? pickTag(text, "uuid") ?? null;
 }
 
 export function buildSaveEfactEnvelope(cfg: TTNWebserviceConfig, xmlB64: string) {
@@ -66,7 +91,7 @@ export function buildConsultEfactEnvelope(cfg: TTNWebserviceConfig, uuid: string
   );
 }
 
-async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<TTNWsResult> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -78,13 +103,13 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }
 }
 
-export async function ttnSaveEfact(cfg: TTNWebserviceConfig, xmlB64: string) {
+export async function ttnSaveEfact(cfg: TTNWebserviceConfig, xmlB64: string): Promise<TTNWsResult> {
   const endpoint = normalizeEndpoint(cfg);
-  if (!endpoint) return { ok: false, status: 0, text: "Missing TTN endpoint" };
+  if (!endpoint) return { ok: false, status: 0, text: "Missing TTN endpoint", idSaveEfact: null };
 
   const envelope = buildSaveEfactEnvelope(cfg, xmlB64);
 
-  return fetchWithTimeout(
+  const base = await fetchWithTimeout(
     endpoint,
     {
       method: "POST",
@@ -96,15 +121,18 @@ export async function ttnSaveEfact(cfg: TTNWebserviceConfig, xmlB64: string) {
     },
     cfg.timeoutMs || 45000
   );
+
+  const idSaveEfact = base.ok ? parseSaveId(base.text) : null;
+  return { ...base, idSaveEfact };
 }
 
-export async function ttnConsultEfact(cfg: TTNWebserviceConfig, uuid: string) {
+export async function ttnConsultEfact(cfg: TTNWebserviceConfig, uuid: string): Promise<TTNWsResult> {
   const endpoint = normalizeEndpoint(cfg);
-  if (!endpoint) return { ok: false, status: 0, text: "Missing TTN endpoint" };
+  if (!endpoint) return { ok: false, status: 0, text: "Missing TTN endpoint", uuidEfact: null };
 
   const envelope = buildConsultEfactEnvelope(cfg, uuid);
 
-  return fetchWithTimeout(
+  const base = await fetchWithTimeout(
     endpoint,
     {
       method: "POST",
@@ -116,6 +144,9 @@ export async function ttnConsultEfact(cfg: TTNWebserviceConfig, uuid: string) {
     },
     cfg.timeoutMs || 45000
   );
+
+  const uuidEfact = base.ok ? parseUuid(base.text) : null;
+  return { ...base, uuidEfact };
 }
 
 export async function saveEfactSOAP(cfg: TTNWebserviceConfig, xmlB64: string) {
