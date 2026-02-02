@@ -1,7 +1,18 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { canCompanyAction } from "@/lib/permissions/companyPerms";
 
 export const dynamic = "force-dynamic";
+
+function isSignatureBlocking(sig: any | null | undefined): boolean {
+  if (!sig) return false;
+  const state = typeof sig.state === "string" ? sig.state.toLowerCase() : "";
+  if (state === "signed") return true;
+  const signedXml = typeof sig.signed_xml === "string" ? sig.signed_xml.trim() : "";
+  if (signedXml.length > 0) return true;
+  if (sig.signed_at) return true;
+  return false;
+}
 
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
@@ -25,31 +36,34 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ ok: false, error: "Facture introuvable ou accès refusé." }, { status: 404 });
   }
 
-  // Security checks
-  const isSigned = !!(invoice as any).signed_at || (invoice as any).signature_status === "signed";
+  const companyId = String((invoice as any).company_id || "");
+  if (!companyId) {
+    return NextResponse.json({ ok: false, error: "Invoice has no company" }, { status: 400 });
+  }
+
+  const allowed = await canCompanyAction(supabase, auth.user.id, companyId, "create_invoices");
+  if (!allowed) {
+    return NextResponse.json({ ok: false, error: "Accès refusé (permission création/soumission)." }, { status: 403 });
+  }
+
+  const { data: sig, error: sigErr } = await supabase
+    .from("invoice_signatures")
+    .select("state,signed_xml,signed_at")
+    .eq("invoice_id", id)
+    .maybeSingle();
+
+  if (sigErr) {
+    return NextResponse.json({ ok: false, error: sigErr.message }, { status: 400 });
+  }
+
+  const isSignedLegacy = !!(invoice as any).signed_at || (invoice as any).signature_status === "signed";
+  const isSigned = isSignedLegacy || isSignatureBlocking(sig);
+
   const ttnStatus = (invoice as any).ttn_status || "draft";
   const isLocked = !["draft", "not_sent", "error", "failed"].includes(ttnStatus);
 
   if (isSigned || isLocked) {
     return NextResponse.json({ ok: false, error: "Invoice is locked/signed and cannot be modified." }, { status: 409 });
-  }
-
-  const { data: membership, error: mErr } = await supabase
-    .from("memberships")
-    .select("role,is_active,can_create_invoices")
-    .eq("company_id", (invoice as any).company_id)
-    .eq("user_id", auth.user.id)
-    .maybeSingle();
-
-  if (mErr) {
-    return NextResponse.json({ ok: false, error: mErr.message }, { status: 400 });
-  }
-
-  const canSubmit =
-    !!membership?.is_active && (membership?.role === "owner" || membership?.can_create_invoices === true);
-
-  if (!canSubmit) {
-    return NextResponse.json({ ok: false, error: "Accès refusé (permission création/soumission)." }, { status: 403 });
   }
 
   if (!(invoice as any).require_accountant_validation) {
