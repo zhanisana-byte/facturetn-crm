@@ -1,4 +1,3 @@
-
 import AppShell from "@/app/components/AppShell";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -11,6 +10,12 @@ type Search = {
   company?: string;
   group?: string;
 };
+
+type PlatformSubStatus = "trial" | "active" | "paused" | "overdue" | "free" | "canceled";
+
+function platformCovers(status: PlatformSubStatus | null | undefined) {
+  return status === "active" || status === "free" || status === "trial";
+}
 
 function shortRefFromId(id: string) {
   const s = String(id || "").replace(/[^a-zA-Z0-9]/g, "");
@@ -28,43 +33,71 @@ const BANK_INFO = {
   beneficiary_name: "ZHANI SANA DEALINK",
 };
 
-async function countActiveManagedCompaniesForGroup(opts: {
-  supabase: any;
-  groupId: string;
-}) {
-
+async function countActiveExternalCompaniesForGroup(opts: { supabase: any; groupId: string }) {
   const { count, error } = await opts.supabase
     .from("group_companies")
     .select("id, companies!inner(id)", { count: "exact", head: true })
     .eq("group_id", opts.groupId)
-        .eq("companies.is_active", true);
+    .eq("link_type", "external")
+    .eq("companies.is_active", true);
 
-  if (error) {
-const { count: c2 } = await opts.supabase
-      .from("group_companies")
-      .select("id", { count: "exact", head: true })
-      .eq("group_id", opts.groupId)
-      ;
-    return Math.max(0, Number(c2 ?? 0));
-  }
+  if (!error) return Math.max(0, Number(count ?? 0));
 
-  return Math.max(0, Number(count ?? 0));
+  const { data } = await opts.supabase
+    .from("group_companies")
+    .select("id, link_type")
+    .eq("group_id", opts.groupId)
+    .limit(1000);
+
+  const rows = (data ?? []).filter((r: any) => String(r.link_type) === "external");
+  return Math.max(0, rows.length);
 }
 
-async function computePriceHt(opts: {
-  supabase: any;
-  scopeType: "company" | "group";
-  scopeId: string;
-}) {
-
+async function computePriceHt(opts: { supabase: any; scopeType: "company" | "group"; scopeId: string }) {
   if (opts.scopeType === "company") return 50;
 
-  const nbActives = await countActiveManagedCompaniesForGroup({
+  const nbActives = await countActiveExternalCompaniesForGroup({
     supabase: opts.supabase,
     groupId: opts.scopeId,
   });
 
   return 29 * nbActives;
+}
+
+async function getCoveringGroupForCompany(opts: { supabase: any; companyId: string }) {
+  const { data: links } = await opts.supabase
+    .from("group_companies")
+    .select("group_id, groups(id, group_name)")
+    .eq("company_id", opts.companyId)
+    .limit(20);
+
+  const groups =
+    (links ?? [])
+      .map((l: any) => ({
+        groupId: String(l.group_id || ""),
+        groupName: String(l.groups?.group_name || "Groupe"),
+      }))
+      .filter((g: any) => !!g.groupId) ?? [];
+
+  if (groups.length === 0) return null;
+
+  for (const g of groups) {
+    const { data: sub } = await opts.supabase
+      .from("platform_subscriptions")
+      .select("status")
+      .eq("scope_type", "group")
+      .eq("scope_id", g.groupId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const status = (sub?.status ? String(sub.status) : null) as PlatformSubStatus | null;
+    if (platformCovers(status)) {
+      return { ...g, status };
+    }
+  }
+
+  return null;
 }
 
 export default async function SubscriptionActivatePage({
@@ -86,12 +119,7 @@ export default async function SubscriptionActivatePage({
   let subtitle: string = "Paiement par virement bancaire";
   let backHref = "/subscription";
 
-  let accountType:
-    | "profil"
-    | "entreprise"
-    | "multi_societe"
-    | "comptable"
-    | undefined;
+  let accountType: "profil" | "entreprise" | "multi_societe" | "comptable" | undefined;
 
   let activeCompanyId: string | null = null;
   let activeGroupId: string | null = null;
@@ -104,6 +132,11 @@ export default async function SubscriptionActivatePage({
     backHref = `/companies/${encodeURIComponent(companyId)}/subscription`;
     accountType = "entreprise";
     activeCompanyId = companyId;
+
+    const cover = await getCoveringGroupForCompany({ supabase, companyId });
+    if (cover) {
+      redirect(`${backHref}?covered=1`);
+    }
 
     const { data: company } = await supabase
       .from("companies")
@@ -144,20 +177,19 @@ export default async function SubscriptionActivatePage({
     .eq("scope_id", scopeId)
     .limit(1);
 
-  let upsertedSub =
-    existingSub && existingSub.length > 0 ? existingSub[0] : null;
+  let upsertedSub = existingSub && existingSub.length > 0 ? existingSub[0] : null;
 
   const noteText =
     scopeType === "company"
       ? "Activation manuelle Société (virement)."
-      : "Activation manuelle Groupe (29 DT / société gérée active).";
+      : "Activation manuelle Groupe (29 DT / société externe active).";
 
   if (upsertedSub?.id) {
     const { data: updated, error: updErr } = await supabase
       .from("platform_subscriptions")
       .update({
-        status: "paused", 
-        price_ht: priceHt, 
+        status: "paused",
+        price_ht: priceHt,
         quantity: 1,
         note: noteText,
         updated_at: new Date().toISOString(),
@@ -200,7 +232,7 @@ export default async function SubscriptionActivatePage({
     await supabase.from("platform_payments").insert({
       subscription_id: upsertedSub.id,
       payer_user_id: auth.user.id,
-      amount_ht: priceHt, 
+      amount_ht: priceHt,
       method: "virement",
       status: "pending",
       reference,
@@ -211,7 +243,7 @@ export default async function SubscriptionActivatePage({
   const priceLabel =
     scopeType === "company"
       ? "50 DT / mois (HT)"
-      : `${Number(priceHt).toFixed(0)} DT / mois (HT) — 29 DT × sociétés gérées actives`;
+      : `${Number(priceHt).toFixed(0)} DT / mois (HT) — 29 DT × sociétés externes actives`;
 
   return (
     <AppShell
@@ -224,24 +256,18 @@ export default async function SubscriptionActivatePage({
       <div className="mx-auto max-w-2xl">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="text-sm text-slate-700">
-            <div className="font-semibold text-slate-900">
-              Étape suivante : Virement bancaire
-            </div>
+            <div className="font-semibold text-slate-900">Étape suivante : Virement bancaire</div>
 
             <p className="mt-2">
-              Pour activer votre abonnement, veuillez effectuer un{" "}
-              <b>virement bancaire</b> en indiquant la <b>référence</b> ci-dessous.
+              Pour activer votre abonnement, veuillez effectuer un <b>virement bancaire</b> en indiquant la{" "}
+              <b>référence</b> ci-dessous.
             </p>
 
             <div className="mt-5 grid gap-3">
               <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
                 <div className="text-xs text-slate-500">Référence obligatoire</div>
-                <div className="mt-1 text-lg font-bold tracking-wider text-slate-900">
-                  {reference}
-                </div>
-                <div className="mt-2 text-xs text-slate-500">
-                  (Sans référence, l’activation peut être retardée)
-                </div>
+                <div className="mt-1 text-lg font-bold tracking-wider text-slate-900">{reference}</div>
+                <div className="mt-2 text-xs text-slate-500">(Sans référence, l’activation peut être retardée)</div>
               </div>
 
               <div className="rounded-xl bg-white border border-slate-200 p-4">
@@ -250,9 +276,7 @@ export default async function SubscriptionActivatePage({
                 <div className="mt-2 space-y-1 text-sm text-slate-800">
                   <div>
                     <b>Banque :</b> {BANK_INFO.bankName}{" "}
-                    <span className="text-xs text-slate-500">
-                      (SWIFT {BANK_INFO.swift})
-                    </span>
+                    <span className="text-xs text-slate-500">(SWIFT {BANK_INFO.swift})</span>
                   </div>
                   <div>
                     <b>Agence :</b> {BANK_INFO.agency}
@@ -280,16 +304,10 @@ export default async function SubscriptionActivatePage({
               </div>
 
               <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
-                <div className="text-sm font-semibold text-slate-900">
-                  Après paiement
-                </div>
+                <div className="text-sm font-semibold text-slate-900">Après paiement</div>
                 <ul className="mt-2 list-disc pl-5 text-sm text-slate-700 space-y-1">
-                  <li>
-                    Votre abonnement sera activé après validation (manuelle) du paiement.
-                  </li>
-                  <li>
-                    Si besoin, vous pouvez envoyer un justificatif au support pour accélérer.
-                  </li>
+                  <li>Votre abonnement sera activé après validation (manuelle) du paiement.</li>
+                  <li>Si besoin, vous pouvez envoyer un justificatif au support pour accélérer.</li>
                 </ul>
               </div>
             </div>
@@ -313,8 +331,7 @@ export default async function SubscriptionActivatePage({
         </div>
 
         <div className="mt-4 text-xs text-slate-500">
-          Astuce : si le client active un <b>virement permanent</b>, il doit garder{" "}
-          <b>la même référence</b> chaque mois.
+          Astuce : si le client active un virement permanent, il doit garder la même référence chaque mois.
         </div>
       </div>
     </AppShell>
