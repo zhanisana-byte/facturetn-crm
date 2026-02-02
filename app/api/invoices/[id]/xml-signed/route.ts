@@ -1,40 +1,36 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { canCompanyAction } from "@/lib/permissions/companyPerms";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+function isSigned(inv: any) {
+  const st = String(inv?.signature_status || "").toLowerCase();
+  return st === "signed" || Boolean(inv?.signed_at) || Boolean(inv?.signed_xml) || Boolean(inv?.signature_xml);
+}
+
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const supabase = await createClient();
+
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
-  const { data: inv, error: invErr } = await supabase
-    .from("invoices")
-    .select("id,company_id")
-    .eq("id", id)
-    .single();
+  const { data: invoice, error } = await supabase.from("invoices").select("*").eq("id", id).maybeSingle();
+  if (error || !invoice) return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
 
-  if (invErr || !inv) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
-  const companyId = String((inv as any).company_id || "");
-  const ok = await canCompanyAction(supabase, auth.user.id, companyId, "submit_ttn");
-  if (!ok) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+  if (!isSigned(invoice)) {
+    return NextResponse.json({ ok: false, error: "SIGNATURE_REQUIRED" }, { status: 409 });
+  }
 
-  const { data: sig } = await supabase
-    .from("invoice_signatures")
-    .select("signed_xml,environment")
-    .eq("invoice_id", id)
-    .maybeSingle();
+  const xml = String((invoice as any).signed_xml || (invoice as any).signature_xml || "");
+  if (!xml) return NextResponse.json({ ok: false, error: "SIGNED_XML_MISSING" }, { status: 404 });
 
-  if (!sig?.signed_xml) return NextResponse.json({ ok: false, error: "SIGNATURE_NOT_FOUND" }, { status: 404 });
-
-  return new NextResponse(String(sig.signed_xml), {
+  return new NextResponse(xml, {
     status: 200,
     headers: {
       "Content-Type": "application/xml; charset=utf-8",
-      "Content-Disposition": `inline; filename="invoice-${id}-signed.xml"`,
+      "Content-Disposition": `attachment; filename="invoice-${id}-signed.xml"`,
       "Cache-Control": "no-store",
     },
   });
