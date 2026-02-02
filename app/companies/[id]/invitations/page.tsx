@@ -46,7 +46,6 @@ export default async function CompanyInvitationsPage(props: { params?: Promise<{
     .eq("status", "pending")
     .order("created_at", { ascending: false });
 
-  // Invitations Groupe/Cabinet pour gérer cette société
   const { data: groupInvites } = await supabase
     .from("group_company_invitations")
     .select("id,status,invited_email,created_at,group_id,groups(group_name,group_type)")
@@ -54,14 +53,12 @@ export default async function CompanyInvitationsPage(props: { params?: Promise<{
     .in("status", ["pending", "accepted", "declined", "revoked"])
     .order("created_at", { ascending: false });
 
-  // Liste des groupes/cabinets où l'utilisateur est Owner/Admin (utile pour sélectionner rapidement)
   const { data: myGroups } = await supabase
     .from("groups")
     .select("id,group_name,group_type,owner_user_id")
     .or(`owner_user_id.eq.${auth.user.id}`)
     .order("created_at", { ascending: false });
 
-  // + groupes où il est admin via group_members
   const { data: memberGroups } = await supabase
     .from("group_members")
     .select("group_id,role,is_active,groups(id,group_name,group_type,owner_user_id)")

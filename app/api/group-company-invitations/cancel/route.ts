@@ -20,7 +20,6 @@ export async function POST(req: Request) {
   if (!inv) return NextResponse.json({ error: "Invitation introuvable" }, { status: 404 });
   if (inv.status !== "pending") return NextResponse.json({ error: "Invitation déjà traitée" }, { status: 409 });
 
-  // Allow cancel by creator or group admin/owner
   let allowed = inv.created_by_user_id === auth.user.id;
 
   if (!allowed) {

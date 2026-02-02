@@ -25,10 +25,10 @@ export default async function GroupInternalCompanySuccessPage({
   if (!groupId || !companyId) redirect("/groups");
 
   return (
-    <AppShell title="Création réussie ✅" subtitle="Espace Groupe" accountType="multi_societe" activeGroupId={groupId}>
+    <AppShell title="Création réussie " subtitle="Espace Groupe" accountType="multi_societe" activeGroupId={groupId}>
       <div className="mx-auto w-full max-w-2xl p-6">
         <div className="ftn-card-lux p-6 space-y-4">
-          <div className="text-xl font-semibold">Création réussie ✅</div>
+          <div className="text-xl font-semibold">Création réussie </div>
           <div className="text-sm opacity-80">La société interne a été créée et liée au groupe.</div>
 
           <div className="flex flex-wrap gap-2">

@@ -1,4 +1,4 @@
-// app/groups/[id]/clients/page.tsx
+
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -66,7 +66,6 @@ export default async function GroupClientsPage({ params }: PageProps) {
   }
   if (!isOwner && role !== "admin") redirect("/groups/select");
 
-  // ✅ Action: retirer une société du groupe (interne/externe) = delete group_companies link
   async function removeCompanyFromGroup(formData: FormData) {
     "use server";
     const supabase = await createClient();
@@ -77,7 +76,6 @@ export default async function GroupClientsPage({ params }: PageProps) {
     const groupId2 = String(formData.get("group_id") ?? "").trim();
     if (!companyId || !groupId2) redirect(`/groups/${groupId2}/clients`);
 
-    // verify rights
     const { data: g } = await supabase
       .from("groups")
       .select("id,owner_user_id")
@@ -110,7 +108,6 @@ export default async function GroupClientsPage({ params }: PageProps) {
     redirect(`/groups/${groupId2}/clients?ok=removed`);
   }
 
-  // 1) Liens groupe->sociétés
   const { data: links, error } = await supabase
     .from("group_companies")
     .select("company_id, link_type, subscription_ends_at, companies(*)")
@@ -130,7 +127,6 @@ export default async function GroupClientsPage({ params }: PageProps) {
 
   const companyIds = raw.map((r) => r.companyId).filter(Boolean);
 
-  // 2) TTN settings (statut complet ou non)
   const ttnMap = new Map<string, { exists: boolean; complete: boolean }>();
   if (companyIds.length) {
     const { data: ttnRows } = await supabase
@@ -143,7 +139,6 @@ export default async function GroupClientsPage({ params }: PageProps) {
     });
   }
 
-  // 3) Membres / permissions (résumé)
   const membersMap = new Map<string, any[]>();
   if (companyIds.length) {
     const { data: mems } = await supabase
@@ -206,7 +201,7 @@ export default async function GroupClientsPage({ params }: PageProps) {
               + Créer société interne
             </Link>
 
-            {/* ✅ supprimé: + Ajouter société externe */}
+            {}
             <Link className="ftn-btn ftn-btn-ghost" href={`/groups/${groupId}/invitations-received`} prefetch={false}>
               Invitations reçues
             </Link>

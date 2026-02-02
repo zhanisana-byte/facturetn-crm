@@ -19,7 +19,6 @@ export default async function DeclarationsPage() {
 
   const t = mapDbAccountType(u?.account_type);
 
-  // sociétés accessibles
   const [{ data: ms }, { data: owned }] = await Promise.all([
     supabase
       .from("memberships")

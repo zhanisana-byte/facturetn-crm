@@ -123,16 +123,13 @@ export default function InvitationsSocieteClient({
   const [rows, setRows] = useState<InvitationRow[]>(initialRows);
   const [pending, setPending] = useState(false);
 
-  // Form: page management (owner/admin)
   const [emailPage, setEmailPage] = useState("");
   const [rolePage, setRolePage] = useState<"owner" | "staff">("staff");
 
-  // Form: company operations (permissions)
   const [emailOps, setEmailOps] = useState("");
   const [opsRole, setOpsRole] = useState<"accountant" | "viewer">("accountant");
   const [opsAll, setOpsAll] = useState(true);
 
-// Form: invite Group/Cabinet to manage this company
 const [groupInvites, setGroupInvites] = useState<GroupInviteRow[]>(initialGroupInvites);
 const [gcKind, setGcKind] = useState<"group" | "cabinet">("group");
 const [gcGroupId, setGcGroupId] = useState("");
@@ -147,8 +144,8 @@ const [gcErr, setGcErr] = useState<string | null>(null);
   const [lastLink, setLastLink] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  const canInviteOps = isOwner || isAdmin; // owner/admin peuvent inviter pour gestion société
-  const canInvitePage = isOwner; // seul owner gère le rôle de page
+  const canInviteOps = isOwner || isAdmin; 
+  const canInvitePage = isOwner; 
 
   const opsSummary = useMemo(() => {
     if (opsAll) return "Accès total (Clients + Factures + Validation + TTN)";
@@ -164,7 +161,7 @@ const [gcErr, setGcErr] = useState<string | null>(null);
   const copy = async (txt: string) => {
     try {
       await navigator.clipboard.writeText(txt);
-      alert("Copié ✅");
+      alert("Copié ");
     } catch {
       alert("Impossible de copier");
     }
@@ -246,7 +243,7 @@ async function createGroupCompanyInvite() {
     const inv: GroupInviteRow = j?.invitation;
     setGroupInvites((prev) => [inv, ...prev]);
     setGcEmail("");
-    // keep group id for quick repeats
+    
   } catch (e: any) {
     setGcErr(e?.message || "Erreur");
   } finally {
@@ -295,9 +292,9 @@ async function respondGroupInvite(invitationId: string, action: "accept" | "decl
 
       {err ? <div className="ftn-alert tone-bad">{err}</div> : null}
 
-      {/* INVITER */}
+      {}
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Gestion Page */}
+        {}
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           <div className="p-4 border-b border-slate-100">
             <div className="flex items-center justify-between">
@@ -322,7 +319,7 @@ async function respondGroupInvite(invitationId: string, action: "accept" | "decl
                 company_id: companyId,
                 invited_email: email,
                 objective: "page_management",
-                role: rolePage, // owner | staff
+                role: rolePage, 
               });
               setEmailPage("");
             }}
@@ -364,7 +361,7 @@ async function respondGroupInvite(invitationId: string, action: "accept" | "decl
           </form>
         </div>
 
-        {/* Gestion Société (opérations) */}
+        {}
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           <div className="p-4 border-b border-slate-100">
             <div className="flex items-center justify-between">
@@ -390,7 +387,7 @@ async function respondGroupInvite(invitationId: string, action: "accept" | "decl
                 company_id: companyId,
                 invited_email: email,
                 objective: "client_management",
-                role: opsRole, // accountant | viewer
+                role: opsRole, 
                 can_manage_customers: opsAll ? true : canCustomers,
                 can_create_invoices: opsAll ? true : canCreate,
                 can_validate_invoices: opsAll ? true : canValidate,
@@ -473,7 +470,7 @@ async function respondGroupInvite(invitationId: string, action: "accept" | "decl
         </div>
       ) : null}
 
-{/* INVITER GROUPE / CABINET */}
+{}
 <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
   <div className="p-4 border-b border-slate-100">
     <div className="flex items-center justify-between gap-3">
@@ -563,7 +560,7 @@ async function respondGroupInvite(invitationId: string, action: "accept" | "decl
       </div>
     </div>
 
-    {/* Liste invitations groupe/cabinet */}
+    {}
     <div className="rounded-xl border border-slate-200 overflow-hidden">
       <div className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-50 border-b border-slate-200">
         Invitations Groupe/Cabinet
@@ -622,8 +619,7 @@ async function respondGroupInvite(invitationId: string, action: "accept" | "decl
   </div>
 </div>
 
-
-      {/* LISTE */}
+      {}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-100 flex items-center justify-between">
           <div>

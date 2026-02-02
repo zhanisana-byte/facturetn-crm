@@ -43,7 +43,6 @@ export default async function DigiGoSignaturePage({ params }: Props) {
     ? { ...cred, ws_password: undefined, ws_password_present: !!cred.ws_password }
     : null;
 
-  // ✅ Identité DigiGO: stockée par user_id
   const { data: identity } = await supabase
     .from("user_digigo_identities")
     .select("phone,email,national_id,updated_at")

@@ -19,7 +19,6 @@ async function createCabinet(formData: FormData) {
   const cabinet_name = String(formData.get("cabinet_name") ?? "").trim();
   if (!cabinet_name) redirect("/cabinet/create?error=missing");
 
-  // 1) Créer le groupe cabinet
   const { data: group, error: gErr } = await supabase
     .from("groups")
     .insert({
@@ -34,14 +33,12 @@ async function createCabinet(formData: FormData) {
 
   const cabinetGroupId = String(group.id);
 
-  // 2) Membership owner (important : apparaître dans Équipe & permissions)
   const { error: gmErr } = await supabase.from("group_members").upsert(
     { group_id: cabinetGroupId, user_id: user.id, role: "owner", is_active: true } as any,
     { onConflict: "group_id,user_id" } as any
   );
   if (gmErr) redirect("/cabinet/create?error=member_failed");
 
-  // 3) Forcer le workspace cabinet (pour que le sidebar Cabinet fonctionne tout de suite)
   await supabase
     .from("user_workspace")
     .upsert(

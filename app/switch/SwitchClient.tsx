@@ -52,10 +52,6 @@ function uniqBy<T>(arr: T[], key: (v: T) => string) {
   return Array.from(map.values());
 }
 
-/** ✅ Key dédoublonnage :
- * - Société : par MF si dispo, sinon par id
- * - Groupe/Cabinet : par id
- */
 function dedupeKey(s: Space) {
   if (s.kind === "company") {
     const mf = ("tax_id" in s ? String(s.tax_id ?? "").trim() : "") || "";
@@ -84,7 +80,7 @@ export default function SwitchClient({ initialSpaces, initialQ, initialType, ini
     if (urlQ !== q) setQ(urlQ);
     if (urlType !== type && ["all", "company", "group", "cabinet"].includes(urlType)) setType(urlType);
     if (urlPage !== page) setPage(urlPage);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [sp]);
 
   useEffect(() => {
@@ -126,7 +122,6 @@ export default function SwitchClient({ initialSpaces, initialQ, initialType, ini
       return includesCI(text, qq);
     });
 
-    // ✅ DEDUPE par MF pour sociétés
     return uniqBy(rows, dedupeKey);
   }, [initialSpaces, q, type]);
 
@@ -143,7 +138,7 @@ export default function SwitchClient({ initialSpaces, initialQ, initialType, ini
       setPage(safePage);
       syncUrl({ page: safePage });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [safePage]);
 
   async function ensureAppUserRow() {
@@ -233,7 +228,6 @@ export default function SwitchClient({ initialSpaces, initialQ, initialType, ini
         return;
       }
 
-      // ✅ FIX 404 : pas de /dashboard
       if (space.kind === "company") router.push(`/companies/${space.id}`);
       else if (space.kind === "cabinet") router.push(`/accountant/cabinet`);
       else router.push(`/groups/${space.id}`);

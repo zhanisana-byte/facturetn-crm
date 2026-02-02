@@ -1,4 +1,4 @@
-// app/groups/[id]/subscription/page.tsx
+
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
@@ -33,14 +33,12 @@ export default async function GroupSubscriptionPage(props: { params?: Promise<{ 
   const { id: groupId } = params as any;
   const supabase = await createClient();
 
-  // Infos groupe
   const { data: group } = await supabase
     .from("groups")
     .select("id, group_name")
     .eq("id", groupId)
     .maybeSingle();
 
-  // Compter sociétés internes actives vs externes
   const { data: links } = await supabase
     .from("group_companies")
     .select("id, link_type, companies(is_active)")
@@ -66,7 +64,7 @@ export default async function GroupSubscriptionPage(props: { params?: Promise<{ 
               Groupe : <b>{group?.group_name ?? "Groupe"}</b>
             </div>
           </div>
-          <Pill tone="gold">💼 Par société</Pill>
+          <Pill tone="gold"> Par société</Pill>
         </div>
 
         <div className="mt-4 text-sm text-slate-700">

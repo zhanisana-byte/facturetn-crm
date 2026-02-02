@@ -3,15 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-/**
- * Accept an external company invitation into a group AND optionally apply access to the team.
- * Team permissions format used across the app:
- * permissions = {
- *   company_access: "all" | "selected",
- *   allowed_company_ids: string[],
- *   companies: { [companyId]: { create_invoices?: boolean, validate_invoices?: boolean, submit_ttn?: boolean, manage_customers?: boolean } }
- * }
- */
 export async function POST(req: Request) {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
@@ -36,7 +27,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Email invité ne correspond pas" }, { status: 403 });
   }
 
-  // Ensure invited user is owner/admin of the company
   const { data: c } = await supabase
     .from("companies")
     .select("id,owner_user")
@@ -63,7 +53,6 @@ export async function POST(req: Request) {
     );
   }
 
-  // Link as external (ignore duplicates gracefully if already linked)
   const { error: linkErr } = await supabase.from("group_companies").insert({
     group_id: inv.group_id,
     company_id: inv.company_id,
@@ -86,14 +75,12 @@ export async function POST(req: Request) {
 
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 400 });
 
-  // Optional: apply team access
   const team = body.team && typeof body.team === "object" ? body.team : null;
   if (team) {
     const mode = String(team.mode || "all").toLowerCase() === "selected" ? "selected" : "all";
     const companyPerms =
       team.company_permissions && typeof team.company_permissions === "object" ? team.company_permissions : {};
 
-    // Load members
     let targetMemberIds: string[] = [];
 
     if (mode === "all") {
@@ -110,7 +97,7 @@ export async function POST(req: Request) {
       if (ids.length === 0) {
         return NextResponse.json({ error: "Sélection vide : choisissez au moins un membre." }, { status: 400 });
       }
-      // Validate selected members belong to group
+      
       const { data: ms, error: msErr } = await supabase
         .from("group_members")
         .select("id")
@@ -138,7 +125,6 @@ export async function POST(req: Request) {
       const companies = p.companies && typeof p.companies === "object" ? p.companies : {};
       companies[companyId] = { ...(companies[companyId] || {}), ...companyPerms };
 
-      // If member already has "all", keep it. Else use selected + add companyId.
       const currentMode = String(p.company_access || p.companyAccess || "selected").toLowerCase();
       const keepAll = currentMode === "all";
 

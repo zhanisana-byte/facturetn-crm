@@ -42,13 +42,12 @@ function roleRank(role: string) {
   const r = String(role ?? "viewer").toLowerCase();
   if (r === "owner") return 3;
   if (r === "admin") return 2;
-  return 1; // viewer / autres
+  return 1; 
 }
 
 function mergeCompany(a: CompanyMission, b: CompanyMission): CompanyMission {
   const bestRole = roleRank(b.role) > roleRank(a.role) ? b.role : a.role;
 
-  // grantedByLabel : on préfère garder une valeur non-nulle si dispo
   const grantedByLabel = a.grantedByLabel || b.grantedByLabel || null;
 
   return {
@@ -87,7 +86,6 @@ export default async function PagesIndex(props: { searchParams?: Promise<SearchP
 
   const PAGE_SIZE = 25;
 
-  // ✅ On récupère tout (filtré), puis on déduplique, puis on pagine proprement
   let query = supabase
     .from("memberships")
     .select(
@@ -126,7 +124,6 @@ export default async function PagesIndex(props: { searchParams?: Promise<SearchP
 
   const companyIds = Array.from(new Set((memberships ?? []).map((m: any) => m?.company_id).filter(Boolean))) as string[];
 
-  // ✅ "Qui m’a donné l’accès ?" -> access_invitations (accepted)
   const grantedByByCompany = new Map<string, { invited_by_user_id: string; created_at: string }>();
 
   if (companyIds.length > 0) {
@@ -169,7 +166,6 @@ export default async function PagesIndex(props: { searchParams?: Promise<SearchP
     });
   }
 
-  // ✅ Construire + DEDUPE + FUSION
   const map = new Map<string, CompanyMission>();
 
   (memberships ?? []).forEach((m: any) => {
@@ -198,7 +194,6 @@ export default async function PagesIndex(props: { searchParams?: Promise<SearchP
 
   let companies = Array.from(map.values());
 
-  // ✅ Sort JS (après dédoublonnage)
   const asc = dir !== "desc";
   companies.sort((a, b) => {
     const mul = asc ? 1 : -1;
@@ -258,7 +253,7 @@ export default async function PagesIndex(props: { searchParams?: Promise<SearchP
         </div>
       </div>
 
-      {/* Filtres */}
+      {}
       <form className="rounded-2xl border border-slate-200 bg-white p-4 flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="flex-1">
           <label className="text-xs font-medium text-slate-600">Recherche société</label>
@@ -298,7 +293,7 @@ export default async function PagesIndex(props: { searchParams?: Promise<SearchP
         </Link>
       </form>
 
-      {/* Table */}
+      {}
       <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
         <div className="px-4 py-3 border-b flex items-center justify-between">
           <div className="text-sm font-semibold">Sociétés</div>
@@ -400,7 +395,7 @@ export default async function PagesIndex(props: { searchParams?: Promise<SearchP
           </table>
         </div>
 
-        {/* Pagination */}
+        {}
         <div className="px-4 py-3 border-t flex items-center justify-between">
           <div className="text-xs text-slate-500">
             Affichage {total === 0 ? 0 : from + 1}–{to} / {total}

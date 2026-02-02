@@ -30,7 +30,7 @@ export default function ForgotPasswordPage() {
     <AuthShell title="Mot de passe oublié" subtitle="On t’envoie un lien sécurisé pour réinitialiser.">
       {sent ? (
         <div>
-          <div className="ftn-card-title">Email envoyé ✅</div>
+          <div className="ftn-card-title">Email envoyé </div>
           <p className="ftn-muted mt-2">
             Vérifiez votre boîte mail et cliquez sur le lien pour définir un nouveau mot de passe.
           </p>

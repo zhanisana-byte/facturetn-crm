@@ -1,4 +1,4 @@
-// app/accountant/layout.tsx
+
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -16,6 +16,5 @@ export default async function AccountantLayout({
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // ✅ Une seule sidebar, forcée sur l’espace Cabinet
   return <AppShell forcedArea="accountant">{children}</AppShell>;
 }

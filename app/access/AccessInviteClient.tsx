@@ -16,7 +16,7 @@ function presetFor(kind: InviteKind) {
       can_submit_ttn: false,
     };
   }
-  // client_management
+  
   return {
     can_manage_customers: true,
     can_create_invoices: true,
@@ -29,10 +29,8 @@ export default function AccessInviteClient({ companies }: { companies: Company[]
   const [invitedEmail, setInvitedEmail] = useState("");
   const [companyId, setCompanyId] = useState("");
 
-  // ✅ 2 types d’invitation (selon vos règles)
   const [kind, setKind] = useState<InviteKind>("client_management");
 
-  // Rôle dépend du type
   const [pageRole, setPageRole] = useState<PageRole>("admin");
   const [clientRole, setClientRole] = useState<ClientRole>("accountant");
 
@@ -41,7 +39,6 @@ export default function AccessInviteClient({ companies }: { companies: Company[]
     [kind, pageRole, clientRole]
   );
 
-  // Permissions (uniquement utile pour client_management)
   const [canManageCustomers, setCanManageCustomers] = useState(true);
   const [canCreateInvoices, setCanCreateInvoices] = useState(true);
   const [canValidateInvoices, setCanValidateInvoices] = useState(true);
@@ -58,7 +55,6 @@ export default function AccessInviteClient({ companies }: { companies: Company[]
     if (!companyId && companiesSorted.length) setCompanyId(companiesSorted[0].id);
   }, [companyId, companiesSorted]);
 
-  // ✅ presets quand on change le type
   useEffect(() => {
     const p = presetFor(kind);
     setCanManageCustomers(p.can_manage_customers);
@@ -89,7 +85,7 @@ export default function AccessInviteClient({ companies }: { companies: Company[]
         body: JSON.stringify({
           company_id: companyId,
           invited_email: email,
-          objective: kind, // ✅ on stocke un code stable
+          objective: kind, 
           role,
           can_manage_customers: kind === "client_management" ? canManageCustomers : false,
           can_create_invoices: kind === "client_management" ? canCreateInvoices : false,
@@ -101,14 +97,14 @@ export default function AccessInviteClient({ companies }: { companies: Company[]
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Envoi impossible.");
 
-      setMsg("Invitation envoyée ✅ (copiez le lien si besoin)");
+      setMsg("Invitation envoyée  (copiez le lien si besoin)");
       if (json?.inviteLink) {
-        // petite aide UX : copie auto si possible
+        
         try {
           await navigator.clipboard.writeText(String(json.inviteLink));
-          setMsg("Invitation envoyée ✅ Lien copié dans le presse-papiers.");
+          setMsg("Invitation envoyée  Lien copié dans le presse-papiers.");
         } catch {
-          // ignore
+          
         }
       }
       setInvitedEmail("");

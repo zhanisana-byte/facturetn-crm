@@ -2,12 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-/**
- * V13: Soumettre une facture pour validation.
- * - Auth obligatoire
- * - Permission: owner OU membership.can_create_invoices
- * - Met status = pending_validation (si validation requise)
- */
+
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id  } = await ctx.params;
   const supabase = await createClient();
@@ -30,7 +25,6 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ ok: false, error: "Facture introuvable ou accès refusé." }, { status: 404 });
   }
 
-  // Permission check: owner OR membership.can_create_invoices
   const { data: membership, error: mErr } = await supabase
     .from("memberships")
     .select("role,is_active,can_create_invoices")
@@ -50,7 +44,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   if (!(invoice as any).require_accountant_validation) {
-    // Pas de validation requise: on garde la facture en draft (ou validated via validation endpoint si souhaité)
+    
     return NextResponse.json({ ok: true, skipped: true, message: "Validation non requise pour cette facture." });
   }
 

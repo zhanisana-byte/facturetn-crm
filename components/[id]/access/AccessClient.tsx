@@ -37,7 +37,7 @@ type MemberRow = {
 };
 
 function randomToken(len = 32) {
-  // browser-safe token
+  
   const bytes = new Uint8Array(len);
   crypto.getRandomValues(bytes);
   return btoa(String.fromCharCode(...bytes))
@@ -69,7 +69,7 @@ export default function AccessClient({ companyId, canInvite }: Props) {
     setErr(null);
     setLoading(true);
     try {
-      // Invites
+      
       const { data: inv, error: invErr } = await supabase
         .from("access_invitations")
         .select("*")
@@ -79,7 +79,6 @@ export default function AccessClient({ companyId, canInvite }: Props) {
       if (invErr) throw invErr;
       setInvites((inv as any) ?? []);
 
-      // Members + user email/name
       const { data: mem, error: memErr } = await supabase
         .from("memberships")
         .select(
@@ -99,7 +98,7 @@ export default function AccessClient({ companyId, canInvite }: Props) {
 
   useEffect(() => {
     loadAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [companyId]);
 
   async function createInvite() {
@@ -135,7 +134,7 @@ export default function AccessClient({ companyId, canInvite }: Props) {
 
       setEmail("");
       await loadAll();
-      alert("Invitation créée ✅");
+      alert("Invitation créée ");
     } catch (e: any) {
       setErr(e?.message ?? "Erreur création invitation.");
     } finally {

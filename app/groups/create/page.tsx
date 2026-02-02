@@ -22,8 +22,6 @@ async function createGroup(formData: FormData) {
   const group_name = String(formData.get("group_name") ?? "").trim();
   if (!group_name) redirect("/groups/create?error=missing");
 
-  // ✅ 1) Garantir app_users (FK groups.owner_user_id)
-  // On utilise admin pour ne pas être bloqué par RLS sur app_users.
   const admin = createAdminClient();
   const email = user.email ?? null;
   const fullName =
@@ -44,7 +42,6 @@ async function createGroup(formData: FormData) {
 
   if (upErr) redirect(`/groups/create?error=${enc("app_users: " + upErr.message)}`);
 
-  // ✅ 2) Créer le groupe (si RLS sur groups est cassée, on verra le message exact)
   const { data: group, error: gErr } = await supabase
     .from("groups")
     .insert({ group_name, owner_user_id: user.id, group_type: "multi" })
@@ -53,7 +50,6 @@ async function createGroup(formData: FormData) {
 
   if (gErr || !group?.id) redirect(`/groups/create?error=${enc(gErr?.message || "create_failed")}`);
 
-  // ✅ 3) Membres + workspace (afficher aussi l’erreur si ça casse)
   const { error: mErr } = await supabase.from("group_members").upsert(
     { group_id: group.id, user_id: user.id, role: "owner", is_active: true },
     { onConflict: "group_id,user_id" }
@@ -88,7 +84,7 @@ export default async function GroupCreatePage(props: {
           <div className="ftn-card-glow" />
           <div className="ftn-card-head">
             <div className="ftn-card-titleRow">
-              <div className="ftn-ic">➕</div>
+              <div className="ftn-ic"></div>
               <div>
                 <div className="ftn-card-title">Nouveau groupe</div>
                 <div className="ftn-card-sub">

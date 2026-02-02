@@ -20,7 +20,7 @@ export default function AddCompanyToGroupClient({ groupId }: { groupId: string }
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [subscriptionEnd, setSubscriptionEnd] = useState<string>(""); // YYYY-MM-DD (externes uniquement)
+  const [subscriptionEnd, setSubscriptionEnd] = useState<string>(""); 
 
   async function load() {
     setErr(null);
@@ -51,7 +51,7 @@ export default function AddCompanyToGroupClient({ groupId }: { groupId: string }
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [groupId]);
 
   async function onAdd() {
@@ -64,7 +64,6 @@ export default function AddCompanyToGroupClient({ groupId }: { groupId: string }
       return;
     }
 
-    // NOTE: adapte selon votre schéma si le nom de table diffère
     const endsAtIso = subscriptionEnd ? new Date(`${subscriptionEnd}T00:00:00.000Z`).toISOString() : null;
     const { error } = await supabase
       .from("group_companies")

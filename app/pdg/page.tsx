@@ -52,7 +52,6 @@ export default async function PdgDashboardPage() {
     0
   );
 
-  // Loyal clients: paid >= 3 times in last 4 months
   const start120 = new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000);
   const { data: pay120 } = await service
     .from("platform_payments")

@@ -19,7 +19,6 @@ export async function GET(request: Request) {
   const email = user.email ?? "";
   const fullName = (user.user_metadata?.full_name as string) || null;
 
-  // crée app_users si absent
   const { data: existing } = await supabase
     .from("app_users")
     .select("id")
@@ -37,7 +36,7 @@ export async function GET(request: Request) {
     });
 
     if (error) {
-      // si RLS est OK, ça doit passer
+      
       console.error("create app_users error", error);
     }
   }

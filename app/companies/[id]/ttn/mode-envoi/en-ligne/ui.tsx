@@ -102,7 +102,7 @@ export default function UsbSignatureClient({
 
   const statusUi = useMemo(() => {
     if (!providerSaved) return { label: "Non configuré", kind: "neutral" as const };
-    if (sigStatus === "paired") return { label: "Appairé ✅", kind: "ok" as const };
+    if (sigStatus === "paired") return { label: "Appairé ", kind: "ok" as const };
     if (sigStatus === "pairing") return { label: "Appairage en cours", kind: "warn" as const };
     if (sigStatus === "error") return { label: "Erreur", kind: "err" as const };
     return { label: "Enregistré – à appairer", kind: "warn" as const };
@@ -157,7 +157,7 @@ export default function UsbSignatureClient({
         expires_at: j.expires_at,
       });
 
-      setMsg({ ok: true, text: "🔗 Lien généré. Ouvrez-le sur le PC Windows (clé branchée)." });
+      setMsg({ ok: true, text: " Lien généré. Ouvrez-le sur le PC Windows (clé branchée)." });
       setStep(3);
     } catch (e: any) {
       setMsg({ ok: false, text: e?.message || "Erreur réseau." });
@@ -169,7 +169,7 @@ export default function UsbSignatureClient({
   async function copy(text: string) {
     try {
       await navigator.clipboard.writeText(text);
-      setMsg({ ok: true, text: "Copié ✅" });
+      setMsg({ ok: true, text: "Copié " });
     } catch {
       setMsg({ ok: false, text: "Copie impossible." });
     }
@@ -234,9 +234,9 @@ export default function UsbSignatureClient({
         {step === 3 && (
           <div className="text-sm">
             {sigStatus === "paired" ? (
-              <div className="text-emerald-700">✅ Prêt à signer vos factures.</div>
+              <div className="text-emerald-700"> Prêt à signer vos factures.</div>
             ) : (
-              <div className="text-amber-700">⏳ Appairage en attente.</div>
+              <div className="text-amber-700"> Appairage en attente.</div>
             )}
           </div>
         )}

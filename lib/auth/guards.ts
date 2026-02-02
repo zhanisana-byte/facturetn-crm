@@ -2,12 +2,6 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { DbAccountType } from "@/app/types";
 
-/**
- * RÈGLES (projet)
- * - Toute page qui utilise AppShell doit rester SERVER (pas de "use client", pas de hooks).
- * - Les vérifications d'accès doivent se faire côté serveur (redirect si interdit).
- */
-
 export type AppUserLite = {
   id: string;
   email: string | null;
@@ -45,10 +39,6 @@ export async function requireAppUser(allowed?: DbAccountType[]) {
   return { supabase, user, profile: p };
 }
 
-/**
- * Règle: Compte "entreprise" => une seule société propriétaire.
- * Si une société existe déjà, rediriger vers cette société.
- */
 export async function enforceSingleOwnedCompanyForEntreprise() {
   const { supabase, user, profile } = await requireAppUser(["entreprise", "profil", "multi_societe"]);
 

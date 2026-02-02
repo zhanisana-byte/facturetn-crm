@@ -14,7 +14,6 @@ export async function POST(
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  // delete items first
   const { error: delItemsErr } = await supabase
     .from("invoice_items")
     .delete()
@@ -24,7 +23,6 @@ export async function POST(
     return NextResponse.json({ ok: false, error: delItemsErr.message }, { status: 400 });
   }
 
-  // delete invoice
   const { error: delInvErr } = await supabase
     .from("invoices")
     .delete()

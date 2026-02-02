@@ -12,14 +12,12 @@ export default async function CompanyAccessPage({ params }: PageProps) {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // profile for nav
   const { data: profile } = await supabase
     .from("app_users")
     .select("account_type, email, full_name")
     .eq("id", auth.user.id)
     .single();
 
-  // ensure user is member of this company
   const { data: myMembership } = await supabase
     .from("memberships")
     .select("role")

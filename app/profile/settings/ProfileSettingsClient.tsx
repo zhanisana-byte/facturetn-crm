@@ -68,7 +68,7 @@ export default function ProfileSettingsClient() {
     setMsg(null);
 
     try {
-      // 1) update full_name in app_users
+      
       const { error: e1 } = await supabase
         .from("app_users")
         .update({ full_name: fullName || null, updated_at: new Date().toISOString() })
@@ -76,7 +76,6 @@ export default function ProfileSettingsClient() {
 
       if (e1) throw e1;
 
-      // 2) update email (auth)
       const targetEmail = email.trim();
       const currentEmail = (profile.email ?? "").trim();
 
@@ -84,7 +83,6 @@ export default function ProfileSettingsClient() {
         const { error: e2 } = await supabase.auth.updateUser({ email: targetEmail });
         if (e2) throw e2;
 
-        // On garde aussi app_users.email à jour
         const { error: e3 } = await supabase
           .from("app_users")
           .update({ email: targetEmail, updated_at: new Date().toISOString() })
@@ -175,7 +173,7 @@ export default function ProfileSettingsClient() {
       <div className="ftn-card-lux ftn-reveal">
         <div className="ftn-card-head">
           <div className="ftn-card-titleRow">
-            <div className="ftn-ic">🔒</div>
+            <div className="ftn-ic"></div>
             <div>
               <div className="ftn-card-title">Sécurité</div>
               <div className="ftn-card-sub">Changer votre mot de passe</div>

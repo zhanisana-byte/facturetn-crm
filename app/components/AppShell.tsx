@@ -1,4 +1,4 @@
-// app/components/AppShell.tsx
+
 import type { ReactNode } from "react";
 import AppShellClient from "@/app/components/AppShellClient";
 import type { AccountType } from "@/app/types";
@@ -13,7 +13,7 @@ export default function AppShell({
   activeGroupId,
   accountType,
   isPdg,
-  forcedArea, // ✅ NEW
+  forcedArea, 
 }: {
   children: ReactNode;
   title?: string;
@@ -22,7 +22,7 @@ export default function AppShell({
   activeGroupId?: string | null;
   accountType?: AccountType;
   isPdg?: boolean;
-  forcedArea?: ForcedArea; // ✅ NEW
+  forcedArea?: ForcedArea; 
 }) {
   return (
     <AppShellClient
@@ -32,7 +32,7 @@ export default function AppShell({
       activeGroupId={activeGroupId}
       accountType={accountType}
       isPdg={isPdg}
-      forcedArea={forcedArea} // ✅ NEW
+      forcedArea={forcedArea} 
     >
       {children}
     </AppShellClient>

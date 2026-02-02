@@ -20,7 +20,6 @@ export default async function InvoicesPage() {
 
   const accountType = mapDbAccountType(u?.account_type);
 
-  // ✅ sociétés accessibles (profil/société/cabinet/groupe) => memberships + owned
   const [{ data: ms }, { data: owned }] = await Promise.all([
     supabase
       .from("memberships")

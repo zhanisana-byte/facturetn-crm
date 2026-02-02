@@ -23,11 +23,9 @@ export default async function EditCompanyPage({ params }: PageProps) {
 
   const supabase = await createClient();
 
-  // ✅ Auth côté server
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // ✅ Workspace : forcer mode société + company active (sans boucle redirect)
   await ensureWorkspaceRow(supabase, auth.user.id);
 
   const { data: ws } = await supabase

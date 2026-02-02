@@ -17,7 +17,7 @@ export default function InvitationsClient({ token }: { token: string }) {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Action impossible.");
-      setMsg("OK ✅");
+      setMsg("OK ");
       window.location.reload();
     } catch (e: any) {
       setMsg(e?.message || "Erreur");

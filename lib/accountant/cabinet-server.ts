@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 type SupabaseServerClient = any;
 
 export async function resolveCabinetContext(supabase: SupabaseServerClient, userId: string) {
-  // 1) workspace actuel
+  
   const { data: uw } = await supabase
     .from("user_workspace")
     .select("active_mode, active_group_id")
@@ -12,7 +12,6 @@ export async function resolveCabinetContext(supabase: SupabaseServerClient, user
 
   let cabinetGroupId: string | null = null;
 
-  // 2) si active_group_id correspond à un cabinet
   if (uw?.active_group_id) {
     const { data: g } = await supabase
       .from("groups")
@@ -23,7 +22,6 @@ export async function resolveCabinetContext(supabase: SupabaseServerClient, user
     if (g?.id && g.group_type === "cabinet") cabinetGroupId = g.id;
   }
 
-  // 3) sinon chercher un cabinet où je suis owner/admin
   if (!cabinetGroupId) {
     const { data: myCabinets } = await supabase
       .from("group_members")
@@ -40,7 +38,6 @@ export async function resolveCabinetContext(supabase: SupabaseServerClient, user
     cabinetGroupId = eligible[0]?.id ?? null;
   }
 
-  // 4) Forcer workspace cabinet (évite le bug “visible seulement dans Switch”)
   if (cabinetGroupId) {
     await supabase
       .from("user_workspace")

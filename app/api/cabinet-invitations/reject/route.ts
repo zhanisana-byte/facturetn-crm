@@ -21,7 +21,6 @@ export async function POST(req: Request) {
 
   if (error || !inv) return NextResponse.json({ error: "Invitation introuvable." }, { status: 404 });
 
-  // vérifier email
   const { data: profile } = await supabase
     .from("app_users")
     .select("email")
@@ -35,7 +34,6 @@ export async function POST(req: Request) {
 
   if (inv.status !== "pending") return NextResponse.json({ error: `Invitation déjà ${inv.status}` }, { status: 400 });
 
-  // expire check
   if (inv.expires_at && new Date(inv.expires_at).getTime() < Date.now()) {
     await supabase.from("group_invitations").update({ status: "expired" }).eq("id", inv.id);
     return NextResponse.json({ error: "Invitation expirée." }, { status: 400 });

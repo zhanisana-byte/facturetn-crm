@@ -1,4 +1,4 @@
-// app/groups/[id]/companies/new/page.tsx
+
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import GroupInternalCompanyCreateClient from "./GroupInternalCompanyCreateClient";
@@ -19,8 +19,6 @@ export default async function GroupInternalCompanyNewPage({
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // ✅ IMPORTANT: PAS de <AppShell> ici.
-  // Le sidebar + AppShell sont déjà rendus par /app/groups/[id]/layout.tsx
   return (
     <div className="mx-auto w-full max-w-2xl p-6">
       <div className="ftn-card p-4 mb-4">

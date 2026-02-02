@@ -56,7 +56,7 @@ export default async function SignatureChoosePage({ params }: Props) {
               Signature via certificat sur clé USB avec agent Windows.
             </div>
             <div className="mt-4 text-xs px-2 py-1 inline-block rounded-full border bg-white">
-              🔒 Verrouillé
+               Verrouillé
             </div>
           </div>
         ) : (
@@ -79,7 +79,7 @@ export default async function SignatureChoosePage({ params }: Props) {
               Cette méthode sera disponible ultérieurement.
             </div>
             <div className="mt-4 text-xs px-2 py-1 inline-block rounded-full border bg-white">
-              🔒 Verrouillé
+               Verrouillé
             </div>
           </div>
         ) : (

@@ -12,7 +12,6 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ itemId: str
 
   if (!itemId) return NextResponse.json({ ok: false, error: "itemId requis" }, { status: 400 });
 
-  // Load item + template.company
   const { data: it, error: itErr } = await supabase
     .from("recurring_template_items")
     .select("id,template_id")

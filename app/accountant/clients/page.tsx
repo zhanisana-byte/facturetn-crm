@@ -32,7 +32,6 @@ export default async function AccountantClientsPage() {
   const ctx = await resolveCabinetContext(supabase, userId);
   requireCabinet(ctx);
 
-  // authz (owner/admin pour actions)
   const { data: myMember } = await supabase
     .from("group_members")
     .select("role,is_active")
@@ -61,7 +60,6 @@ export default async function AccountantClientsPage() {
       managedBy: [],
     })) ?? [];
 
-  // fin abonnement
   const nowIso = new Date().toISOString();
   const ids = rowsBase.map((r) => r.id).slice(0, 500);
 
@@ -83,7 +81,6 @@ export default async function AccountantClientsPage() {
     });
   }
 
-  // “géré par qui” (basé sur group_members.permissions)
   const { data: members } = await supabase
     .from("group_members")
     .select("id, user_id, role, permissions, is_active, app_users(full_name,email)")
@@ -109,14 +106,12 @@ export default async function AccountantClientsPage() {
     r.managedBy = names;
   });
 
-  // tri : d’abord “expire bientôt”
   rowsBase.sort((a, b) => {
     const da = a.daysLeft ?? 999999;
     const db = b.daysLeft ?? 999999;
     return da - db;
   });
 
-  // server action revoke
   async function revoke(formData: FormData) {
     "use server";
     const supabase = await createClient();
@@ -129,12 +124,10 @@ export default async function AccountantClientsPage() {
     const companyId = String(formData.get("company_id") ?? "");
     const linkType = String(formData.get("link_type") ?? "");
 
-    // sécurité : on évite de supprimer la société interne du cabinet via UI
     if (!companyId || linkType !== "external") {
       redirect("/accountant/clients");
     }
 
-    // authz owner/admin
     const { data: me } = await supabase
       .from("group_members")
       .select("role,is_active")
@@ -148,10 +141,8 @@ export default async function AccountantClientsPage() {
       redirect("/accountant/clients");
     }
 
-    // 1) delete link
     await supabase.from("group_companies").delete().eq("group_id", ctx.cabinetGroupId).eq("company_id", companyId);
 
-    // 2) nettoyer permissions selected (si besoin)
     const { data: members } = await supabase
       .from("group_members")
       .select("id, permissions")

@@ -2,10 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import type { AccountType } from "@/app/types";
 
-// DB values for user_workspace.active_mode
 export type ActiveMode = "profil" | "entreprise" | "comptable" | "multi_societe";
 
-// Backward/forward compatibility alias
 export type WorkspaceMode = ActiveMode;
 
 export type WorkspaceRow = {
@@ -22,20 +20,12 @@ function normalizeActiveMode(v: unknown): ActiveMode {
   if (s === "comptable") return "comptable";
   if (s === "multi_societe") return "multi_societe";
 
-  // legacy values (some old UI wrote these)
   if (s === "cabinet") return "comptable";
   if (s === "groupe") return "multi_societe";
 
   return "profil";
 }
 
-/**
- * Map workspace active_mode → UI shell (AccountType)
- *
- * ✅ Supports BOTH call styles to avoid future build breaks:
- *   - shellTypeFromWorkspace("entreprise")
- *   - shellTypeFromWorkspace(workspaceRow)
- */
 export function shellTypeFromWorkspace(
   arg?: ActiveMode | WorkspaceRow | null
 ): AccountType {
@@ -51,17 +41,11 @@ export function shellTypeFromWorkspace(
   return "profil";
 }
 
-/**
- * Ensure a user_workspace row exists for the current authenticated user.
- * - returns existing row if present
- * - creates one if missing (ignores RLS errors)
- * - returns a safe fallback row if insert is blocked
- */
 export async function ensureWorkspaceRow(
   supabase: SupabaseClient<Database>,
   userId?: string
 ): Promise<WorkspaceRow | null> {
-  // PERF: avoid extra auth calls when the caller already knows the user id.
+  
   let resolvedUserId = userId;
   if (!resolvedUserId) {
     const { data: auth } = await supabase.auth.getUser();
@@ -69,7 +53,6 @@ export async function ensureWorkspaceRow(
   }
   if (!resolvedUserId) return null;
 
-  // 1) Read
   const { data: ws } = await supabase
     .from("user_workspace")
     .select("user_id,active_mode,active_company_id,active_group_id,updated_at")
@@ -86,7 +69,6 @@ export async function ensureWorkspaceRow(
     };
   }
 
-  // 2) Create if missing
   try {
     const payload = {
       user_id: resolvedUserId,
@@ -112,10 +94,9 @@ export async function ensureWorkspaceRow(
       };
     }
   } catch {
-    // ignore (RLS)
+    
   }
 
-  // 3) Fallback
   return {
     user_id: resolvedUserId,
     active_mode: "profil",

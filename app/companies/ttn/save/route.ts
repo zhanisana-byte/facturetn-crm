@@ -2,14 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-/**
- * Save TTN credentials/settings for a company.
- * The UI posts a classic <form> with fields defined in TTNSettingsClient.tsx.
- *
- * Important:
- * - Works with the extended schema from migrations 003/010/011...
- * - Uses upsert conflict on (company_id, environment) (see migration 023).
- */
+
 export async function POST(req: Request) {
   const supabase = await createClient();
 
@@ -26,7 +19,6 @@ export async function POST(req: Request) {
     return NextResponse.redirect(new URL(`/companies?ttn_error=missing_company`, req.url));
   }
 
-  // Helper: get string or null
   const s = (key: string) => {
     const v = form.get(key);
     const str = v === null ? "" : String(v);
@@ -34,7 +26,6 @@ export async function POST(req: Request) {
     return trimmed.length ? trimmed : null;
   };
 
-  // Checkbox → boolean
   const b = (key: string) => {
     const v = form.get(key);
     if (v === null) return false;
@@ -46,12 +37,10 @@ export async function POST(req: Request) {
     company_id: companyId,
     environment,
 
-    // Legacy + direct tokens
     ttn_key_name: s("ttn_key_name"),
     ttn_public_key: s("ttn_public_key"),
     ttn_secret: s("ttn_secret"),
 
-    // Extended settings
     ttn_mode: s("ttn_mode") ?? "provider_facturetn",
     connection_type: s("connection_type") ?? "webservice",
     public_ip: s("public_ip"),
@@ -62,14 +51,12 @@ export async function POST(req: Request) {
     signer_full_name: s("signer_full_name"),
     signer_email: s("signer_email"),
 
-    // Webservice login (added in later migrations)
     ws_url: s("ws_url"),
     ws_login: s("ws_login"),
     ws_password: s("ws_password"),
-    // ✅ Évite la répétition: si vide, on reprend automatiquement le MF (companies.tax_id)
+    
     ws_matricule: s("ws_matricule"),
 
-    // DSS signature (if present in schema)
     dss_url: s("dss_url"),
     dss_token: s("dss_token"),
     dss_profile: s("dss_profile"),
@@ -78,7 +65,6 @@ export async function POST(req: Request) {
     updated_at: new Date().toISOString(),
   };
 
-  // ✅ Fallback serveur (au cas où l'UI n'envoie pas ws_matricule)
   if (!payload.ws_matricule) {
     const { data: c } = await supabase
       .from("companies")

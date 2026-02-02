@@ -26,7 +26,6 @@ export default async function GroupCompanyTTNHome({ params }: PageProps) {
 
   if (!company?.id) redirect(`/groups/${groupId}`);
 
-  // ✅ Même logique que la société
   const env = "production";
 
   const { data: cred } = await supabase
@@ -53,7 +52,7 @@ export default async function GroupCompanyTTNHome({ params }: PageProps) {
       ? "Envoi direct TTN (configuré)"
       : "Envoi direct TTN (à configurer)";
 
-  const sendBadge = sendMode === "manual" ? "✅" : apiReady ? "✅" : "⚠️";
+  const sendBadge = sendMode === "manual" ? "" : apiReady ? "" : "⚠️";
 
   const signatureLabel =
     signatureProvider === "digigo"

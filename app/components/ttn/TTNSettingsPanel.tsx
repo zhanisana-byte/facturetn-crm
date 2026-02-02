@@ -1,4 +1,4 @@
-// app/components/ttn/TTNSettingsPanel.tsx
+
 "use client";
 
 import { useMemo, useState } from "react";
@@ -51,7 +51,7 @@ function Field({
   );
 }
 
-function Pill({ ok, okText = "✅ Complet", koText = "⚠️ À configurer" }: { ok: boolean; okText?: string; koText?: string }) {
+function Pill({ ok, okText = " Complet", koText = "⚠️ À configurer" }: { ok: boolean; okText?: string; koText?: string }) {
   return (
     <span
       className={cn(
@@ -136,7 +136,7 @@ function ChoiceCard({
           <div className="font-semibold">{title}</div>
           <div className="text-sm opacity-70 mt-1">{description}</div>
         </div>
-        <Pill ok={ok} okText="✅ Prêt" koText="⚠️ À compléter" />
+        <Pill ok={ok} okText=" Prêt" koText="⚠️ À compléter" />
       </div>
     </button>
   );
@@ -145,12 +145,10 @@ function ChoiceCard({
 export default function TTNSettingsPanel({ company, initial, initialLogs, context, backHref }: TTNSettingsPanelProps) {
   const companyId = company?.id || "";
 
-  // Env
   const [environment, setEnvironment] = useState<"test" | "production">(
     String(initial?.environment ?? "test") === "production" ? "production" : "test"
   );
 
-  // ====== MODE D’ENVOI ======
   const [sendMode, setSendMode] = useState<SendMode>(String(initial?.send_mode ?? "api") === "manual" ? "manual" : "api");
   const [connectionType, setConnectionType] = useState<ConnectionType>(
     String(initial?.connection_type ?? "webservice") === "sftp" ? "sftp" : "webservice"
@@ -169,7 +167,6 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
 
   const [requireSignature, setRequireSignature] = useState<boolean>(Boolean(initial?.require_signature));
 
-  // ====== SIGNATURE ======
   const [signatureMode, setSignatureMode] = useState<SignatureMode>(() => {
     const sp = String(initial?.signature_provider ?? "none");
     if (sp === "usb_agent") return "usb_agent";
@@ -177,25 +174,20 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
     return "none";
   });
 
-  // DigiGO (saisie minimale)
   const [digigoPhone, setDigigoPhone] = useState<string>("");
   const [digigoEmail, setDigigoEmail] = useState<string>("");
   const [digigoNationalId, setDigigoNationalId] = useState<string>("");
 
-  // Pairing USB
   const [pairLoading, setPairLoading] = useState(false);
   const [pairInfo, setPairInfo] = useState<{ token: string; deepLinkUrl: string; expires_at: string } | null>(null);
 
-  // UX open/close
   const [openMethod, setOpenMethod] = useState<boolean>(true);
   const [openSignature, setOpenSignature] = useState<boolean>(false);
 
-  // Save state
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; message: string } | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Completeness
   const apiReady = useMemo(() => {
     if (sendMode !== "api") return false;
     if (connectionType === "webservice") {
@@ -213,7 +205,7 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
 
   const methodSummary = useMemo(() => {
     if (sendMode === "manual") return "Déclaration manuelle (export TEIF, dépôt TTN manuel)";
-    // api
+    
     const conn = connectionType === "webservice" ? "Webservice (API TTN)" : "SFTP (à venir)";
     return `Envoi direct TTN (en ligne) — ${conn}`;
   }, [sendMode, connectionType]);
@@ -264,7 +256,7 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
 
     setSaving(true);
     try {
-      // 1) Optionnel : identité DigiGO
+      
       if (signatureMode === "digigo") {
         const started = !isBlank(digigoPhone) || !isBlank(digigoEmail) || !isBlank(digigoNationalId);
         if (started) {
@@ -285,7 +277,6 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
         }
       }
 
-      // 2) TTN credentials
       const payload: Record<string, any> = {
         company_id: companyId,
         environment,
@@ -355,11 +346,11 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
 
   const envLabel = environment === "production" ? "Production" : "Test";
 
-  const lockOtherSignature = true; // 🔒 “Autre signature” pour un autre jour
+  const lockOtherSignature = true; 
 
   return (
     <div className="space-y-8">
-      {/* Header */}
+      {}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-2xl font-semibold">{company?.company_name || "Société"}</div>
@@ -392,28 +383,28 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
         </div>
       </div>
 
-      {/* BIG FRAME 1: MODE D’ENVOI */}
+      {}
       <BigFrame
         title="Méthode d’envoi"
         subtitle="Choisissez comment vos factures seront transmises à la plateforme TTN."
         activeSummary={methodSummary}
         isOpen={openMethod}
         onToggle={() => setOpenMethod((v) => !v)}
-        right={<Pill ok={sendMode === "manual" ? manualReady : apiReady} okText="✅ Prêt" koText="⚠️ À configurer" />}
+        right={<Pill ok={sendMode === "manual" ? manualReady : apiReady} okText=" Prêt" koText="⚠️ À configurer" />}
       />
 
       {openMethod ? (
         <div className="rounded-2xl border p-5 space-y-5">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <ChoiceCard
-              title="🚀 Envoi direct TTN (en ligne)"
+              title=" Envoi direct TTN (en ligne)"
               description="Envoi automatique vers TTN via connexion sécurisée (API)."
               active={sendMode === "api"}
               ok={apiReady}
               onClick={() => setSendMode("api")}
             />
             <ChoiceCard
-              title="📝 Déclaration manuelle"
+              title=" Déclaration manuelle"
               description="Export TEIF XML, puis dépôt manuel sur TTN. Aucun paramètre de connexion TTN requis."
               active={sendMode === "manual"}
               ok={manualReady}
@@ -546,14 +537,14 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
         </div>
       ) : null}
 
-      {/* BIG FRAME 2: SIGNATURE */}
+      {}
       <BigFrame
         title="Signature électronique"
         subtitle="Choisissez comment vos documents TEIF seront signés."
         activeSummary={signatureSummary}
         isOpen={openSignature}
         onToggle={() => setOpenSignature((v) => !v)}
-        right={<Pill ok={signatureMode !== "none"} okText="✅ Sélectionnée" koText="ℹ️ Aucune" />}
+        right={<Pill ok={signatureMode !== "none"} okText=" Sélectionnée" koText="ℹ️ Aucune" />}
       />
 
       {openSignature ? (
@@ -586,12 +577,12 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
             />
           </div>
 
-          {/* DETAILS: DIGIGO */}
+          {}
           {signatureMode === "digigo" ? (
             <div className="rounded-2xl border bg-slate-50 p-4 space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-sm font-semibold">DigiGO — informations du signataire</div>
-                <Pill ok={true} okText="✅ Disponible" koText="—" />
+                <Pill ok={true} okText=" Disponible" koText="—" />
               </div>
 
               <div className="text-sm opacity-80">
@@ -620,12 +611,12 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
             </div>
           ) : null}
 
-          {/* DETAILS: USB */}
+          {}
           {signatureMode === "usb_agent" ? (
             <div className="rounded-2xl border bg-slate-50 p-4 space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-sm font-semibold">Clé USB — Agent local Windows</div>
-                <Pill ok={true} okText="✅ Disponible" koText="—" />
+                <Pill ok={true} okText=" Disponible" koText="—" />
               </div>
 
               <div className="text-sm opacity-80">
@@ -642,7 +633,7 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
-                {/* Vous pouvez remplacer ce lien par votre page réelle de téléchargement */}
+                {}
                 <a className="ftn-btn-ghost" href="/downloads/agent" target="_blank" rel="noreferrer">
                   Télécharger l’agent Windows
                 </a>
@@ -676,7 +667,7 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
             </div>
           ) : null}
 
-          {/* LOCKED OTHER SIGNATURE */}
+          {}
           {lockOtherSignature ? (
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex items-center justify-between gap-2">
@@ -684,14 +675,14 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
                   <div className="text-sm font-semibold">Autre signature (à venir)</div>
                   <div className="text-sm opacity-70 mt-1">Cette méthode de signature sera disponible ultérieurement.</div>
                 </div>
-                <span className="text-xs px-2 py-1 rounded-full border border-slate-200 bg-white">🔒 Verrouillé</span>
+                <span className="text-xs px-2 py-1 rounded-full border border-slate-200 bg-white"> Verrouillé</span>
               </div>
             </div>
           ) : null}
         </div>
       ) : null}
 
-      {/* SAVE BAR */}
+      {}
       <div className="rounded-2xl border p-5 space-y-3">
         {saveMsg ? (
           <div

@@ -20,21 +20,17 @@ export default async function PdgGroupsPage({
 
   const supabase = await createClient();
 
-  // Auth
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // Profil
   const { data: profile } = await supabase
     .from("app_users")
     .select("id,account_type")
     .eq("id", auth.user.id)
     .single();
 
-  // Sécurité PDG uniquement
   if (profile?.account_type !== "pdg") redirect("/dashboard");
 
-  // Query
   const like = q ? `%${q}%` : "";
   const { data: groups, error } = await (q
     ? supabase
@@ -56,7 +52,7 @@ export default async function PdgGroupsPage({
       accountType="profil"
     >
       <div className="ftn-grid">
-        {/* Recherche */}
+        {}
         <Card title="Recherche" subtitle="Chercher un groupe par nom">
           <form className="flex gap-2" action="/pdg/groups" method="get">
             <input
@@ -76,7 +72,7 @@ export default async function PdgGroupsPage({
           </div>
         </Card>
 
-        {/* Liste */}
+        {}
         <Card title="Liste des groupes" subtitle="Accès détails / équipe / archives">
           {error ? <div className="ftn-alert">{error.message}</div> : null}
 

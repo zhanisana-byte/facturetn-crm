@@ -38,7 +38,6 @@ export default function InvoiceSignatureClient({ invoiceId }: Props) {
 
         setInfo("Signature lancée avec succès");
 
-        // après signature → résumé
         router.push(`/invoices/${invoiceId}`);
       } catch (e: any) {
         setError(e.message || "Erreur signature");

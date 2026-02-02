@@ -59,7 +59,6 @@ export async function buildInvoicePdf(opts: {
   const margin = 40;
   let y = height - margin;
 
-  // Header
   page.drawText(safe(company.company_name) || "Société", {
     x: margin,
     y,
@@ -97,7 +96,6 @@ export async function buildInvoicePdf(opts: {
     y -= 14;
   });
 
-  // Meta (fix TS)
   const metaYTop = height - margin - 28;
   const issueDate =
     safe(invoice.issue_date).slice(0, 10) ||
@@ -129,7 +127,6 @@ export async function buildInvoicePdf(opts: {
     my -= 14;
   });
 
-  // Client
   y -= 12;
   page.drawText("Client", { x: margin, y, size: 12, font: fontBold });
   y -= 16;
@@ -147,7 +144,6 @@ export async function buildInvoicePdf(opts: {
     y -= 14;
   });
 
-  // Table
   y -= 12;
   const cols = {
     desc: margin,
@@ -181,7 +177,6 @@ export async function buildInvoicePdf(opts: {
     y -= 14;
   });
 
-  // Totals
   y -= 10;
 
   const subtotal = sliced.reduce((s, it) => {
@@ -220,7 +215,6 @@ export async function buildInvoicePdf(opts: {
     ty -= isTotal ? 18 : 14;
   });
 
-  // Footer
   page.drawText("Généré par FactureTN", {
     x: margin,
     y: margin - 10,

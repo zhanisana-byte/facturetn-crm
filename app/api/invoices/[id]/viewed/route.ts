@@ -30,11 +30,9 @@ export async function POST(
   const company_id = String((inv as any)?.company_id || "");
   if (invErr || !company_id) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
-  // Permission: same as signature (submit to TTN)
   const allowed = await canCompanyAction(supabase, auth.user.id, company_id, "submit_ttn");
   if (!allowed) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
 
-  // Insert proof (idempotent)
   const { error } = await supabase.from("invoice_signature_views").upsert(
     {
       invoice_id,

@@ -40,7 +40,6 @@ export async function POST(
     return NextResponse.json({ error: "Invitation déjà traitée." }, { status: 400 });
   }
 
-  // Helper: is company owner?
   const { data: company } = await supabase
     .from("companies")
     .select("id, owner_user_id")
@@ -48,7 +47,6 @@ export async function POST(
     .maybeSingle();
   const isCompanyOwner = company?.id && String((company as any).owner_user_id) === auth.user.id;
 
-  // Helper: is group admin?
   const { data: group } = await supabase
     .from("groups")
     .select("id, owner_user_id")
@@ -65,9 +63,6 @@ export async function POST(
   const isGroupOwner = group?.id && String((group as any).owner_user_id) === auth.user.id;
   const isGroupAdmin = !!(gm?.is_active && ["owner", "admin"].includes(String((gm as any).role)));
 
-  // Permissions:
-  // - accept/decline => group owner/admin OR invited_email matches current user email
-  // - revoke => company owner OR group owner/admin
   const myEmail = String((auth.user.email ?? "")).toLowerCase();
   const invitedEmail = String((inv as any).invited_email ?? "").toLowerCase();
   const isInvitedEmail = !!(myEmail && invitedEmail && myEmail === invitedEmail);
@@ -82,9 +77,8 @@ export async function POST(
     }
   }
 
-  // Apply action
   if (action === "accept") {
-    // Link group <-> company
+    
     const { error: linkErr } = await supabase
       .from("group_companies")
       .upsert(
@@ -127,7 +121,6 @@ export async function POST(
     return NextResponse.json({ ok: true, status: "declined" });
   }
 
-  // revoke
   const { error: upErr } = await supabase
     .from("group_company_invitations")
     .update({

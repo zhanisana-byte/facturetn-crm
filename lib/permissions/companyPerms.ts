@@ -1,19 +1,12 @@
 export type CompanyAction = "manage_customers" | "create_invoices" | "validate_invoices" | "submit_ttn";
 
-/**
- * Vérifiez l'autorisation effective sur une société.
- *
- * Priorité :
- * 1) memberships (owner/admin + flags can_*)
- * 2) group_members.permissions (permissions par société via groupe)
- */
 export async function canCompanyAction(
   supabase: any,
   userId: string,
   companyId: string,
   action: CompanyAction
 ): Promise<boolean> {
-  // 1) Membership direct
+  
   try {
     const { data: membership, error: mErr } = await supabase
       .from("memberships")
@@ -25,7 +18,7 @@ export async function canCompanyAction(
     if (!mErr && membership?.is_active) {
       if (membership.role === "owner") return true;
       if (membership.role === "admin") {
-        // admin => tout, sauf si vous veux le restreindre: ici on autorise
+        
         return true;
       }
       const map: Record<CompanyAction, string> = {
@@ -38,11 +31,9 @@ export async function canCompanyAction(
       return membership?.[field] === true;
     }
   } catch {
-    // ignore
+    
   }
 
-  // 2) Permissions par Groupe (group_members.permissions)
-  // Récupérer les groupes liés à cette société
   const { data: links, error: lErr } = await supabase
     .from("group_companies")
     .select("group_id")

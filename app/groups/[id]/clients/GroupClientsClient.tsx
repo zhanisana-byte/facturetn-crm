@@ -1,4 +1,4 @@
-// app/groups/[id]/clients/GroupClientsClient.tsx
+
 "use client";
 
 import Link from "next/link";
@@ -10,7 +10,7 @@ type Member = {
   name: string;
   email: string;
   role: string;
-  perms: string; // ex: "Clients, Factures, TTN"
+  perms: string; 
 };
 
 type Row = {

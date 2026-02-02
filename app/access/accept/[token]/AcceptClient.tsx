@@ -42,7 +42,7 @@ export default function AcceptClient({ token }: { token: string }) {
       }
 
       setStatus("ok");
-      setMessage("Invitation acceptée ✅ Redirection...");
+      setMessage("Invitation acceptée  Redirection...");
       router.replace("/invitations?accepted=1");
       router.refresh();
     }

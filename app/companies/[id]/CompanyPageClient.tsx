@@ -17,7 +17,6 @@ type TtnRow = { id: string } | null;
 export default function CompanyPageClient({ companyId }: { companyId: string }) {
   const router = useRouter();
 
-  // ✅ évite crash si env Supabase manquantes
   const supabase = useMemo(() => {
     try {
       return createClient();
@@ -88,7 +87,7 @@ export default function CompanyPageClient({ companyId }: { companyId: string }) 
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [companyId]);
 
   if (err) return <div className="ftn-alert">{err}</div>;

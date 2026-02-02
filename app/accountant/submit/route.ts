@@ -8,7 +8,6 @@ export async function POST(req: Request) {
   try {
     const supabase = await createClient();
 
-    // Auth
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -25,11 +24,9 @@ export async function POST(req: Request) {
       );
     }
 
-    // Date indicative (2 mois max)
     const pendingUntil = new Date();
     pendingUntil.setMonth(pendingUntil.getMonth() + 2);
 
-    // Update profile
     const { error: upErr } = await supabase
       .from("app_users")
       .update({
@@ -38,7 +35,7 @@ export async function POST(req: Request) {
         accountant_status: "pending",
         accountant_verified_at: null,
         accountant_pending_until: pendingUntil.toISOString(),
-        accountant_free_access: true, // accès cabinet activé même avant validation (selon votre besoin)
+        accountant_free_access: true, 
         updated_at: new Date().toISOString(),
       })
       .eq("id", auth.user.id);
@@ -47,7 +44,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });
     }
 
-    // (Optionnel) Notification admin
     await supabase.from("notifications").insert({
       user_id: auth.user.id,
       type: "accountant_verification",

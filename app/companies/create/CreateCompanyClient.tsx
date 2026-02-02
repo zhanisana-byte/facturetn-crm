@@ -36,7 +36,6 @@ export default function CreateCompanyClient(props: CreateCompanyClientProps) {
 
   const [step, setStep] = useState<1 | 2>(1);
 
-  // Étape 1: Identité société
   const [name, setName] = useState("");
   const [taxId, setTaxId] = useState("");
   const [address, setAddress] = useState("");
@@ -47,7 +46,6 @@ export default function CreateCompanyClient(props: CreateCompanyClientProps) {
   const [phone, setPhone] = useState("");
   const [country, setCountry] = useState("TN");
 
-  // Étape 2: Paramètres facturation (TEIF)
   const [defaultCurrency, setDefaultCurrency] =
     useState<(typeof CURRENCY_OPTIONS)[number]>("TND");
   const [vatRatesText, setVatRatesText] = useState("0,7,13,19");
@@ -115,7 +113,6 @@ export default function CreateCompanyClient(props: CreateCompanyClientProps) {
         return;
       }
 
-      // ✅ RPC: crée companies + membership owner
       const { data: companyId, error: rpcErr } = await supabase.rpc("create_company_with_owner", {
         p_company_name: name.trim(),
         p_tax_id: taxId.trim(),
@@ -131,7 +128,6 @@ export default function CreateCompanyClient(props: CreateCompanyClientProps) {
       if (rpcErr) throw rpcErr;
       if (!companyId) throw new Error("Création société échouée (id manquant).");
 
-      // ✅ Settings TEIF (company_settings)
       const { error: csErr } = await supabase
         .from("company_settings")
         .upsert(
@@ -147,7 +143,6 @@ export default function CreateCompanyClient(props: CreateCompanyClientProps) {
         );
       if (csErr) throw csErr;
 
-      // ✅ Link au groupe si création depuis groupe
       if (groupId) {
         const { error: linkErr } = await supabase.from("group_companies").insert({
           group_id: groupId,

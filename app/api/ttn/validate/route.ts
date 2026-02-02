@@ -5,7 +5,6 @@ import { validateInvoiceTTN } from "@/lib/ttn/validate-invoice";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// GET /api/ttn/validate?invoiceId=...
 export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient();

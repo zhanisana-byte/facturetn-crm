@@ -13,7 +13,6 @@ export async function POST(req: Request) {
   const id = String(body?.id || "").trim();
   if (!id) return NextResponse.json({ error: "ID manquant." }, { status: 400 });
 
-  // Récupérer email user (pour vérifier received)
   const { data: profile } = await supabase
     .from("app_users")
     .select("email")
@@ -22,10 +21,6 @@ export async function POST(req: Request) {
 
   const myEmail = String(profile?.email || "").toLowerCase();
 
-  // Autoriser suppression si:
-  // - utilisateur est l'expéditeur, OU
-  // - utilisateur est le destinataire
-  // (et laisse la RLS faire la sécurité si vous l’as)
   const { error } = await supabase
     .from("access_invitations")
     .delete()

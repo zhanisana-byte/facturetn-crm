@@ -180,7 +180,7 @@ export default function InvoiceActions({
 
   const signatureUi = useMemo(() => {
     if (!signatureRequired) return { label: "Non requise", tone: "text-slate-500" };
-    if (invoiceSigned) return { label: "OK ✅", tone: "text-emerald-700" };
+    if (invoiceSigned) return { label: "OK ", tone: "text-emerald-700" };
     if (signaturePending) return { label: "En attente", tone: "text-amber-700" };
     return { label: "à faire", tone: "text-slate-700" };
   }, [signatureRequired, invoiceSigned, signaturePending]);
@@ -474,7 +474,7 @@ export default function InvoiceActions({
                 </button>
               ) : (
                 <span className="px-3 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800">
-                  Consultation enregistrée ✅
+                  Consultation enregistrée 
                 </span>
               )}
             </div>

@@ -10,7 +10,7 @@ type PageRow = {
   id: string;
   company_name?: string | null;
   tax_id?: string | null;
-  page_type?: string | null; // si vous as un champ type (societe/cabinet/multi)
+  page_type?: string | null; 
 };
 
 type TeamRow = {
@@ -35,14 +35,8 @@ export default async function RecapPage() {
 
   const userId = auth.user.id;
 
-  // 1) Mes pages (pages où je suis owner OU membre admin)
-  // - owner : companies.owner_user_id (si existe)
-  // - admin : memberships.role = 'admin' (si existe)
-  //
-  // ⚠️ si owner_user_id n’existe pas dans companies, on ne casse pas : on affiche juste memberships.
   const pages: PageRow[] = [];
 
-  // A) pages owner (si votre schema le supporte)
   const { data: ownedCompanies, error: ownedErr } = await supabase
     .from("companies")
     .select("id, company_name, tax_id, page_type, owner_user_id")
@@ -59,7 +53,6 @@ export default async function RecapPage() {
     }
   }
 
-  // B) pages où je suis membre (admin/owner/staff/viewer) -> on filtre ensuite côté UI
   const { data: myMemberships } = await supabase
     .from("memberships")
     .select("company_id, role, companies(id, company_name, tax_id, page_type)")
@@ -75,14 +68,10 @@ export default async function RecapPage() {
       page_type: c.page_type ?? null,
     })) as PageRow[];
 
-  // merge unique
   const byId = new Map<string, PageRow>();
   for (const p of [...pages, ...memPages]) byId.set(p.id, p);
   const myPages = Array.from(byId.values());
 
-  // 2) Mes équipes (tous les membres des pages que je gère)
-  // 👉 On prend les memberships de toutes mes pages (company_id IN myPages)
-  // et on joint app_users pour afficher nom/email.
   let teams: TeamRow[] = [];
 
   if (myPages.length) {
@@ -107,7 +96,6 @@ export default async function RecapPage() {
     }
   }
 
-  // 3) Mes groupes (owner/admin/staff)
   const { data: ownedGroupsRaw } = await supabase
     .from("groups")
     .select("id, group_name")

@@ -29,11 +29,9 @@ export default async function CompaniesPage() {
     .maybeSingle();
 
   const t = mapDbAccountType(profile?.account_type);
-  // ✅ Page Société visible uniquement Profil Pro + Société
+  
   if (t !== "profil" && t !== "entreprise") redirect("/dashboard");
 
-  // ⚠️ Si votre RLS filtre déjà par owner, cette requête suffit.
-  // Sinon adapte selon votre schéma (owner_user_id, created_by, membership, etc.)
   const { data: companies, error } = await supabase
     .from("companies")
     .select("id, company_name, tax_id, address, email, phone, created_at")
@@ -46,7 +44,7 @@ export default async function CompaniesPage() {
       subtitle="Gérez vos sociétés, vos factures et travaillez facilement avec votre comptable."
     >
       <div className="max-w-5xl">
-        {/* Avantages */}
+        {}
         <div className="ftn-card">
           <h3 className="ftn-h3" style={{ marginTop: 0 }}>
             Avantages de la page Société
@@ -69,7 +67,7 @@ export default async function CompaniesPage() {
           </div>
         </div>
 
-        {/* Liste sociétés */}
+        {}
         <div className="ftn-card" style={{ marginTop: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
             <h3 className="ftn-h3" style={{ marginTop: 0 }}>
@@ -101,7 +99,7 @@ export default async function CompaniesPage() {
 
                 return (
                   <div key={c.id} className="ftn-card" style={{ padding: 14 }}>
-                    {/* Header sans prop "right" */}
+                    {}
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                       <div>
                         <div className="ftn-h3" style={{ margin: 0 }}>
@@ -118,12 +116,12 @@ export default async function CompaniesPage() {
                       </div>
                     </div>
 
-                    {/* Infos */}
+                    {}
                     <div className="ftn-muted" style={{ marginTop: 10 }}>
                       {c.address ? (
-                        <div>📍 {c.address}</div>
+                        <div> {c.address}</div>
                       ) : (
-                        <div>📍 Adresse : —</div>
+                        <div> Adresse : —</div>
                       )}
                       <div>✉️ {c.email || "—"}</div>
                       <div>☎️ {c.phone || "—"}</div>

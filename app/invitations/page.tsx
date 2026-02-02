@@ -13,7 +13,6 @@ export default async function InvitationsPage() {
 
   const userId = auth.user.id;
 
-  // 🔹 récupérer l’email du profil connecté
   const { data: me } = await supabase
     .from("app_users")
     .select("email")
@@ -34,7 +33,6 @@ export default async function InvitationsPage() {
     );
   }
 
-  // 🔹 invitations reçues PAR EMAIL
   const { data: invites } = await supabase
     .from("access_invitations")
     .select(

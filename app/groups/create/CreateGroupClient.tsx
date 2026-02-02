@@ -43,8 +43,6 @@ export default function CreateGroupClient() {
       return;
     }
 
-    // ✅ Ensure the creator is also in group_members as OWNER
-    // (some pages rely on group_members to compute permissions & listings)
     try {
       await supabase
         .from("group_members")
@@ -53,7 +51,7 @@ export default function CreateGroupClient() {
           { onConflict: "group_id,user_id" }
         );
     } catch {
-      // ignore (older schemas may not have group_members)
+      
     }
 
     setLoading(false);

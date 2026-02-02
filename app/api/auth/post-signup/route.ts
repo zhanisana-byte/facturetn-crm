@@ -12,16 +12,11 @@ export async function POST(req: Request) {
     const full_name = String(body?.full_name || "").trim();
     const user_id_from_client = body?.user_id ? String(body.user_id) : null;
 
-    // Si on a une session (selon config), on prend auth.uid()
     const { data: auth } = await supabase.auth.getUser();
     const authedUserId = auth?.user?.id ?? null;
 
-    // On décide l'id final
     const userId = authedUserId || user_id_from_client;
 
-    // Si on n'a pas d'userId (cas confirmation email stricte),
-    // on ne peut pas écrire app_users avec RLS.
-    // => on répond OK quand même (le callback fera le setup après confirmation).
     if (!userId) {
       return NextResponse.json({
         ok: true,
@@ -29,8 +24,6 @@ export async function POST(req: Request) {
       });
     }
 
-    // 1) app_users: upsert
-    // IMPORTANT: account_type = 'profil' (le bug venait de là)
     const { error: upErr } = await supabase.from("app_users").upsert(
       {
         id: userId,
@@ -47,7 +40,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: upErr.message }, { status: 400 });
     }
 
-    // 2) user_workspace: upsert
     const { error: wsErr } = await supabase.from("user_workspace").upsert(
       {
         user_id: userId,

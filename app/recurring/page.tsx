@@ -22,7 +22,6 @@ export default async function RecurringPage() {
   const ws = await ensureWorkspaceRow(supabase, user.id);
   const mode = ws?.active_mode ?? "profil";
 
-  // Sociétés accessibles
   const { data: ms } = await supabase
     .from("memberships")
     .select("company_id, is_active, companies(id, company_name)")
@@ -39,7 +38,6 @@ export default async function RecurringPage() {
   const companyIds = companies.map((c) => c.id);
   const companyNameById = new Map(companies.map((c) => [c.id, c.name] as const));
 
-  // ✅ IMPORTANT: list est toujours TemplateRow[]
   const list: TemplateRow[] = companyIds.length
     ? (((await supabase
         .from("recurring_templates")
@@ -53,7 +51,6 @@ export default async function RecurringPage() {
     "use server";
     const { supabase, user } = await getAuthUser();
 
-    // template
     const { data: t } = await supabase
       .from("recurring_templates")
       .select("id,company_id,title,currency,is_active")
@@ -63,7 +60,6 @@ export default async function RecurringPage() {
     if (!t?.id) throw new Error("Template introuvable.");
     if (!t.is_active) throw new Error("Template inactif.");
 
-    // items
     const { data: items } = await supabase
       .from("recurring_template_items")
       .select("description,qty,price,vat,discount,position")
@@ -80,7 +76,6 @@ export default async function RecurringPage() {
       discount_pct: Number(it.discount ?? 0),
     }));
 
-    // Create invoice (draft, permanente)
     const payload: any = {
       company_id: t.company_id,
       issue_date: new Date().toISOString().slice(0, 10),
@@ -115,7 +110,6 @@ export default async function RecurringPage() {
       const { error: itErr } = await supabase.from("invoice_items").insert(insertItems);
       if (itErr) throw new Error(itErr.message);
 
-      // recalc totals (function exists in SQL)
       await supabase.rpc("compute_invoice_totals", { p_invoice_id: inv.id });
     }
   }

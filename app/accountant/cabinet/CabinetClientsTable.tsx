@@ -1,4 +1,4 @@
-// app/accountant/cabinet/CabinetClientsTable.tsx
+
 "use client";
 
 import { useMemo } from "react";
@@ -215,7 +215,7 @@ export default function CabinetClientsTable({
         </table>
       </div>
 
-      {/* Pagination */}
+      {}
       <div className="mt-5 flex items-center justify-between">
         <div className="text-sm text-slate-500">
           Page {page} / {totalPages}

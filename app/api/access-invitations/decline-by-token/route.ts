@@ -13,7 +13,6 @@ export async function POST(req: Request) {
   const token = String(body?.token || "").trim();
   if (!token) return NextResponse.json({ error: "Token manquant." }, { status: 400 });
 
-  // Email utilisateur (pour vérifier que c’est bien le destinataire)
   const { data: profile } = await supabase
     .from("app_users")
     .select("email")

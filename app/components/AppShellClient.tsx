@@ -9,10 +9,6 @@ import { getSidebarItems } from "./shell/sidebarConfig";
 import type { AccountType } from "@/app/types";
 import { useShellState } from "./shell/useShellState";
 
-/**
- * Normalise les valeurs possibles venant du backend / URL / legacy
- * vers un AccountType strict.
- */
 function normalizeAccountType(v: unknown): AccountType {
   const s = String(v ?? "").toLowerCase().trim();
 
@@ -48,7 +44,7 @@ export default function AppShellClient({
   activeGroupId: forcedGroupId,
   accountType,
   isPdg,
-  forcedArea, // ✅ NEW
+  forcedArea, 
 }: {
   children: ReactNode;
   title?: string;
@@ -57,34 +53,24 @@ export default function AppShellClient({
   activeGroupId?: string | null;
   accountType?: AccountType;
   isPdg?: boolean;
-  forcedArea?: ForcedArea; // ✅ NEW
+  forcedArea?: ForcedArea; 
 }) {
   const pathname = usePathname() ?? "/";
 
-  /* =====================================================
-   * Mobile sidebar state
-   * ===================================================== */
   const [mobileOpen, setMobileOpen] = useState(false);
   const closeMobile = () => setMobileOpen(false);
 
-  /* =====================================================
-   * Account type sécurisé (fallback) + FORCAGE par area
-   * ===================================================== */
   const safeAccountType: AccountType = useMemo(() => {
-    // ✅ Priorité au forcedArea
-    if (forcedArea === "pdg") return "profil"; // PDG est géré via isPdg
+    
+    if (forcedArea === "pdg") return "profil"; 
     if (forcedArea === "accountant") return "comptable";
     if (forcedArea === "companies") return "entreprise";
     if (forcedArea === "groups") return "multi_societe";
     if (forcedArea === "profil") return "profil";
 
-    // ✅ Sinon normalisation depuis accountType
     return normalizeAccountType(accountType);
   }, [forcedArea, accountType]);
 
-  /* =====================================================
-   * Shell state (persisté : société / groupe)
-   * ===================================================== */
   const shell = useShellState({
     accountType: safeAccountType,
     activeCompanyId: forcedCompanyId ?? null,
@@ -94,9 +80,6 @@ export default function AppShellClient({
   const activeCompanyId = forcedCompanyId ?? shell.state.activeCompanyId;
   const activeGroupId = forcedGroupId ?? shell.state.activeGroupId;
 
-  /* =====================================================
-   * Sidebar items
-   * ===================================================== */
   const items = useMemo(() => {
     return getSidebarItems({
       accountType: safeAccountType,
@@ -107,9 +90,6 @@ export default function AppShellClient({
     });
   }, [safeAccountType, pathname, activeCompanyId, activeGroupId, isPdg]);
 
-  /* =====================================================
-   * Render
-   * ===================================================== */
   return (
     <div className="ftn-shell">
       <div className="ftn-app">
@@ -132,7 +112,7 @@ export default function AppShellClient({
         </main>
       </div>
 
-      {/* Overlay mobile */}
+      {}
       {mobileOpen ? (
         <button
           className="ftn-overlay"

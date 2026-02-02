@@ -18,13 +18,13 @@ export default async function HelpPage() {
 
           <div className="mt-4 space-y-2 text-sm">
             <div>
-              📧 Email :{" "}
+               Email :{" "}
               <a className="text-indigo-700 hover:underline" href="mailto:zhanisana@gmail.com">
                 zhanisana@gmail.com
               </a>
             </div>
             <div>
-              📞 Téléphone :{" "}
+               Téléphone :{" "}
               <a className="text-indigo-700 hover:underline" href="tel:+21620121521">
                 +216 20 121 521
               </a>

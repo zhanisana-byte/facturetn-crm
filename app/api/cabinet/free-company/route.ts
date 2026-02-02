@@ -22,7 +22,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "MF et ID société sont obligatoires." }, { status: 400 });
   }
 
-  // Vérifier existence société (évite des ids invalides)
   const { data: company, error: cErr } = await supabase
     .from("companies")
     .select("id")
@@ -33,7 +32,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Société introuvable (ID invalide)." }, { status: 400 });
   }
 
-  // Upsert : une demande active par (user_id, group_id, company_id)
   const { error } = await supabase
     .from("cabinet_free_company_requests")
     .insert({

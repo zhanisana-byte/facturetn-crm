@@ -9,7 +9,6 @@ export default function SidebarSignOut({ onAfter }: { onAfter?: () => void }) {
   const onSignOut = async () => {
     const supabase = createClient();
 
-    // createClient peut retourner null si env manquante
     if (!supabase) {
       onAfter?.();
       router.push("/login");

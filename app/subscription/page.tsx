@@ -1,4 +1,4 @@
-// app/subscription/page.tsx
+
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -17,7 +17,6 @@ function addMonths(d: Date, months: number) {
   const day = x.getDate();
   x.setMonth(x.getMonth() + months);
 
-  // Fix month rollover (e.g. Jan 31 + 1 month -> Mar 3 in JS)
   if (x.getDate() !== day) {
     x.setDate(0);
   }
@@ -38,7 +37,6 @@ function startOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-// Différence en jours “calendaires” (stable et lisible pour l’utilisateur)
 function diffCalendarDays(from: Date, to: Date) {
   const a = startOfDay(from).getTime();
   const b = startOfDay(to).getTime();
@@ -126,15 +124,12 @@ function SecondaryButton({ href, children }: { href: string; children: ReactNode
 export default async function SubscriptionPage() {
   const supabase = await createClient();
 
-  // Auth
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // Workspace (profil / entreprise / comptable / multi_societe)
   const ws = await ensureWorkspaceRow(supabase, auth.user.id);
   const activeMode = (ws?.active_mode ?? "profil") as string;
 
-  // User type (DB)
   const { data: me } = await supabase
     .from("app_users")
     .select("id,email,full_name,account_type")
@@ -143,12 +138,10 @@ export default async function SubscriptionPage() {
 
   const accountType = (me?.account_type ?? activeMode ?? "profil") as string;
 
-  /* ----- Context selection (no /switch) ----- */
   const mode = (activeMode ?? "profil") as string;
   const activeCompanyId = (ws?.active_company_id as string | null) ?? null;
   const activeGroupId = (ws?.active_group_id as string | null) ?? null;
 
-  // Entreprise: besoin d'une société active -> afficher sélecteur
   if (mode === "entreprise" && !activeCompanyId) {
     const { data: mems } = await supabase
       .from("memberships")
@@ -196,7 +189,6 @@ export default async function SubscriptionPage() {
     );
   }
 
-  // Groupe: besoin d'un groupe actif -> afficher sélecteur
   if (mode === "multi_societe" && !activeGroupId) {
     const { data: gm } = await supabase
       .from("group_members")
@@ -239,9 +231,6 @@ export default async function SubscriptionPage() {
     );
   }
 
-  // Cabinet: si active_company_id est vide, on laisse la page en mode profil (info)
-
-  // Trial logic: 2 months from first day of registration (auth user created_at)
   const createdAt = auth.user.created_at ? new Date(auth.user.created_at) : new Date();
   const trialEndsAt = addMonths(createdAt, 2);
   const now = new Date();
@@ -249,16 +238,11 @@ export default async function SubscriptionPage() {
   const trialActive = now < trialEndsAt;
   const daysLeft = diffCalendarDays(now, trialEndsAt);
 
-  // Subscription status (best-effort: tries to read a "subscriptions" table; if not found => inactive)
-  // We do NOT crash the page if the table/columns are missing.
   let subscriptionStatus: SubStatus = "inactive";
   let subscriptionPlan: string | null = null;
 
   try {
-    // If you have a subscriptions table:
-    // - company subscriptions: company_id = ws.active_company_id
-    // - group subscriptions: group_id = ws.active_group_id
-    // - profile: user_id = auth.user.id
+
     const base = supabase.from("subscriptions").select("status,plan");
 
     let q = base as any;
@@ -275,17 +259,17 @@ export default async function SubscriptionPage() {
     if (sub?.status) subscriptionStatus = sub.status;
     if (sub?.plan) subscriptionPlan = sub.plan;
   } catch {
-    // keep defaults
+    
   }
 
   const isActive = subscriptionStatus === "active";
   const isInactiveAfterTrial = !trialActive && !isActive;
 
   const statusPill = isActive ? (
-    <Pill tone="success">✅ Abonnement actif</Pill>
+    <Pill tone="success"> Abonnement actif</Pill>
   ) : trialActive ? (
     <Pill tone="gold">
-      🎁 Essai en cours — {daysLeft} jour{daysLeft > 1 ? "s" : ""} restant{daysLeft > 1 ? "s" : ""}
+       Essai en cours — {daysLeft} jour{daysLeft > 1 ? "s" : ""} restant{daysLeft > 1 ? "s" : ""}
     </Pill>
   ) : (
     <Pill tone="warning">⚠️ Abonnement non actif</Pill>
@@ -297,7 +281,6 @@ export default async function SubscriptionPage() {
       ? "Vous êtes en période gratuite (2 mois offerts). Activez votre abonnement à tout moment."
       : "Votre période gratuite est terminée. Activez l’abonnement pour continuer sans interruption.";
 
-  // CTA
   const cta = isActive ? (
     <PrimaryButton href="/subscription/manage">Gérer mon abonnement</PrimaryButton>
   ) : trialActive ? (
@@ -306,7 +289,6 @@ export default async function SubscriptionPage() {
     <PrimaryButton href="/subscription/activate">Activer mon abonnement</PrimaryButton>
   );
 
-  // Labels
   const typeLabel =
     accountType === "entreprise"
       ? "Société"
@@ -319,7 +301,7 @@ export default async function SubscriptionPage() {
   return (
     <AppShell title="Abonnement & Offres" accountType={accountType as any}>
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-6">
-        {/* HERO */}
+        {}
         <div className="rounded-3xl border border-slate-200 bg-white shadow-sm p-6 md:p-8">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
@@ -329,7 +311,7 @@ export default async function SubscriptionPage() {
                 activez l’abonnement adapté à votre type de compte.
               </p>
               <div className="mt-3">
-                <Pill tone="gold">🎁 Offre démarrage — 2 mois gratuits</Pill>
+                <Pill tone="gold"> Offre démarrage — 2 mois gratuits</Pill>
               </div>
             </div>
 
@@ -340,7 +322,7 @@ export default async function SubscriptionPage() {
           </div>
         </div>
 
-        {/* STATUS */}
+        {}
         <div className="mt-6">
           <Card title="Votre statut" subtitle="Période gratuite et statut d’activation" badge={statusPill}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -369,7 +351,7 @@ export default async function SubscriptionPage() {
               </div>
             </div>
 
-            {/* Paiement / RIB (affiché aussi quand l'abonnement est actif) */}
+            {}
             <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
               <div className="text-xs text-slate-500">Paiement</div>
               <div className="text-sm text-slate-900 mt-1">
@@ -383,11 +365,11 @@ export default async function SubscriptionPage() {
 
             {isInactiveAfterTrial ? (
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900 text-sm">
-                ⏳ Votre essai est terminé. Activez l’abonnement pour continuer à accéder aux fonctionnalités.
+                 Votre essai est terminé. Activez l’abonnement pour continuer à accéder aux fonctionnalités.
               </div>
             ) : null}
 
-            {/* NOTE DEV: cachée en production */}
+            {}
             {process.env.NODE_ENV !== "production" ? (
               <div className="mt-3 text-xs text-slate-500">
                 Note : la partie paiement sera branchée ensuite (Stripe / paiement local). Pour
@@ -397,7 +379,7 @@ export default async function SubscriptionPage() {
           </Card>
         </div>
 
-        {/* PRICING */}
+        {}
         <div className="mt-6">
           <div className="flex items-end justify-between gap-3">
             <h2 className="text-lg font-semibold text-slate-900">Choisir votre formule</h2>
@@ -405,11 +387,11 @@ export default async function SubscriptionPage() {
           </div>
 
           <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* SOCIETE */}
+            {}
             <Card
               title="Société"
               subtitle="Pour facturer, gérer vos clients, et paramétrer TTN."
-              badge={<Pill tone="gold">🎁 2 mois gratuits</Pill>}
+              badge={<Pill tone="gold"> 2 mois gratuits</Pill>}
             >
               <div className="text-2xl font-bold text-slate-900">
                 50 DT <span className="text-sm font-medium text-slate-500">/ mois</span>
@@ -429,11 +411,11 @@ export default async function SubscriptionPage() {
               </div>
             </Card>
 
-            {/* CABINET */}
+            {}
             <Card
               title="Cabinet comptable"
               subtitle="Votre cabinet est gratuit : ce sont vos clients (sociétés) qui paient leur abonnement."
-              badge={<Pill tone="success">✅ Gratuit</Pill>}
+              badge={<Pill tone="success"> Gratuit</Pill>}
             >
               <div className="text-2xl font-bold text-slate-900">Gratuit</div>
 
@@ -450,11 +432,11 @@ export default async function SubscriptionPage() {
               </div>
             </Card>
 
-            {/* GROUPE */}
+            {}
             <Card
               title="Multi-Société (Groupe)"
               subtitle="Gérez plusieurs sociétés + facturez librement vos honoraires."
-              badge={<Pill tone="gold">🎁 2 mois gratuits</Pill>}
+              badge={<Pill tone="gold"> 2 mois gratuits</Pill>}
             >
               <div className="text-2xl font-bold text-slate-900">
                 50 DT <span className="text-sm font-medium text-slate-500">/ société / mois</span>
@@ -481,7 +463,7 @@ export default async function SubscriptionPage() {
             </Card>
           </div>
 
-          {/* Footer note */}
+          {}
           <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-700">
             <div className="font-semibold text-slate-900">Inscription gratuite</div>
             <div className="mt-1">
@@ -491,15 +473,15 @@ export default async function SubscriptionPage() {
           </div>
         </div>
 
-        {/* BADGES (mini guide for UI) — caché en production */}
+        {}
         {process.env.NODE_ENV !== "production" ? (
           <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
             <div className="text-sm font-semibold text-slate-900">Badges (affichage)</div>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Pill tone="gold">🎁 Offre démarrage — 2 mois gratuits</Pill>
-              <Pill tone="gold">🎁 Essai en cours — X jours restants</Pill>
-              <Pill tone="warning">⏳ Essai terminé</Pill>
-              <Pill tone="success">✅ Abonnement actif</Pill>
+              <Pill tone="gold"> Offre démarrage — 2 mois gratuits</Pill>
+              <Pill tone="gold"> Essai en cours — X jours restants</Pill>
+              <Pill tone="warning"> Essai terminé</Pill>
+              <Pill tone="success"> Abonnement actif</Pill>
               <Pill tone="warning">⚠️ Abonnement non actif</Pill>
               <Pill>50 DT / mois</Pill>
               <Pill tone="success">Gratuit</Pill>

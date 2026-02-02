@@ -18,15 +18,8 @@ export default async function CompaniesLayout({
 
   const ws = await ensureWorkspaceRow(supabase, auth.user.id);
 
-  /**
-   * ✅ IMPORTANT
-   * On force "entreprise" UNIQUEMENT si une société est active.
-   * Sinon (ex: /companies/create), on laisse le mode "profil"
-   * pour garder la sidebar Profil visible.
-   */
   const hasActiveCompany = !!ws?.active_company_id;
 
-  // PERF: éviter d'écrire en DB à chaque requête
   if (hasActiveCompany && (ws?.active_mode ?? "profil") !== "entreprise") {
     await supabase
       .from("user_workspace")

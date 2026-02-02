@@ -1,4 +1,4 @@
-// ✅ Aligné avec DB ActiveMode
+
 export type PageType = "comptable" | "multi_societe" | "entreprise";
 export type PageRole = "owner" | "admin" | "member" | "viewer";
 

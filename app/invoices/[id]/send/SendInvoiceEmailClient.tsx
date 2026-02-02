@@ -32,7 +32,7 @@ export default function SendInvoiceEmailClient({ invoiceId }: { invoiceId: strin
       const res = await fetch(`/api/invoices/${invoiceId}/send-email`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // ✅ send in a format the API accepts (camelCase + cc/bcc)
+        
         body: JSON.stringify({ toEmail, cc, bcc, subject, message }),
       });
 
@@ -42,7 +42,7 @@ export default function SendInvoiceEmailClient({ invoiceId }: { invoiceId: strin
         return;
       }
 
-      setOkMsg("✅ Email enregistré (mode test)." );
+      setOkMsg(" Email enregistré (mode test)." );
       setTimeout(() => router.push(`/invoices/${invoiceId}`), 900);
     } catch (e: any) {
       setErr(e?.message || "Erreur réseau");

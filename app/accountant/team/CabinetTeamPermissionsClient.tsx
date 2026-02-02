@@ -112,7 +112,7 @@ export default function CabinetTeamPermissionsClient({
   async function copy(text: string) {
     try {
       await navigator.clipboard.writeText(text);
-      alert("Copié ✅");
+      alert("Copié ");
     } catch {
       alert("Impossible de copier automatiquement. Veuillez copier manuellement.");
     }
@@ -142,7 +142,6 @@ export default function CabinetTeamPermissionsClient({
       return;
     }
 
-    // Recharger la page de façon simple (vous pouvez remplacer par un refresh local si vous préférez)
     window.location.reload();
   }
 
@@ -174,7 +173,7 @@ export default function CabinetTeamPermissionsClient({
 
   return (
     <div className="space-y-6">
-      {/* Header premium */}
+      {}
       <div className="ftn-card-lux p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -182,7 +181,7 @@ export default function CabinetTeamPermissionsClient({
             <div className="text-sm opacity-80">Cabinet : {cabinetName}</div>
           </div>
 
-          {/* ID cabinet + copy */}
+          {}
           <div className="min-w-[320px]">
             <div className="text-xs text-slate-500 mb-1">ID du cabinet</div>
             <div className="flex gap-2">
@@ -198,9 +197,9 @@ export default function CabinetTeamPermissionsClient({
         </div>
       </div>
 
-      {/* Layout */}
+      {}
       <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
-        {/* Left: Members */}
+        {}
         <div className="ftn-card p-4">
           <div className="flex items-center justify-between gap-2">
             <div className="text-sm font-semibold">Votre équipe</div>
@@ -221,7 +220,6 @@ export default function CabinetTeamPermissionsClient({
               const r = roleLabel(m.role);
               const isSelected = m.user_id === selectedUserId;
 
-              // combien de clients gérés par ce membre
               const cnt = (permsByUser.get(m.user_id) ?? []).length;
 
               return (
@@ -259,7 +257,7 @@ export default function CabinetTeamPermissionsClient({
           </div>
         </div>
 
-        {/* Right: Selected member details */}
+        {}
         <div className="ftn-card p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>

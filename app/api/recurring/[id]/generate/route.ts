@@ -1,4 +1,4 @@
-// app/api/recurring/[id]/generate/route.ts
+
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { canCompanyAction } from "@/lib/permissions/companyPerms";
@@ -7,10 +7,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function monthBounds(ym: string) {
-  // ym = "YYYY-MM"
+  
   const [Y, M] = ym.split("-").map((x) => Number(x));
   const from = new Date(Date.UTC(Y, M - 1, 1));
-  const to = new Date(Date.UTC(Y, M, 0)); // dernier jour du mois
+  const to = new Date(Date.UTC(Y, M, 0)); 
   const iso = (d: Date) => d.toISOString().slice(0, 10);
   return { from: iso(from), to: iso(to) };
 }
@@ -25,7 +25,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const body = (await req.json().catch(() => ({} as any))) as {
-    billing_period?: string; // "YYYY-MM"
+    billing_period?: string; 
     validate?: boolean;
   };
 
@@ -37,7 +37,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     );
   }
 
-  // Load template
   const { data: tpl, error: tplErr } = await supabase
     .from("recurring_templates")
     .select("*")
@@ -56,13 +55,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ ok: false, error: "COMPANY_ID_MISSING" }, { status: 400 });
   }
 
-  // Permission: create invoice
   const allowed = await canCompanyAction(supabase, auth.user.id, companyId, "create_invoices");
   if (!allowed) {
     return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
   }
 
-  // Items
   const { data: items, error: itemsErr } = await supabase
     .from("recurring_template_items")
     .select("*")
@@ -81,7 +78,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const { from, to } = monthBounds(billing_period);
 
-  // Create invoice
   const { data: invoice, error: invErr } = await supabase
     .from("invoices")
     .insert({
@@ -89,12 +85,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       currency: String((tpl as any).currency ?? "TND"),
       issue_date: new Date().toISOString().slice(0, 10),
 
-      // Période
       billing_period,
       period_from: from,
       period_to: to,
 
-      // Mode
       invoice_mode: "permanente",
       created_in_mode: "permanente",
       created_by_user_id: auth.user.id,
@@ -113,7 +107,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const invoice_id = String((invoice as any).id);
 
-  // Copy items into invoice_items (compat champs)
   const payload = items.map((it: any, idx: number) => ({
     invoice_id,
     line_no: idx + 1,
@@ -129,11 +122,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ ok: false, error: insItemsErr.message }, { status: 500 });
   }
 
-  // Recalc totals
   try {
     await supabase.rpc("compute_invoice_totals", { p_invoice_id: invoice_id } as any);
   } catch {
-    // non bloquant
+    
   }
 
   return NextResponse.json({ ok: true, invoice_id });

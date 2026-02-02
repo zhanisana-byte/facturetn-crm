@@ -43,10 +43,9 @@ export default function GroupInvitationsClient({ groupId, isOwner }: { groupId: 
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [groupId]);
 
-  // ✅ invitations reçues (pour l’utilisateur connecté)
   const [received, setReceived] = useState<Inv[]>([]);
   useEffect(() => {
     (async () => {
@@ -142,7 +141,7 @@ export default function GroupInvitationsClient({ groupId, isOwner }: { groupId: 
                     <div className="text-xs opacity-70">Rôle: {r.role}</div>
                     <div className="text-xs opacity-70">Créée: {new Date(r.created_at).toLocaleString()}</div>
                   </div>
-                  <div className="text-xs opacity-70">✅ Acceptée</div>
+                  <div className="text-xs opacity-70"> Acceptée</div>
                 </div>
               </div>
             ))}
@@ -150,7 +149,7 @@ export default function GroupInvitationsClient({ groupId, isOwner }: { groupId: 
         )}
       </div>
 
-      {/* ✅ Invitations reçues (pour l’utilisateur) */}
+      {}
       <div className="ftn-card p-4">
         <div className="font-semibold mb-2">Invitations reçues ({received.length})</div>
         {received.length === 0 ? (

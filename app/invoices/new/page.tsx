@@ -23,7 +23,6 @@ export default async function Page() {
 
   const t = mapDbAccountType(profile?.account_type);
 
-  // Charge les sociétés pour l’écran création
   const { data: companiesRaw } = await supabase
     .from("companies")
     .select("id,company_name")

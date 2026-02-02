@@ -30,7 +30,6 @@ export async function GET(
     .eq("invoice_id", id)
     .order("line_no", { ascending: true });
 
-  // ✅ XML بسيط (placeholder) — بعد نبدلوه لفورما TTN الحقيقية
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Invoice>
   <Id>${invoice.id}</Id>

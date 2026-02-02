@@ -2,12 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-/**
- * Accountant validation endpoint.
- * - Ensures user is authenticated
- * - Ensures user has permission (owner OR membership.can_validate_invoices)
- * - Snapshots seller (company) fields into invoice for legal/history stability
- */
+
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id  } = await ctx.params;
   const supabase = await createClient();
@@ -17,7 +12,6 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  // Load invoice (RLS should already filter access, but we still validate permissions)
   const { data: invoice, error: invErr } = await supabase
     .from("invoices")
     .select(
@@ -33,7 +27,6 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ ok: false, error: "Facture introuvable ou accès refusé." }, { status: 404 });
   }
 
-  // Permission check: owner OR membership with can_validate_invoices
   const { data: membership, error: mErr } = await supabase
     .from("memberships")
     .select("role,is_active,can_validate_invoices")
@@ -51,11 +44,10 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   if ((invoice as any).accountant_validated_at) {
-    // Already validated
+    
     return NextResponse.json({ ok: true, already: true });
   }
 
-  // Si la validation est requise, on force un passage par "pending_validation"
   if ((invoice as any).require_accountant_validation) {
     const st = String((invoice as any).status || "draft");
     if (st !== "pending_validation") {
@@ -69,7 +61,6 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     }
   }
 
-  // Load company fields to snapshot
   const { data: company, error: cErr } = await supabase
     .from("companies")
     .select("id, company_name, tax_id, address")
@@ -86,7 +77,6 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   const seller_city = null;
   const seller_zip = null;
 
-  // QR payload: simple snapshot (le générateur PDF/TEIF peut ensuite le transformer)
   const existingQr = (invoice as any).qr_payload;
   const qr_payload = existingQr
     ? existingQr

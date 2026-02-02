@@ -26,7 +26,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Email invité ne correspond pas" }, { status: 403 });
   }
 
-  // Ensure invited user is owner/admin of the company
   const { data: c } = await supabase
     .from("companies")
     .select("id,owner_user")
@@ -50,7 +49,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "vous n'as pas le droit de lier cette société (owner/admin requis)." }, { status: 403 });
   }
 
-  // Link as external
   const { error: linkErr } = await supabase.from("group_companies").insert({
     group_id: inv.group_id,
     company_id: inv.company_id,

@@ -58,7 +58,7 @@ export default function RegisterClient() {
         data: {
           full_name: fullName.trim(),
           account_type: "profil",
-          country_code: country, // ✅ stocké dans user_metadata puis copié en DB au callback
+          country_code: country, 
         },
       },
     });
@@ -77,7 +77,7 @@ export default function RegisterClient() {
   if (ok) {
     return (
       <div>
-        <div className="ftn-card-title">Compte créé avec succès ✅</div>
+        <div className="ftn-card-title">Compte créé avec succès </div>
         <p className="ftn-muted mt-2">
           Veuillez vérifier votre boîte email afin de confirmer votre inscription.
         </p>

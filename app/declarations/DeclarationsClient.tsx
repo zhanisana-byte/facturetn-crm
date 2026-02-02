@@ -13,24 +13,22 @@ type InvoiceRow = {
   invoice_number: string | null;
   unique_reference: string | null;
 
-  document_type: string | null; // facture|devis|avoir
-  invoice_mode: string | null; // normal|permanente
+  document_type: string | null; 
+  invoice_mode: string | null; 
   issue_date: string | null;
 
-  subtotal_ht: number | null; // CA HT
-  total_vat: number | null; // TVA
+  subtotal_ht: number | null; 
+  total_vat: number | null; 
   total_ttc: number | null;
   currency: string | null;
 
   created_by_user_id: string | null;
 
-  // Declaration
-  declaration_status: string | null; // none|manual|auto
+  declaration_status: string | null; 
   declared_at: string | null;
   declaration_ref: string | null;
 
-  // TTN
-  ttn_status: string | null; // not_sent|scheduled|submitted|accepted|rejected|canceled
+  ttn_status: string | null; 
   ttn_reference: string | null;
   ttn_scheduled_at: string | null;
   ttn_submitted_at: string | null;
@@ -40,7 +38,7 @@ type InvoiceRow = {
 type Filters = {
   companyId: string;
   status: "all" | "accepted" | "rejected" | "submitted" | "scheduled" | "not_sent";
-  month: string; // YYYY-MM or "all"
+  month: string; 
   decl: "all" | "manual" | "auto" | "none";
 };
 
@@ -114,11 +112,9 @@ export default function DeclarationsClient({ companies }: { companies: Company[]
   const [page, setPage] = useState(1);
   const pageSize = 25;
 
-
   const [q, setQ] = useState("");
   const [showFilters, setShowFilters] = useState(false);
 
-  // Déclaration manuelle (popup)
   const [manualOpen, setManualOpen] = useState(false);
   const [manualInvoiceId, setManualInvoiceId] = useState<string | null>(null);
   const [manualType, setManualType] = useState("TVA");
@@ -217,7 +213,7 @@ export default function DeclarationsClient({ companies }: { companies: Company[]
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [companies.map((c) => c.id).join(",")]);
 
   const months = useMemo(() => {
@@ -258,8 +254,6 @@ export default function DeclarationsClient({ companies }: { companies: Company[]
     setPage(1);
   }, [filters.companyId, filters.status, filters.month, filters.decl, q]);
 
-
-  
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageSafe = Math.min(Math.max(1, page), totalPages);
   const paged = useMemo(() => {
@@ -288,7 +282,6 @@ const agg = useMemo(() => {
     return { ca, tva, byCompany };
   }, [filtered]);
 
-  
   async function setDeclaration(
     invoiceId: string,
     status: "none" | "manual" | "auto",
@@ -338,7 +331,7 @@ async function cancelSchedule(invoiceId: string) {
   function parseDateTimeInput(input: string) {
     const v = (input || "").trim();
     if (!v) return null;
-    // Accept "YYYY-MM-DD HH:MM" or "YYYY-MM-DDTHH:MM"
+    
     const normalized = v.includes("T") ? v : v.replace(" ", "T");
     const d = new Date(normalized);
     if (isNaN(d.getTime())) return null;
@@ -356,7 +349,7 @@ async function cancelSchedule(invoiceId: string) {
       currentLabel
     );
 
-    if (input === null) return; // cancelled
+    if (input === null) return; 
     const d = parseDateTimeInput(input);
     if (!d) {
       alert("Format invalide. Exemple : 2026-02-01 10:30");
@@ -367,13 +360,11 @@ async function cancelSchedule(invoiceId: string) {
     try {
       const iso = d.toISOString();
 
-      // Update queue (best effort)
       await supabase
         .from("ttn_invoice_queue")
         .update({ status: "scheduled", scheduled_at: iso, canceled_at: null })
         .eq("invoice_id", invoiceId);
 
-      // Update invoice for display
       await supabase
         .from("invoices")
         .update({ ttn_status: "scheduled", ttn_scheduled_at: iso })
@@ -406,7 +397,7 @@ async function cancelSchedule(invoiceId: string) {
           </div>
         </div>
 
-        {/* Barre rapide (responsive) */}
+        {}
         <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-2">
           <input
             className="ftn-input"
@@ -442,7 +433,7 @@ async function cancelSchedule(invoiceId: string) {
           </select>
         </div>
 
-        {/* Filtres desktop */}
+        {}
         <div className="mt-2 hidden md:grid grid-cols-4 gap-2">
           <select
             className="ftn-input"
@@ -487,7 +478,7 @@ async function cancelSchedule(invoiceId: string) {
           </button>
         </div>
 
-        {/* Modal filtres mobile */}
+        {}
         {showFilters ? (
           <div className="fixed inset-0 z-50 bg-black/40 flex items-end md:hidden">
             <div className="w-full rounded-t-2xl bg-white p-4 space-y-3">
@@ -664,7 +655,7 @@ async function cancelSchedule(invoiceId: string) {
           </table>
         </div>
 
-        {/* Popup déclaration manuelle */}
+        {}
         {manualOpen ? (
           <div className="fixed inset-0 z-50 bg-black/40 flex items-end md:items-center justify-center">
             <div className="w-full md:max-w-lg rounded-t-2xl md:rounded-2xl bg-white p-4 md:p-6 space-y-4">
@@ -747,7 +738,6 @@ async function cancelSchedule(invoiceId: string) {
           </div>
         ) : null}
 
-        
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm text-slate-600">
             Page {pageSafe} / {totalPages}

@@ -1,4 +1,4 @@
-// app/accountant/invitations/InviteScopeClient.tsx
+
 "use client";
 
 import { useMemo, useState } from "react";
@@ -52,7 +52,7 @@ export default function InviteScopeClient({
         </div>
       </div>
 
-      {/* On garde votre composant : il envoie companies_selected_json */}
+      {}
       <CompanyPermissionsPicker companies={companies as any} scope={scope} />
     </div>
   );

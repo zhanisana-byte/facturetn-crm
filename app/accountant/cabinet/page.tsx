@@ -1,4 +1,4 @@
-// app/accountant/cabinet/page.tsx
+
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import CabinetClientsTable from "./CabinetClientsTable";
@@ -29,7 +29,7 @@ function isCompanyComplete(c: any): boolean {
   if (!c) return false;
   const required = [
     c.company_name,
-    c.tax_id, // MF
+    c.tax_id, 
     c.address,
     c.city,
     c.postal_code,
@@ -44,11 +44,11 @@ function isTTNComplete(t: any): boolean {
   if (type === "webservice") {
     return Boolean(t.ws_url && t.ws_login && t.ws_password && t.ws_matricule);
   }
-  // si vous utilisez aussi API
+  
   if (type === "api") {
     return Boolean(t.api_key && t.env);
   }
-  // fallback
+  
   return Boolean(t.ws_url && t.ws_login && t.ws_password && t.ws_matricule);
 }
 
@@ -71,7 +71,6 @@ export default async function AccountantCabinetPage({
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // Cabinet actif
   const { data: ws } = await supabase
     .from("user_workspace")
     .select("active_group_id")
@@ -81,7 +80,6 @@ export default async function AccountantCabinetPage({
   const cabinetId = ws?.active_group_id ?? null;
   if (!cabinetId) redirect("/switch");
 
-  // Cabinet + rôle
   const [{ data: cabinet }, { data: me }] = await Promise.all([
     supabase.from("groups").select("id, group_name, group_type, status").eq("id", cabinetId).maybeSingle(),
     supabase
@@ -97,7 +95,6 @@ export default async function AccountantCabinetPage({
   const myRole = String((me as any)?.role ?? "");
   const canManage = Boolean((me as any)?.is_active) && (myRole === "owner" || myRole === "admin");
 
-  // Rename cabinet (Owner/Admin)
   async function renameCabinet(formData: FormData) {
     "use server";
 
@@ -134,7 +131,6 @@ export default async function AccountantCabinetPage({
     redirect("/accountant/cabinet?ok=1");
   }
 
-  // Clients: group_company_links -> companies + ttn settings
   let linksQ = supabase
     .from("group_company_links")
     .select(
@@ -157,10 +153,8 @@ export default async function AccountantCabinetPage({
     .eq("group_id", cabinetId)
     .eq("is_active", true);
 
-  // Recherche (nom / MF)
   if (q) {
-    // Note: selon config supabase, ilike sur nested peut varier.
-    // Si ça ne filtre pas, ça reste OK (filtre côté UI).
+
     linksQ = linksQ.or(
       `companies.company_name.ilike.%${q}%,companies.tax_id.ilike.%${q}%`
     );
@@ -174,7 +168,6 @@ export default async function AccountantCabinetPage({
 
   const companyIds = companies.map((c: any) => c.id) as string[];
 
-  // Abonnements (platform_subscriptions)
   const subsByCompany: Record<string, { end: string | null; status: string | null }> = {};
   if (companyIds.length) {
     const { data: subs } = await supabase
@@ -191,8 +184,6 @@ export default async function AccountantCabinetPage({
     });
   }
 
-  // Assignments (qui gère + permissions)
-  // accountant_company_assignments: group_id + company_id + user_id + perms
   let assignments: any[] = [];
   if (companyIds.length) {
     const { data } = await supabase
@@ -204,7 +195,6 @@ export default async function AccountantCabinetPage({
     assignments = data ?? [];
   }
 
-  // App users (noms/emails) — table app_users existe chez vous (middleware)
   const userIds = Array.from(new Set(assignments.map((a) => a.user_id))).filter(Boolean) as string[];
   const usersById: Record<string, { full_name: string | null; email: string | null }> = {};
 
@@ -250,7 +240,6 @@ export default async function AccountantCabinetPage({
     });
   });
 
-  // Rows (avec calculs complet / ttn)
   const rows =
     (links ?? []).map((r: any) => {
       const c = r?.companies;
@@ -271,7 +260,6 @@ export default async function AccountantCabinetPage({
       };
     }) ?? [];
 
-  // Filtres completeness (post)
   const filtered = rows.filter((it) => {
     if (companyFilter === "complete" && !it.company_complete) return false;
     if (companyFilter === "incomplete" && it.company_complete) return false;
@@ -285,7 +273,7 @@ export default async function AccountantCabinetPage({
 
   return (
     <div className="space-y-6">
-      {/* Carte Cabinet */}
+      {}
       <div className="ftn-card">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
@@ -312,7 +300,7 @@ export default async function AccountantCabinetPage({
         </div>
       </div>
 
-      {/* Table clients */}
+      {}
       <CabinetClientsTable
         rows={filtered}
         page={page}

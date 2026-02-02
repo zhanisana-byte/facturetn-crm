@@ -24,12 +24,10 @@ export default function ProfileClient({
 }) {
   const supabase = useMemo(() => createClient(), []);
 
-  // Person
   const n = splitName(initialUser?.full_name ?? "");
   const [firstName, setFirstName] = useState(n.first);
   const [lastName, setLastName] = useState(n.last);
 
-  // Group (only if activeMode=multi_societe)
   const [groupName, setGroupName] = useState(group?.group_name ?? "");
 
   const [savingUser, setSavingUser] = useState(false);
@@ -94,7 +92,7 @@ export default function ProfileClient({
       {ok ? <div className="ftn-alert tone-ok">{ok}</div> : null}
       {err ? <div className="ftn-alert tone-bad">{err}</div> : null}
 
-      {/* PROFIL PRO */}
+      {}
       <div className="ftn-card">
         <div className="ftn-card-title">Profil</div>
 
@@ -136,7 +134,7 @@ export default function ProfileClient({
         </div>
       </div>
 
-      {/* PROFIL GROUPE */}
+      {}
       {activeMode === "multi_societe" && group ? (
         <div className="ftn-card">
           <div className="ftn-card-title">Profil Groupe</div>

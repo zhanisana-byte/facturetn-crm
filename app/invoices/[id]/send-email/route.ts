@@ -23,7 +23,6 @@ export async function POST(
     return NextResponse.json({ ok: false, error: "Destinataire obligatoire" }, { status: 400 });
   }
 
-  // vérifier que la facture existe
   const { data: invoice, error: invErr } = await supabase
     .from("invoices")
     .select("id")
@@ -34,7 +33,6 @@ export async function POST(
     return NextResponse.json({ ok: false, error: invErr?.message || "Invoice not found" }, { status: 404 });
   }
 
-  // ✅ Placeholder: on log seulement (pas d’envoi réel)
   const { error: logErr } = await supabase.from("invoice_email_logs").insert({
     invoice_id: id,
     sent_by: auth.user.id,

@@ -19,7 +19,6 @@ export async function POST(req: Request) {
   const environment = (s(body.environment) || "production") as "test" | "production";
   if (!invoice_id) return NextResponse.json({ ok: false, error: "invoice_id required" }, { status: 400 });
 
-  // Load invoice to get company_id
   const { data: invoice, error: invErr } = await supabase
     .from("invoices")
     .select("id,company_id")
@@ -34,7 +33,6 @@ export async function POST(req: Request) {
   const ok = await canCompanyAction(supabase, auth.user.id, company_id, "submit_ttn");
   if (!ok) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
 
-    // DSS/DigiGo: signer must view invoice before signing
   const { data: viewRow } = await supabase
     .from("invoice_signature_views")
     .select("id")

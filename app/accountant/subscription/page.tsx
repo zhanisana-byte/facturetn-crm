@@ -1,4 +1,4 @@
-// app/accountant/subscription/page.tsx
+
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
@@ -19,7 +19,7 @@ function isAllowedMime(mime: string) {
     "image/png",
     "image/jpeg",
     "image/jpg",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // docx
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
   ];
   return allowed.includes(mime);
 }
@@ -35,7 +35,6 @@ export default async function AccountantSubscriptionPage({
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // 1) Trouver le cabinet actif (workspace)
   const { data: ws } = await supabase
     .from("user_workspace")
     .select("active_group_id, active_mode")
@@ -45,7 +44,6 @@ export default async function AccountantSubscriptionPage({
   const cabinetGroupId = ws?.active_group_id ?? null;
   if (!cabinetGroupId) redirect("/switch");
 
-  // 2) Charger cabinet + rôle du user dans le cabinet
   const [{ data: g }, { data: myMember }] = await Promise.all([
     supabase
       .from("groups")
@@ -61,7 +59,7 @@ export default async function AccountantSubscriptionPage({
   ]);
 
   const cabinetName = g?.group_name ?? "Cabinet";
-  const cabinetStatus = String((g as any)?.status ?? "pending"); // pending/validated/...
+  const cabinetStatus = String((g as any)?.status ?? "pending"); 
   const role = String((myMember as any)?.role ?? "");
   const canRequest = Boolean((myMember as any)?.is_active) && (role === "owner" || role === "admin");
 
@@ -82,8 +80,7 @@ export default async function AccountantSubscriptionPage({
       redirect("/accountant/subscription?error=missing");
     }
 
-    // validations fichier
-    const maxBytes = 5 * 1024 * 1024; // 5MB
+    const maxBytes = 5 * 1024 * 1024; 
     if (file.size <= 0 || file.size > maxBytes) {
       redirect("/accountant/subscription?error=file_size");
     }
@@ -91,7 +88,6 @@ export default async function AccountantSubscriptionPage({
       redirect("/accountant/subscription?error=file_type");
     }
 
-    // Re-check permission (owner/admin)
     const { data: ws } = await supabase
       .from("user_workspace")
       .select("active_group_id")
@@ -112,7 +108,6 @@ export default async function AccountantSubscriptionPage({
     const ok = Boolean((myMember as any)?.is_active) && (role === "owner" || role === "admin");
     if (!ok) redirect("/accountant/subscription?error=forbidden");
 
-    // Upload vers bucket storage "cabinet-requests"
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
     const ext = safeName.includes(".") ? safeName.split(".").pop() : "file";
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -128,7 +123,6 @@ export default async function AccountantSubscriptionPage({
       redirect("/accountant/subscription?error=upload_failed");
     }
 
-    // Insert request
     const { error } = await supabase.from("cabinet_free_company_requests").insert({
       cabinet_group_id: cabinetGroupId,
       company_id,
@@ -136,7 +130,6 @@ export default async function AccountantSubscriptionPage({
       created_by: auth.user.id,
       status: "pending",
 
-      // meta fichier
       patente_file_path: objectPath,
       patente_file_name: file.name,
       patente_file_size: file.size,
@@ -144,7 +137,7 @@ export default async function AccountantSubscriptionPage({
     });
 
     if (error) {
-      // rollback fichier si insert échoue
+      
       await supabase.storage.from("cabinet-requests").remove([objectPath]);
       redirect("/accountant/subscription?error=submit_failed");
     }
@@ -154,7 +147,7 @@ export default async function AccountantSubscriptionPage({
 
   return (
     <div className="space-y-6">
-      {/* Status card */}
+      {}
       <div className="ftn-card">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -172,7 +165,7 @@ export default async function AccountantSubscriptionPage({
         </div>
       </div>
 
-      {/* Form card */}
+      {}
       <div className="ftn-card">
         <div className="ftn-h3">Demande : société gratuite</div>
         <div className="ftn-muted mt-1">
@@ -196,7 +189,7 @@ export default async function AccountantSubscriptionPage({
         ) : null}
 
         {sp.ok ? (
-          <div className="ftn-alert ftn-alert-success mt-4">Demande envoyée ✅</div>
+          <div className="ftn-alert ftn-alert-success mt-4">Demande envoyée </div>
         ) : null}
 
         <form action={sendRequest} className="mt-6" encType="multipart/form-data">

@@ -76,12 +76,10 @@ export default function GroupInvitationsProClient({
 
   const [loading, setLoading] = useState(true);
 
-  // data
   const [companies, setCompanies] = useState<CompanyRow[]>([]);
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [invites, setInvites] = useState<InvitationRow[]>([]);
 
-  // form
   const [email, setEmail] = useState("");
   const [mode, setMode] = useState<ManageMode>("page_clients");
   const [pageRole, setPageRole] = useState<"admin" | "owner">("admin");
@@ -91,7 +89,6 @@ export default function GroupInvitationsProClient({
   const [permByCompany, setPermByCompany] = useState<Record<string, CompanyPerms>>({});
   const [note, setNote] = useState("");
 
-  // table controls
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "internal" | "external">("all");
   const [page, setPage] = useState(1);
@@ -150,7 +147,7 @@ export default function GroupInvitationsProClient({
 
   useEffect(() => {
     loadAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [groupId]);
 
   const showClients = mode === "clients" || mode === "page_clients";
@@ -212,10 +209,8 @@ export default function GroupInvitationsProClient({
       return;
     }
 
-    // rôle page UNIQUEMENT owner/admin
     const role = mode === "page" || mode === "page_clients" ? pageRole : null;
 
-    // choix clients
     const useAll = showClients && scopeAll;
     const ids = showClients ? (useAll ? companies.map((c) => c.id) : selectedIds()) : [];
 
@@ -243,7 +238,7 @@ export default function GroupInvitationsProClient({
       body: JSON.stringify({
         group_id: groupId,
         invited_email,
-        role, // owner/admin ou null
+        role, 
         objective: JSON.stringify(objective),
       }),
     });
@@ -258,7 +253,7 @@ export default function GroupInvitationsProClient({
     setNote("");
     setSelected({});
     await loadAll();
-    alert("Invitation envoyée ✅");
+    alert("Invitation envoyée ");
   }
 
   const pending = invites.filter((x) => x.status === "pending");

@@ -15,7 +15,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "company_id et group_id requis" }, { status: 400 });
   }
 
-  // Load company for auth
   const { data: company, error: cErr } = await supabase
     .from("companies")
     .select("id,owner_user_id")

@@ -25,8 +25,6 @@ export default async function CompanyTTNSettingsHome({ params }: PageProps) {
 
   if (!company?.id) redirect("/companies");
 
-  // ✅ On supprime Test/Production de l’UI
-  // ✅ On travaille en production par défaut
   const env = "production";
 
   const { data: cred } = await supabase
@@ -53,7 +51,7 @@ export default async function CompanyTTNSettingsHome({ params }: PageProps) {
       ? "Envoi direct TTN (configuré)"
       : "Envoi direct TTN (à configurer)";
 
-  const sendBadge = sendMode === "manual" ? "✅" : apiReady ? "✅" : "⚠️";
+  const sendBadge = sendMode === "manual" ? "" : apiReady ? "" : "⚠️";
 
   const signatureLabel =
     signatureProvider === "digigo"
@@ -73,7 +71,7 @@ export default async function CompanyTTNSettingsHome({ params }: PageProps) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Cadre 1: Mode d’envoi */}
+        {}
         <a href={`/companies/${companyId}/ttn/mode-envoi`} className="rounded-2xl border p-5 hover:bg-slate-50 transition">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -88,7 +86,7 @@ export default async function CompanyTTNSettingsHome({ params }: PageProps) {
           </div>
         </a>
 
-        {/* Cadre 2: Signature */}
+        {}
         <a href={`/companies/${companyId}/ttn/signature`} className="rounded-2xl border p-5 hover:bg-slate-50 transition">
           <div className="flex items-start justify-between gap-3">
             <div>

@@ -1,4 +1,4 @@
-// app/dashboard/page.tsx
+
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -9,9 +9,6 @@ import type { ReactNode } from "react";
 
 export const dynamic = "force-dynamic";
 
-/* =========================
-   Types (FIX Vercel TS)
-========================= */
 type AccountantStatus = "pending" | "verified" | "rejected" | null;
 
 type AppUser = {
@@ -31,9 +28,6 @@ type AppUser = {
   subscription_status: string | null;
 };
 
-/* =========================
-   Helpers
-========================= */
 function formatDateFR(value: string | null | undefined) {
   if (!value) return null;
   const d = new Date(value);
@@ -45,9 +39,6 @@ function cn(...cls: Array<string | false | null | undefined>) {
   return cls.filter(Boolean).join(" ");
 }
 
-/* =========================
-   Local UI (luxe + anim)
-========================= */
 function LuxCard({
   title,
   subtitle,
@@ -132,17 +123,12 @@ function StatRow({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-/* =========================
-   Page
-========================= */
 export default async function DashboardPage() {
   const supabase = await createClient();
 
-  // Auth
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // Profile
   const { data: profileRaw, error } = await supabase
     .from("app_users")
     .select(
@@ -174,17 +160,14 @@ export default async function DashboardPage() {
     );
   }
 
-  // ✅ dbTypeRaw (string DB normalisee)
   const dbTypeRaw = String(profile.account_type ?? "").toLowerCase().trim();
 
-  // ✅ shellType (IMPORTANT pour AppShell menu)
   const shellType: AccountType = shellTypeFromUser({
     dbType: profile.account_type,
     planCode: profile.plan_code,
     maxCompanies: profile.max_companies,
   });
 
-  // ✅ flags (canonique)
   const isCabinet = dbTypeRaw === "comptable";
   const isGroupe = dbTypeRaw === "multi_societe";
 
@@ -192,13 +175,10 @@ export default async function DashboardPage() {
     (profile.full_name && profile.full_name.trim()) ||
     (profile.email ? profile.email.split("@")[0] : "Bienvenue");
 
-  // liens utiles
   const invitationsHref = "/invitations";
 
-  // ✅ FIX IMPORTANT: ne pas pointer vers /profile (redirige /switch selon active_mode)
   const profileHref = "/profile/settings";
 
-  // cabinet pending helpers
   const pendingUntil = formatDateFR(profile.accountant_pending_until);
 
   let progressPct = 42;
@@ -472,9 +452,6 @@ export default async function DashboardPage() {
     `}</style>
   );
 
-  /* =========================
-     CABINET PENDING
-  ========================= */
   if (isCabinet && profile.accountant_status === "pending") {
     return (
       <AppShell
@@ -496,10 +473,10 @@ export default async function DashboardPage() {
 
                 <div className="ftn-heroBadgeRow">
                   <Pill tone="warning" pulse>
-                    ⏳ Vérification en cours
+                     Vérification en cours
                   </Pill>
                   <Pill tone={profile.accountant_free_access ? "success" : "neutral"}>
-                    🎁 Bonus gratuit : {profile.accountant_free_access ? "actif" : "en attente"}
+                     Bonus gratuit : {profile.accountant_free_access ? "actif" : "en attente"}
                   </Pill>
                 </div>
               </div>
@@ -521,7 +498,7 @@ export default async function DashboardPage() {
               subtitle="Statut & délais"
               right={
                 <Pill tone="warning" pulse>
-                  ⏳ En vérification
+                   En vérification
                 </Pill>
               }
               icon={<span>🛡️</span>}
@@ -564,8 +541,8 @@ export default async function DashboardPage() {
             <LuxCard
               title="Disponible dès maintenant"
               subtitle="Aucun blocage"
-              right={<Pill tone="success">✅ Actif</Pill>}
-              icon={<span>✅</span>}
+              right={<Pill tone="success"> Actif</Pill>}
+              icon={<span></span>}
               delay={140}
             >
               <div className="ftn-kv">
@@ -587,18 +564,15 @@ export default async function DashboardPage() {
     );
   }
 
-  /* =========================
-     DASHBOARD SIMPLIFIÉ
-  ========================= */
   const topBadge =
     shellType === "profil" ? (
-      <Pill tone="info">👤 Profil</Pill>
+      <Pill tone="info"> Profil</Pill>
     ) : isCabinet ? (
-      <Pill tone="success">✅ Cabinet</Pill>
+      <Pill tone="success"> Cabinet</Pill>
     ) : isGroupe ? (
-      <Pill tone="info">🏢 Multi-sociétés</Pill>
+      <Pill tone="info"> Multi-sociétés</Pill>
     ) : (
-      <Pill tone="neutral">🏭 Société</Pill>
+      <Pill tone="neutral"> Société</Pill>
     );
 
   const spaceTitle =
@@ -664,7 +638,7 @@ export default async function DashboardPage() {
             title="Mon profil"
             subtitle="Informations du compte"
             right={topBadge}
-            icon={<span>👤</span>}
+            icon={<span></span>}
             delay={90}
           >
             <div className="ftn-kv">
@@ -722,7 +696,7 @@ export default async function DashboardPage() {
         <LuxCard
           title="Accès & Collaboration"
           subtitle="Invitations, rôles et permissions"
-          icon={<span>🔐</span>}
+          icon={<span></span>}
           delay={200}
           className="ftn-reveal"
         >

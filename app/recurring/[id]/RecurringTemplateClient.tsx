@@ -44,7 +44,7 @@ function money(v: number | null, c = "TND") {
 
 function canDelete(ttn_status: string | null) {
   const s = (ttn_status ?? "").toLowerCase();
-  // supprimable seulement si pas envoyé
+  
   return s.includes("not") || s === "" || s === "not_sent" || s === "draft";
 }
 
@@ -209,7 +209,7 @@ export default function RecurringTemplateClient({
 
         {err ? <div className="ftn-alert mt-4">{err}</div> : null}
 
-        {/* Lignes */}
+        {}
         <div className="mt-4 grid gap-3">
           <div className="text-sm font-semibold">Lignes (désignation obligatoire)</div>
 
@@ -253,7 +253,7 @@ export default function RecurringTemplateClient({
             </div>
           )}
 
-          {/* Add line */}
+          {}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-2">
             <input
               className="ftn-input lg:col-span-5"
@@ -268,7 +268,7 @@ export default function RecurringTemplateClient({
             <button className="ftn-btn lg:col-span-1" type="button" onClick={addItem} disabled={busy}>+</button>
           </div>
 
-          {/* Générer */}
+          {}
           <div className="mt-4 rounded-2xl border border-slate-200/60 bg-white/50 p-4">
             <div className="text-sm font-semibold">Générer la facture du mois</div>
             <div className="mt-2 flex flex-wrap gap-2 items-center">
@@ -287,7 +287,7 @@ export default function RecurringTemplateClient({
             </div>
           </div>
 
-          {/* Factures générées */}
+          {}
           <div className="mt-4">
             <div className="text-sm font-semibold">Factures générées</div>
             {!generatedInvoices?.length ? (

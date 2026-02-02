@@ -16,7 +16,7 @@ type Member = {
 function roleLabel(m: Member) {
   if (m.role === "owner") return "Owner";
   if (m.role === "accountant") return "Comptable";
-  if (m.role === "staff") return "Admin"; // UI label (DB = staff)
+  if (m.role === "staff") return "Admin"; 
   return "Viewer";
 }
 
@@ -96,7 +96,7 @@ export default function DroitsCabinetClient({
   function isDelegationOnly(m: Member) {
     const hasOps =
       !!m.can_manage_customers || !!m.can_create_invoices || !!m.can_validate_invoices || !!m.can_submit_ttn;
-    // Heuristique: si viewer + permissions => "Délégation" (sans gestion)
+    
     return String(m.role || "") === "viewer" && hasOps;
   }
 

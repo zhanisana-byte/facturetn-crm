@@ -53,7 +53,7 @@ export default function GroupTTNListClient({
 
   return (
     <div className="space-y-3">
-      {/* Barre de filtrage */}
+      {}
       <div className="rounded-xl border bg-white p-3">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-wrap gap-2">
@@ -117,7 +117,7 @@ export default function GroupTTNListClient({
         </div>
       </div>
 
-      {/* Tableau */}
+      {}
       <div className="rounded-xl border bg-white overflow-hidden">
         <div className="overflow-auto">
           <table className="min-w-[720px] w-full text-sm">
@@ -175,7 +175,7 @@ export default function GroupTTNListClient({
         </div>
       </div>
 
-      {/* Pagination */}
+      {}
       <div className="flex items-center justify-between">
         <div className="text-xs text-slate-500">Page {safePage}/{totalPages}</div>
         <div className="flex gap-2">

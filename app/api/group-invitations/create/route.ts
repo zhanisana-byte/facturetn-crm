@@ -26,7 +26,6 @@ export async function POST(req: Request) {
   if (!invited_email || !invited_email.includes("@")) return NextResponse.json({ error: "Email invalide" }, { status: 400 });
   if (!["owner", "admin", "staff"].includes(role)) return NextResponse.json({ error: "Rôle invalide" }, { status: 400 });
 
-  // Permission : uniquement le OWNER du groupe peut inviter l’équipe
   const { data: group, error: groupErr } = await supabase
     .from("groups")
     .select("owner_user_id")
@@ -40,7 +39,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Accès refusé (owner requis)" }, { status: 403 });
   }
 
-// invited_user_id (optionnel)
   const { data: invitedUser } = await supabase
     .from("app_users")
     .select("id")
@@ -66,12 +64,10 @@ export async function POST(req: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  // ✅ CORRECTION BUILD: data peut être null
   if (!data?.token) {
     return NextResponse.json({ error: "INVITE_CREATE_FAILED" }, { status: 500 });
   }
 
-  // Base URL
   const originFromReq = (() => {
     try {
       return new URL((req as any).url).origin;
@@ -84,12 +80,11 @@ export async function POST(req: Request) {
     (typeof getPublicBaseUrl === "function" ? getPublicBaseUrl() : "") ||
     (process.env.NEXT_PUBLIC_SITE_URL || originFromReq || "").trim();
 
-  if (base && !/^https?:\/\//i.test(base)) base = `https://${base}`;
+  if (base && !/^https?:\/\
   base = base.replace(/\/+$/, "");
 
   const inviteLink = `${base}/groups/${group_id}/invitations?token=${encodeURIComponent(data.token)}`;
 
-  // Envoi email (Resend) - best effort
   try {
     await sendEmailResend({
       to: invited_email,
@@ -106,7 +101,7 @@ export async function POST(req: Request) {
       `,
     });
   } catch {
-    // ignore
+    
   }
 
   return NextResponse.json({ ok: true, inviteLink });

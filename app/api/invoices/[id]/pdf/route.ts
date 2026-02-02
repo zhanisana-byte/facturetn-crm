@@ -7,11 +7,6 @@ import { createClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * PDF generation serverless-safe (Vercel)
- * - No PDFKit (no Helvetica.afm filesystem dependency)
- * - Uses pdf-lib (fonts embedded via StandardFonts)
- */
 export async function GET(
   _req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
@@ -20,13 +15,11 @@ export async function GET(
     const { id  } = await ctx.params;
     const supabase = await createClient();
 
-    // Auth
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    // Load invoice + items + company
     const { data: invoice, error: invErr } = await supabase
       .from("invoices")
       .select("*,ttn_reference,ttn_status")
@@ -39,7 +32,6 @@ export async function GET(
         { status: 404 }
       );
     }
-
 
   const docType = String((invoice as any).document_type ?? 'facture').toLowerCase();
   const docTitle = docType === 'devis' ? 'DEVIS' : docType === 'avoir' ? 'AVOIR' : 'FACTURE';
@@ -56,15 +48,13 @@ export async function GET(
       .eq("id", (invoice as any).company_id)
       .single();
 
-    // Create PDF
     const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([595.28, 841.89]); // A4 points
+    const page = pdfDoc.addPage([595.28, 841.89]); 
     const { width, height } = page.getSize();
 
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    // Layout helpers
     const margin = 40;
     let y = height - margin;
 
@@ -86,8 +76,6 @@ export async function GET(
       return Number.isFinite(n) ? n : 0;
     };
 
-    // TEIF-QR payload (strict-ish) for Tunisia e-invoicing workflows.
-    // Note: Exact TEIF schema may evolve; this payload is structured, explicit, and hashable.
     const buildTeifQrPayload = () => {
       const inv: any = invoice as any;
       const co: any = company as any;
@@ -116,7 +104,6 @@ export async function GET(
         line_ht: toNum(it.total_ht ?? it.line_total_ht ?? it.total ?? (toNum(it.quantity) * toNum(it.unit_price))),
       }));
 
-      // Totals (prefer persisted totals; fallback to computed)
       const subtotal_ht = toNum(inv.subtotal_ht);
       const total_vat = toNum(inv.total_vat);
       const stamp_enabled = Boolean(inv.stamp_enabled);
@@ -139,23 +126,18 @@ export async function GET(
         lines: linesArr,
       };
 
-      // Canonical JSON for stable hashing & QR content
       const payloadJson = JSON.stringify(payloadObj);
       const hash = crypto.createHash("sha256").update(payloadJson, "utf8").digest("hex");
 
-      // TEIF-QR string: prefix + json + hash (hash outside JSON for quick verification)
       const ttnRef = safe(inv.ttn_reference || "");
       const ttnSt = safe(inv.ttn_status || "");
 
-      // If TTN has validated the invoice, prefer a QR that carries the TTN reference (usable for verifyQrCode).
       const payload = (ttnRef && String(ttnSt).toLowerCase() === "accepted")
         ? `TTNQR|REF:${ttnRef}`
         : `TEIFQR|${payloadJson}|SHA256:${hash}`;
       return { payload, hash, ref: invNumber };
     };
 
-
-    // --- QR (TEIF) en HAUT à droite (plus lisible, demandé)
     try {
       const { payload, hash, ref } = buildTeifQrPayload();
       const dataUrl = await QRCode.toDataURL(payload, {
@@ -173,7 +155,6 @@ export async function GET(
       const qrY = height - margin - qrSize;
       page.drawImage(qrImage, { x: qrX, y: qrY, width: qrSize, height: qrSize });
 
-      // Ref + hash court sous le QR
       const hashShort = safe(hash).slice(0, 16);
       page.drawText(`Ref: ${safe(ref).slice(0, 28)}`, {
         x: qrX,
@@ -190,10 +171,9 @@ export async function GET(
         color: rgb(0.35, 0.38, 0.42),
       });
     } catch {
-      // no-op
+      
     }
 
-    // Header
     drawText(docTitle, margin, 18, true);
     drawText(
       `N°: ${safe(
@@ -208,13 +188,11 @@ export async function GET(
     drawText(`Date: ${safe((invoice as any).issue_date)}`, margin, 11, false);
     y -= 6;
 
-    // Company block (left) + Customer block (right)
     const leftX = margin;
     const rightX = width / 2 + 10;
 
     const blockTopY = y;
 
-    // Company
     y = blockTopY;
     drawText(safe(company?.company_name || "Société"), leftX, 12, true);
     if (company?.tax_id) drawText(`MF: ${safe(company.tax_id)}`, leftX, 10, false);
@@ -224,7 +202,6 @@ export async function GET(
     if (company?.phone) drawText(`Tél: ${safe(company.phone)}`, leftX, 10, false);
     if (company?.email) drawText(`Email: ${safe(company.email)}`, leftX, 10, false);
 
-    // Customer
     y = blockTopY;
     drawText("Client", rightX, 12, true);
     drawText(safe((invoice as any).customer_name || ""), rightX, 10, false);
@@ -237,11 +214,9 @@ export async function GET(
     if ((invoice as any).customer_email)
       drawText(`Email: ${safe((invoice as any).customer_email)}`, rightX, 10, false);
 
-    // Move cursor below blocks
     y = Math.min(y, blockTopY - 85);
     y -= 10;
 
-    // Table header
     const tableX = margin;
     const colDesc = tableX;
     const colQty = tableX + 290;
@@ -260,7 +235,6 @@ export async function GET(
       });
     };
 
-    // Header row
     page.drawText("Description", { x: colDesc, y, size: 10, font: fontBold, color: rgb(0.08, 0.1, 0.12) });
     page.drawText("Qté", { x: colQty, y, size: 10, font: fontBold, color: rgb(0.08, 0.1, 0.12) });
     page.drawText("PU HT", { x: colPU, y, size: 10, font: fontBold, color: rgb(0.08, 0.1, 0.12) });
@@ -293,7 +267,6 @@ export async function GET(
     drawLine();
     y -= 18;
 
-    // Totals (right)
     const totalsX = width - margin - 210;
 
     const drawTotal = (label: string, value: string, bold = false) => {
@@ -313,7 +286,6 @@ export async function GET(
 
     y -= 10;
 
-    // Notes / legal
     const legalY = 90;
     page.drawLine({
       start: { x: margin, y: legalY + 35 },
@@ -327,13 +299,9 @@ export async function GET(
       { x: margin, y: legalY + 18, size: 9, font, color: rgb(0.35, 0.38, 0.42) }
     );
 
-    // QR déjà placé en haut (requested)
-
-
     const pdfBytes = await pdfDoc.save();
     const filename = `facture-${safe((invoice as any).invoice_number || id)}.pdf`;
 
-    // ✅ FIX Next 15 typing: BodyInit doesn't accept Uint8Array
     const body =
       pdfBytes instanceof Uint8Array
         ? pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength)

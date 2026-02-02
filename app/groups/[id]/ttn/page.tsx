@@ -18,7 +18,7 @@ function ttnComplete(cred: any | null | undefined) {
   if (connection === "webservice") {
     return !isBlank(cred.environment) && !isBlank(cred.ws_url) && !isBlank(cred.ws_login) && !isBlank(cred.ws_password) && !isBlank(cred.ws_matricule);
   }
-  // fallback: if other connection types exist, require environment at minimum
+  
   return !isBlank(cred.environment);
 }
 

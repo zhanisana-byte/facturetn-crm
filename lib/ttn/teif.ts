@@ -1,7 +1,4 @@
-// lib/ttn/teif.ts
-// TEIF XML builder (TTN / El Fatoora) – compatible with facture_INVOIC_V1.8.8_withoutSig.xsd
-// Note: The official XSD root element is <TEIF> with InvoiceHeader + InvoiceBody.
-// This builder focuses on the mandatory parts used by TTN webservice "saveEfact".
+
 
 export type TeifBuildInput = {
   invoiceId: string;
@@ -55,9 +52,6 @@ export type TeifBuildInput = {
   }>;
 };
 
-// ------------------------------------------------------------
-// Helpers
-// ------------------------------------------------------------
 function escXml(v: unknown): string {
   const s = String(v ?? "");
   return s
@@ -75,7 +69,7 @@ function toNum(n: unknown): number {
 
 function fmtAmount(n: unknown): string {
   const x = toNum(n);
-  // TTN examples use 3 decimals for TND
+  
   return x.toFixed(3);
 }
 
@@ -88,8 +82,7 @@ function pad2(n: number) {
 }
 
 function toDdMmYy(d: string | null | undefined): string {
-  // XSD examples typically use ddMMyy with attribute format="ddMMyy"
-  // Accept ISO date or datetime.
+
   const s = String(d ?? "").trim();
   if (!s) return "";
   const dt = new Date(s);
@@ -110,9 +103,6 @@ function nonEmpty(v: unknown): string {
   return String(v ?? "").trim();
 }
 
-// ------------------------------------------------------------
-// Minimal XSD-aligned builder
-// ------------------------------------------------------------
 export function buildTeifXml(input: TeifBuildInput): string {
   const currency = (input.currency ?? "TND").toUpperCase();
 
@@ -156,14 +146,12 @@ export function buildTeifXml(input: TeifBuildInput): string {
 
   const items = Array.isArray(input.items) ? input.items : [];
 
-  // --- Lines (LinSection/Lin)
   const linesXml = items
     .map((it, idx) => {
       const qty = toNum(it.qty);
       const price = toNum(it.price);
       const vat = toNum(it.vat);
 
-      // Amounts: basic HT line amount
       const discountPct = toNum((it as any).discount ?? 0);
       const lineHt = qty * price * (1 - Math.min(Math.max(discountPct, 0), 100) / 100);
 return `
@@ -193,7 +181,6 @@ return `
     })
     .join("");
 
-  // --- PartnerSection (2 partners): supplier (I-62) + customer (I-64) like TTN example
   const partnerSupplier = `
       <PartnerDetails functionCode="I-62">
         <Nad>
@@ -224,7 +211,6 @@ return `
         </Nad>
       </PartnerDetails>`;
 
-  // --- InvoiceMoa totals (HT, TVA, TTC)
   const invoiceMoa = `
     <InvoiceMoa>
       <AmountDetails>
@@ -244,8 +230,6 @@ return `
       </AmountDetails>
     </InvoiceMoa>`;
 
-  // --- InvoiceTax: VAT + (optional) stamp
-  // Build VAT breakdown per rate to better match TEIF/XSD expectations (multiple rates possible)
   const vatMap = new Map<number, { base: number; tax: number }>();
   for (const it of items) {
     const qty = toNum((it as any).qty);
@@ -310,7 +294,6 @@ return `
       ${vatTax}
     </InvoiceTax>`;
 
-  // --- Optional notes (Ftx)
   const ftx = notes
     ? `
     <Ftx>
@@ -320,14 +303,12 @@ return `
     </Ftx>`
     : "";
 
-  // --- Dtm (issue date required; due date optional)
   const dtm = `
     <Dtm>
       <DateText format="ddMMyy" functionCode="I-31">${escXml(issueDd)}</DateText>
       ${dueDd ? `<DateText format="ddMMyy" functionCode="I-32">${escXml(dueDd)}</DateText>` : ""}
     </Dtm>`;
 
-  // --- Bgm: DocumentIdentifier + DocumentType
   const docKind = String(input.documentType ?? "facture").toLowerCase();
   const docTypeCode = docKind === "avoir" ? "I-12" : "I-11";
   const docTypeLabel = docKind === "avoir" ? "Facture d’avoir" : "Facture";
@@ -338,8 +319,6 @@ return `
       <DocumentType code="${escXml(docTypeCode)}">${escXml(docTypeLabel)}</DocumentType>
     </Bgm>`;
 
-  // --- Header sender/receiver
-  // Sender = supplier tax id (I-01). Receiver can be customer tax id, like TTN example.
   const header = `
   <InvoiceHeader>
     <MessageSenderIdentifier type="I-01">${escXml(supplierTax || "NA")}</MessageSenderIdentifier>
@@ -362,7 +341,6 @@ return `
     ${invoiceTax}
   </InvoiceBody>`;
 
-  // Root attributes per example
   return `<?xml version="1.0" encoding="UTF-8"?>` +
     `<TEIF controlingAgency="TTN" version="1.8.8">` +
     `${header}` +
@@ -370,18 +348,13 @@ return `
     `</TEIF>`;
 }
 
-// Backwards-compatible export used by app/api
 export function buildCompactTeifXml(input: TeifBuildInput) {
   return buildTeifXml(input);
 }
 
-// ------------------------------------------------------------
-// Minimal validation (server-side) before send
-// ------------------------------------------------------------
 export function validateTeifMinimum(xml: string): string[] {
   const problems: string[] = [];
 
-  // Basic structure
   if (!xml.includes("<TEIF")) problems.push("Missing <TEIF> root");
   if (!xml.includes('controlingAgency="TTN"')) problems.push('Missing controlingAgency="TTN"');
   if (!xml.includes('version="1.8.8"')) problems.push('Missing version="1.8.8"');
@@ -401,18 +374,15 @@ export function validateTeifMinimum(xml: string): string[] {
   if (!xml.includes('functionCode="I-62"')) problems.push("Missing Supplier partner (I-62)");
   if (!xml.includes('functionCode="I-64"')) problems.push("Missing Customer partner (I-64)");
 
-  // Supplier + customer identifiers (must not be empty)
   if (!xml.match(/functionCode="I-62"[\s\S]*?<PartnerIdentifier[^>]*>\s*[^<\s][^<]*<\/PartnerIdentifier>/))
     problems.push("Missing/empty Supplier PartnerIdentifier");
   if (!xml.match(/functionCode="I-64"[\s\S]*?<PartnerIdentifier[^>]*>\s*[^<\s][^<]*<\/PartnerIdentifier>/))
     problems.push("Missing/empty Customer PartnerIdentifier");
 
-  // Lines
   if (!xml.includes("<LinSection>")) problems.push("Missing LinSection");
   const lineCount = (xml.match(/<Lin>/g) || []).length;
   if (lineCount < 1) problems.push("Missing at least one line");
 
-  // Totals & tax
   if (!xml.includes("<InvoiceMoa>")) problems.push("Missing InvoiceMoa totals");
   if (!xml.includes("<InvoiceTax>")) problems.push("Missing InvoiceTax");
   if (!xml.includes('TaxTypeName code="I-1602"')) problems.push("Missing VAT tax block (I-1602)");
@@ -425,13 +395,13 @@ export function enforceMaxSize(xml: string, maxBytes = 50_000) {
   if (originalSize <= maxBytes) {
     return { xml, originalSize, finalSize: originalSize, trimmed: false };
   }
-  // Trim notes first (FTX)
+  
   let trimmedXml = xml.replace(/<Ftx>[\s\S]*?<\/Ftx>/g, "");
   const finalSize = Buffer.byteLength(trimmedXml, "utf8");
   if (finalSize <= maxBytes) {
     return { xml: trimmedXml, originalSize, finalSize, trimmed: true };
   }
-  // As last resort, remove AmountDescription if any
+  
   trimmedXml = trimmedXml.replace(/<AmountDescription[\s\S]*?<\/AmountDescription>/g, "");
   return {
     xml: trimmedXml,

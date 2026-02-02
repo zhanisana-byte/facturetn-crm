@@ -41,7 +41,7 @@ async function logTest(
       message: payload.message ?? null,
     });
   } catch {
-    // ignore log errors
+    
   }
 }
 
@@ -57,7 +57,6 @@ export async function POST(_req: Request, ctx: Ctx) {
     return NextResponse.json({ ok: false, error: "Non authentifié." }, { status: 401 });
   }
 
-  // Load TTN credentials
   const { data: cred, error: credErr } = await supabase
     .from("ttn_credentials")
     .select(
@@ -128,12 +127,6 @@ export async function POST(_req: Request, ctx: Ctx) {
     return NextResponse.json({ ok: false, error: msg, missing }, { status: 400 });
   }
 
-  // ------------------------------------------------------------
-  // V5: mode MOCK + flag global
-  // - Si NEXT_PUBLIC_TTN_ENABLED=0: on renvoie "TTN en attente d’activation" (bouton visible mais désactivé)
-  // - Si TTN_MODE=mock: on simule une réponse TTN réaliste (vendable)
-  // - Si TTN_MODE=real + enabled: on garde l'appel consultEfactSOAP existant
-  // ------------------------------------------------------------
   const mode = getTTNMode();
   if (!isTTNEnabled() || mode === "mock") {
     const sim = await testTTNApi({

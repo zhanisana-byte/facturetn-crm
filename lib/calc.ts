@@ -1,8 +1,8 @@
 export type ItemInput = {
   quantity: number;
   unit_price_ht: number;
-  discount_pct?: number; // 0..100
-  vat_pct: number;       // ex: 0, 7, 13, 19
+  discount_pct?: number; 
+  vat_pct: number;       
 };
 
 export function round3(n: number) {

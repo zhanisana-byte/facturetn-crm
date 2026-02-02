@@ -1,25 +1,13 @@
-/**
- * v13: Signature TEIF (XMLDSig/XAdES) – integration scaffold.
- *
- * TTN requires electronic signature with a qualified certificate (ANCE) in production.
- * The official "DSS Signature Fournisseur" doc typically implies using an external
- * signing service (DSS/HSM/token) rather than keeping private keys in the app.
- *
- * This module supports:
- * - External DSS signing (recommended): POST xml -> signed xml
- *
- * Note: The exact DSS payload/contract may vary by provider.
- * In this version we implement a minimal, well-contained adapter.
- */
+
 
 export type TTNSignatureConfig = {
-  /** External DSS endpoint URL (if used) */
+  
   dss_url?: string | null;
-  /** Bearer/API token for DSS */
+  
   dss_token?: string | null;
-  /** Optional profile / key alias */
+  
   dss_profile?: string | null;
-  /** Optional flag: force signature before TTN submit */
+  
   require_signature?: boolean | null;
 };
 
@@ -29,13 +17,10 @@ export async function signTeifXmlIfNeeded(
 ): Promise<{ xml: string; signed: boolean; provider: string | null }> {
   const requireSig = Boolean(cfg.require_signature);
 
-  // If no DSS configured, return original XML.
   if (!cfg.dss_url) {
     return { xml: teifXml, signed: false, provider: null };
   }
 
-  // Minimal DSS request shape: { xml, profile }
-  // Adjust easily if your DSS requires another format.
   const res = await fetch(cfg.dss_url, {
     method: "POST",
     headers: {
@@ -51,20 +36,18 @@ export async function signTeifXmlIfNeeded(
     if (requireSig) {
       throw new Error(`DSS signature error (${res.status}): ${text}`);
     }
-    // signature optional -> fallback to unsigned
+    
     return { xml: teifXml, signed: false, provider: "dss" };
   }
 
-  // DSS may return JSON or raw XML. Handle both.
   let signedXml = text;
   try {
     const j = JSON.parse(text);
     if (typeof j?.xml === "string") signedXml = j.xml;
   } catch {
-    // keep raw
+    
   }
 
-  // Basic sanity check
   if (!signedXml.includes("Signature")) {
     if (requireSig) throw new Error("DSS returned a response but signature is missing.");
     return { xml: teifXml, signed: false, provider: "dss" };

@@ -31,7 +31,7 @@ export default function EntityIdCard({
           onClick={copy}
           className="ftn-btn ftn-btn-ghost text-xs"
         >
-          {copied ? "Copié ✅" : "Copier"}
+          {copied ? "Copié " : "Copier"}
         </button>
       </div>
 

@@ -6,8 +6,8 @@ export const dynamic = "force-dynamic";
 type Body = {
   companyId: string;
   groupId: string;
-  kind?: "group" | "cabinet"; // cabinet = group_type 'cabinet'
-  inviteEmail?: string; // optional: email of group owner/admin to receive invitation
+  kind?: "group" | "cabinet"; 
+  inviteEmail?: string; 
 };
 
 export async function POST(req: Request) {
@@ -31,7 +31,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "companyId et groupId sont requis." }, { status: 400 });
   }
 
-  // 1) Only company owner can invite a group/cabinet (simple & safe)
   const { data: company } = await supabase
     .from("companies")
     .select("id, owner_user_id")
@@ -43,7 +42,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Seul l'Owner de la société peut inviter un Groupe/Cabinet." }, { status: 403 });
   }
 
-  // 2) Validate group + kind
   const { data: group } = await supabase
     .from("groups")
     .select("id, group_name, group_type, owner_user_id")
@@ -57,10 +55,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Ce groupe n'est pas de type 'cabinet'." }, { status: 400 });
   }
   if (kind === "group" && gtype === "cabinet") {
-    // allowed, but keep label on UI; no hard error
+    
   }
 
-  // 3) Choose who receives: default = group owner email (recommended)
   let invited_email = inviteEmailInput;
   let invited_user_id: string | null = null;
 
@@ -72,12 +69,12 @@ export async function POST(req: Request) {
       invited_user_id = ownerUser?.id ?? null;
     }
   } else {
-    // validate that inviteEmail belongs to group owner/admin (optional but safer)
+    
     const { data: u } = await supabase.from("app_users").select("id,email").eq("email", invited_email).maybeSingle();
     invited_user_id = u?.id ?? null;
 
     if (invited_user_id) {
-      // check membership role
+      
       const { data: gm } = await supabase
         .from("group_members")
         .select("role,is_active")
@@ -102,7 +99,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Impossible de déterminer l'email de réception (Owner du groupe introuvable)." }, { status: 400 });
   }
 
-  // 4) Create invitation
   const { data: created, error } = await supabase
     .from("group_company_invitations")
     .insert({

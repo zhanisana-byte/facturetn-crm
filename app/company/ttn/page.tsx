@@ -7,7 +7,6 @@ export default async function CompanyTTNChooser() {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // Choisir la derniere societe active ou creer une societe.
   const { data: memberships } = await supabase
     .from("memberships")
     .select("company_id, is_active")
@@ -19,6 +18,5 @@ export default async function CompanyTTNChooser() {
   const firstCompanyId = memberships?.[0]?.company_id;
   if (firstCompanyId) redirect(`/companies/${firstCompanyId}/ttn`);
 
-  // Pas de societe: on renvoie vers la liste (pas de /switch automatique)
   redirect("/companies");
 }

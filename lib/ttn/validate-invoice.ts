@@ -7,7 +7,7 @@ export type TTNIssue = {
 };
 
 export type TTNValidationResult = {
-  ok: boolean; // ok = pas d'erreurs bloquantes
+  ok: boolean; 
   errors: TTNIssue[];
   warnings: TTNIssue[];
   summary: {
@@ -42,7 +42,6 @@ export function validateInvoiceTTN(input: {
   const errors: TTNIssue[] = [];
   const warnings: TTNIssue[] = [];
 
-  // --------- Required base fields
   const docType = safe(invoice?.document_type || "facture");
   const invNumber = safe(invoice?.invoice_number || invoice?.invoice_no || "");
   const issueDate = safe(invoice?.issue_date || invoice?.created_at || "").slice(0, 10);
@@ -51,7 +50,6 @@ export function validateInvoiceTTN(input: {
   if (!invNumber) errors.push({ level: "error", code: "INV_NUMBER_MISSING", message: "Numéro de facture manquant.", field: "invoice_number" });
   if (!issueDate) errors.push({ level: "error", code: "ISSUE_DATE_MISSING", message: "Date de facture manquante.", field: "issue_date" });
 
-  // --------- Seller (company)
   const sellerName = safe(company?.company_name || "");
   const sellerMF = safe(company?.tax_id || "");
   const sellerAdr = safe(company?.address || "");
@@ -60,18 +58,15 @@ export function validateInvoiceTTN(input: {
   if (!sellerMF) errors.push({ level: "error", code: "SELLER_MF_MISSING", message: "Matricule fiscal vendeur (MF) manquant.", field: "companies.tax_id" });
   if (!sellerAdr) warnings.push({ level: "warning", code: "SELLER_ADDRESS_MISSING", message: "Adresse vendeur non renseignée (recommandé).", field: "companies.address" });
 
-  // --------- Buyer (customer)
   const buyerName = safe(invoice?.customer_name || "");
   const buyerMF = safe(invoice?.customer_tax_id || "");
   const buyerAdr = safe(invoice?.customer_address || "");
 
   if (!buyerName) errors.push({ level: "error", code: "BUYER_NAME_MISSING", message: "Nom client manquant.", field: "invoices.customer_name" });
 
-  // MF client: parfois optionnel selon B2C, mais pour TTN souvent requis en B2B
   if (!buyerMF) warnings.push({ level: "warning", code: "BUYER_MF_MISSING", message: "MF client vide (si B2B, c'est généralement requis).", field: "invoices.customer_tax_id" });
   if (!buyerAdr) warnings.push({ level: "warning", code: "BUYER_ADDRESS_MISSING", message: "Adresse client non renseignée (recommandé).", field: "invoices.customer_address" });
 
-  // --------- Items rules
   const arr = Array.isArray(items) ? items : [];
   if (arr.length === 0) errors.push({ level: "error", code: "ITEMS_EMPTY", message: "La facture doit contenir au moins une ligne.", field: "invoice_items" });
 
@@ -102,7 +97,6 @@ export function validateInvoiceTTN(input: {
     calc_vat = round3(calc_vat + vatAmt);
     calc_ttc = round3(calc_ttc + ttc);
 
-    // Si vous stockes line_total_ht, vérifier cohérence
     if (it?.line_total_ht != null) {
       const stored = round3(toNum(it.line_total_ht));
       if (!almostEqual(stored, ht)) {
@@ -116,18 +110,15 @@ export function validateInvoiceTTN(input: {
     }
   }
 
-  // --------- Totals rules (invoice totals vs calc)
   const inv_subtotal_ht = round3(toNum(invoice?.total_ht ?? invoice?.subtotal_ht));
   const inv_total_vat = round3(toNum(invoice?.total_vat ?? invoice?.total_tax));
   const stamp_enabled = Boolean(invoice?.stamp_enabled);
   const stamp_amount = round3(toNum(invoice?.stamp_amount));
   const inv_total_ttc = round3(toNum(invoice?.total_ttc ?? (inv_subtotal_ht + inv_total_vat + (stamp_enabled ? stamp_amount : 0))));
 
-  // Si totaux vides, warning (mais pas bloquant)
   if (!inv_subtotal_ht && calc_ht > 0) warnings.push({ level: "warning", code: "TOTAL_HT_EMPTY", message: "total_ht/subtotal_ht est vide: on utilisera le calcul des lignes.", field: "invoices.total_ht" });
   if (!inv_total_vat && calc_vat > 0) warnings.push({ level: "warning", code: "TOTAL_VAT_EMPTY", message: "total_vat est vide: on utilisera le calcul des lignes.", field: "invoices.total_vat" });
 
-  // Cohérence (bloquante si gros écart)
   if (inv_subtotal_ht > 0 && !almostEqual(inv_subtotal_ht, calc_ht)) {
     errors.push({
       level: "error",
@@ -146,7 +137,6 @@ export function validateInvoiceTTN(input: {
     });
   }
 
-  // Timbre
   if (stamp_enabled && stamp_amount <= 0) {
     warnings.push({ level: "warning", code: "STAMP_ENABLED_ZERO", message: "Timbre activé mais montant = 0.", field: "invoices.stamp_amount" });
   }
@@ -154,7 +144,6 @@ export function validateInvoiceTTN(input: {
     warnings.push({ level: "warning", code: "STAMP_AMOUNT_WITHOUT_FLAG", message: "Montant timbre > 0 mais stamp_enabled=false.", field: "invoices.stamp_enabled" });
   }
 
-  // Total TTC
   const calc_total_with_stamp = round3(calc_ttc + (stamp_enabled ? stamp_amount : 0));
   if (invoice?.total_ttc != null) {
     if (!almostEqual(inv_total_ttc, calc_total_with_stamp)) {
@@ -169,10 +158,8 @@ export function validateInvoiceTTN(input: {
     warnings.push({ level: "warning", code: "TOTAL_TTC_EMPTY", message: "total_ttc vide: on utilisera le calcul.", field: "invoices.total_ttc" });
   }
 
-  // --------- Currency
   if (!currency) warnings.push({ level: "warning", code: "CURRENCY_EMPTY", message: "Devise vide (recommandé: TND).", field: "invoices.currency" });
 
-  // --------- Doc type
   const allowed = ["facture", "devis", "avoir"];
   if (!allowed.includes(docType.toLowerCase())) {
     warnings.push({ level: "warning", code: "DOC_TYPE_UNKNOWN", message: `document_type '${docType}' non standard.`, field: "invoices.document_type" });

@@ -13,20 +13,16 @@ export default async function TTNPage() {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // ✅ Optionnel: limiter l'accès TTN au mode société فقط (حسب منطقك)
-  // إذا تحب تخليه مفتوح، انحي bloc هذا
   const activeMode = workspace?.active_mode ?? "profil";
   const allowed = activeMode === "entreprise" || activeMode === "multi_societe";
   if (!allowed) redirect("/dashboard");
 
-  // invoices scheduled (queue)
   const { data: scheduled } = await supabase
     .from("ttn_invoice_queue")
     .select("id,invoice_id,company_id,scheduled_at,status,last_error,created_at")
     .in("status", ["scheduled", "queued"])
     .order("scheduled_at", { ascending: true });
 
-  // last events
   const { data: events } = await supabase
     .from("ttn_events")
     .select("id,invoice_id,company_id,status,message,created_at")

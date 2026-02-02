@@ -15,7 +15,6 @@ export default async function GroupCompanyViewPage({ params }: Props) {
   if (!auth?.user) redirect("/login");
   const userId = auth.user.id;
 
-  // must be linked
   const { data: link } = await supabase
     .from("group_companies")
     .select("id")
@@ -24,7 +23,6 @@ export default async function GroupCompanyViewPage({ params }: Props) {
     .maybeSingle();
   if (!link?.id) redirect(`/groups/${groupId}`);
 
-  // role check owner/admin
   const { data: group } = await supabase
     .from("groups")
     .select("owner_user_id")

@@ -25,7 +25,6 @@ export default async function CompanyPage({ params }: PageProps) {
 
   if (!company?.id) redirect("/companies");
 
-  // ✅ Page Société normale (minimal, propre)
   return (
     <div className="p-6 space-y-6">
       <div>
@@ -35,10 +34,7 @@ export default async function CompanyPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/*
-        ✅ Page Société = accès rapide aux Paramètres TTN uniquement.
-        (La carte "Factures" et le bouton "Retour Liste Sociétés" étaient plus adaptés au Profil.)
-      */}
+      {}
       <div className="grid grid-cols-1 gap-4">
         <a
           href={`/companies/${companyId}/ttn`}

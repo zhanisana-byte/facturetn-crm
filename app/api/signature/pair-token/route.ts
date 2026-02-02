@@ -22,13 +22,11 @@ function buildServerOrigin(req: Request, environment: "test" | "production") {
     pickFirstHeader(h, "host");
 
   const fromHeaders = host ? `${proto}://${host}` : "";
-  const fromEnv = s(process.env.APP_URL); // ✅ server-only
+  const fromEnv = s(process.env.APP_URL); 
   const fromReq = new URL(req.url).origin;
 
-  // ✅ priorité: headers (prod/vercel) → APP_URL → req.url origin
   let origin = (fromHeaders || fromEnv || fromReq).replace(/\/$/, "");
 
-  // ✅ Sécurité: en production, on refuse localhost
   if (environment === "production" && /localhost|127\.0\.0\.1/i.test(origin)) {
     origin = "https://facturetn.com";
   }
@@ -46,7 +44,6 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const company_id = s(body.company_id);
 
-  // ✅ compat: certains clients envoient "environment", d'autres "env"
   const environment = (s(body.environment || body.env) || "production") as "test" | "production";
 
   if (!company_id) {
@@ -73,7 +70,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // ✅ ORIGIN correct (facturetn.com en prod, localhost en dev)
   const server = buildServerOrigin(req, environment);
   if (!server) {
     return NextResponse.json({ error: "SERVER_URL_MISSING" }, { status: 500 });

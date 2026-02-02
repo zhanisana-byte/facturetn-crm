@@ -24,7 +24,6 @@ export default async function ProfilePermissionsPage() {
 
   const userId = auth.user.id;
 
-  // 1) Les sociétés où je suis OWNER => je peux gérer la délégation (factures/TTN)
   const { data: owned } = await supabase
     .from("memberships")
     .select("company_id, companies(id, company_name, tax_id)")
@@ -41,7 +40,6 @@ export default async function ProfilePermissionsPage() {
       tax_id: String(c.tax_id ?? "—"),
     }));
 
-  // 2) Invitations de délégation en attente (type B)
   const { data: pendingDelegations } = await supabase
     .from("access_invitations")
     .select(
@@ -52,7 +50,6 @@ export default async function ProfilePermissionsPage() {
     .eq("kind", "delegation")
     .order("created_at", { ascending: false });
 
-  // 3) Pour chaque société owner : liste des membres + permissions
   const companiesWithMembers = [] as Array<{
     company: { id: string; name: string; tax_id: string };
     members: MemberRow[];

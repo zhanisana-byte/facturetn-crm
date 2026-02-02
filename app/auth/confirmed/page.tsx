@@ -9,7 +9,7 @@ export default async function ConfirmedPage() {
             <span className="h-2 w-2 rounded-full bg-emerald-400" />
             Compte confirmé
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">Votre compte est activé ✅</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Votre compte est activé </h1>
           <p className="mt-2 text-sm text-white/75">
             Vous pouvez maintenant accéder à votre espace Profil.
           </p>

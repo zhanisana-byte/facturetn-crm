@@ -7,9 +7,8 @@ import { getPublicBaseUrl } from "@/lib/url";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-
 function token() {
-  // URL-safe token
+  
   return crypto.randomBytes(24).toString("base64url");
 }
 
@@ -34,7 +33,6 @@ export async function POST(req: Request) {
     );
   }
 
-  // ✅ Objectif stable (selon vos règles)
   if (objective !== "client_management" && objective !== "page_management") {
     return NextResponse.json(
       { error: "objective invalide (client_management | page_management)" },
@@ -42,8 +40,6 @@ export async function POST(req: Request) {
     );
   }
 
-  // ✅ Rôle compatible avec l’objectif (normalisation)
-  // DB memberships.role utilise: owner | staff | accountant | viewer
   const rawRole = String(body.role || "").trim() || (objective === "page_management" ? "staff" : "accountant");
 
   const role = (() => {
@@ -51,17 +47,16 @@ export async function POST(req: Request) {
     if (objective === "page_management") {
       if (r === "owner") return "owner";
       if (r === "admin" || r === "staff") return "staff";
-      // fallback safe
+      
       return "staff";
     }
-    // client_management
+    
     if (r === "accountant" || r === "comptable") return "accountant";
     if (r === "viewer") return "viewer";
     if (r === "staff" || r === "admin") return "staff";
     return "accountant";
   })();
 
-  // ✅ garde-fous
   if (objective === "page_management" && !["owner", "staff"].includes(role)) {
     return NextResponse.json(
       { error: "Pour gestion page, role doit être owner ou admin." },
@@ -69,7 +64,6 @@ export async function POST(req: Request) {
     );
   }
 
-  // Permissions (uniquement client_management)
   const can_manage_customers = objective === "client_management" ? !!body.can_manage_customers : false;
   const can_create_invoices = objective === "client_management" ? !!body.can_create_invoices : false;
   const can_validate_invoices = objective === "client_management" ? !!body.can_validate_invoices : false;
@@ -97,12 +91,9 @@ export async function POST(req: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-
 const base = getPublicBaseUrl().replace(/\/+$/, "");
 const inviteLink = `${base}/access/accept/${encodeURIComponent(data.token)}`;
 
-  
-// Envoi email (Resend) - best effort
 try {
   await sendEmailResend({
     to: data.to_email,
@@ -117,9 +108,8 @@ try {
     `,
   });
 } catch {
-  // ignore: l'UI affiche le lien d'invitation aussi
+  
 }
-
 
 return NextResponse.json({ ok: true, invitation: data, inviteLink });
 }

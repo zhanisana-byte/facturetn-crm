@@ -25,7 +25,6 @@ export default function GroupInvitationsClient({
     setLoading(true);
     const myEmail = String(currentUserEmail || "").toLowerCase();
 
-    // received
     const { data: recRaw } = await supabase
       .from("group_invitations")
       .select("*")
@@ -33,7 +32,6 @@ export default function GroupInvitationsClient({
       .eq("invited_email", myEmail)
       .order("created_at", { ascending: false });
 
-    // sent (only if manager)
     const { data: sentRaw } = isManager
       ? await supabase
           .from("group_invitations")
@@ -45,7 +43,6 @@ export default function GroupInvitationsClient({
     const rec = (recRaw ?? []) as Row[];
     const snt = (sentRaw ?? []) as Row[];
 
-    // keep only "sent by me" in sent list (UX)
     const { data: auth } = await supabase.auth.getUser();
     const uid = auth?.user?.id;
     const mySent = uid ? snt.filter((r: any) => r.invited_by_user_id === uid) : [];
@@ -57,7 +54,7 @@ export default function GroupInvitationsClient({
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [groupId]);
 
   const hasAny = useMemo(() => (received?.length ?? 0) + (sent?.length ?? 0) > 0, [received, sent]);

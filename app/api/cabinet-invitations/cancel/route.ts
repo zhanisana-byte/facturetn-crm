@@ -25,7 +25,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Seules les invitations en attente peuvent être annulées." }, { status: 400 });
   }
 
-  // sécurité : seul l’auteur (ou owner/admin du cabinet) peut annuler
   if (String(inv.invited_by_user_id || "") !== auth.user.id) {
     const { data: gm } = await supabase
       .from("group_members")
@@ -41,7 +40,6 @@ export async function POST(req: Request) {
     }
   }
 
-  // on annule = delete (ou status=cancelled, selon préférence)
   const { error: del } = await supabase.from("group_invitations").delete().eq("id", inv.id);
   if (del) return NextResponse.json({ error: del.message }, { status: 400 });
 

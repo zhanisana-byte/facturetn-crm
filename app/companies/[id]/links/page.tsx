@@ -27,7 +27,6 @@ export default async function CompanyLinksPage({ params }: PageProps) {
   if (!auth?.user) redirect("/login");
   const userId = auth.user.id;
 
-  // Load company (for auth)
   const { data: company, error: cErr } = await supabase
     .from("companies")
     .select("id,company_name,owner_user_id")
@@ -38,7 +37,6 @@ export default async function CompanyLinksPage({ params }: PageProps) {
     return <div className="ftn-alert">Société introuvable{cErr?.message ? `: ${cErr.message}` : ""}</div>;
   }
 
-  // Authorization: owner OR membership admin/owner
   const isOwner = company.owner_user_id === userId;
   let isAdmin = false;
   if (!isOwner) {
@@ -58,7 +56,6 @@ export default async function CompanyLinksPage({ params }: PageProps) {
     return <div className="ftn-alert">Accès refusé.</div>;
   }
 
-  // Linked groups
   const { data: links, error: lErr } = await supabase
     .from("group_companies")
     .select("group_id, link_type, created_at, groups(id,group_name)")

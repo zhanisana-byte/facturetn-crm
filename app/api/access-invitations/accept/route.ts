@@ -21,7 +21,6 @@ export async function POST(req: Request) {
 
   if (invErr || !inv) return NextResponse.json({ error: "Invitation introuvable." }, { status: 404 });
 
-  // Ensure recipient
   const { data: profile } = await supabase
     .from("app_users")
     .select("email")
@@ -35,20 +34,17 @@ export async function POST(req: Request) {
 
   if (inv.status !== "pending") return NextResponse.json({ error: `Invitation déjà ${inv.status}` }, { status: 400 });
 
-  // Expiration
   if (inv.expires_at && new Date(inv.expires_at).getTime() < Date.now()) {
     await supabase.from("access_invitations").update({ status: "expired" }).eq("id", inv.id);
     return NextResponse.json({ error: "Invitation expirée." }, { status: 400 });
   }
 
-  // Normaliser le rôle (compat historique: 'admin' -> 'staff')
   const normalizedRole = (() => {
     const r = String(inv.role || "").toLowerCase();
     if (r === "admin") return "staff";
     return r || "viewer";
   })();
 
-  // Upsert membership
   const { data: existing } = await supabase
     .from("memberships")
     .select("id")
@@ -83,7 +79,6 @@ export async function POST(req: Request) {
     if (insM) return NextResponse.json({ error: insM.message }, { status: 400 });
   }
 
-  // Mark invitation accepted and bind user
   const { error: updInv } = await supabase
     .from("access_invitations")
     .update({ status: "accepted", accepted_at: new Date().toISOString(), invited_user_id: auth.user.id })

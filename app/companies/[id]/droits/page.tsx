@@ -12,7 +12,6 @@ export default async function SocieteDroitsPage(props: { params?: Promise<{ id: 
   const user = s.session?.user;
   if (!user) redirect("/login");
 
-  // Société
   const { data: company } = await supabase
     .from("companies")
     .select("id, company_name, tax_id")
@@ -28,7 +27,6 @@ export default async function SocieteDroitsPage(props: { params?: Promise<{ id: 
     );
   }
 
-  // Autorisation fiable : memberships (owner/admin/staff/viewer)
   const { data: myMembership } = await supabase
     .from("memberships")
     .select("id, role, is_active")
@@ -41,7 +39,6 @@ export default async function SocieteDroitsPage(props: { params?: Promise<{ id: 
 
   const isOwner = String(myMembership.role || "") === "owner";
 
-  // Membres
   const { data: members } = await supabase
     .from("memberships")
     .select(

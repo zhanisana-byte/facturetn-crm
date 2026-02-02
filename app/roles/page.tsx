@@ -21,9 +21,6 @@ export default async function RolesHubPage() {
 
   const accountType = mapDbAccountType(profile?.account_type);
 
-  // Sociétés où je suis owner
-  // NOTE: selon les versions du schéma, owner_user_id peut ne pas être rempli.
-  // La source fiable est la table memberships (role='owner').
   const { data: ownedCompaniesRaw } = await supabase
     .from("memberships")
     .select("company_id, role, companies(id,company_name,tax_id)")
@@ -43,7 +40,6 @@ export default async function RolesHubPage() {
 
   const memberCompanies = memberCompaniesRaw ?? [];
 
-  // Groupes où je suis owner ou admin/staff
   const { data: ownedGroupsRaw } = await supabase
     .from("groups")
     .select("id,group_name,created_at")

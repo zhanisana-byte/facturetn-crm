@@ -30,7 +30,6 @@ type Company = {
   phone?: string | null;
   email?: string | null;
 
-  // compat si vous as ajouté ces colonnes
   vat_rate?: number | null;
   stamp_duty?: number | null;
 };
@@ -50,7 +49,6 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Identité société
   const [companyName, setCompanyName] = useState("");
   const [taxId, setTaxId] = useState("");
 
@@ -62,8 +60,8 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
   const [identifierType, setIdentifierType] = useState("");
   const [vatRegime, setVatRegime] = useState("");
 
-  const [address, setAddress] = useState(""); // champ principal utilisé par le projet
-  const [addressLine, setAddressLine] = useState(""); // optionnel si vous veux le garder
+  const [address, setAddress] = useState(""); 
+  const [addressLine, setAddressLine] = useState(""); 
   const [city, setCity] = useState("");
   const [governorate, setGovernorate] = useState("");
   const [postalCode, setPostalCode] = useState("");
@@ -74,7 +72,6 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
 
-  // Defaults facture (company_settings)
   const [defaultVatPct, setDefaultVatPct] = useState<number>(19);
   const [stampEnabled, setStampEnabled] = useState<boolean>(false);
   const [stampAmount, setStampAmount] = useState<number>(1.0);
@@ -98,7 +95,6 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
       return;
     }
 
-    // 1) company
     const { data, error } = await supabase
       .from("companies")
       .select(
@@ -152,7 +148,6 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
     setIdentifierType(row.identifier_type ?? "");
     setVatRegime(row.vat_regime ?? "");
 
-    // adresse principale = address, et si vide on prend address_line
     const a = (row.address ?? "").trim();
     const al = (row.address_line ?? "").trim();
     setAddress(a || al);
@@ -163,11 +158,10 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
     setPostalCode(row.postal_code ?? "");
     setCountry((row.country ?? "TN").toUpperCase());
 
-    setVatNumber(row.vat_number ?? row.tax_id ?? ""); // fallback MF
+    setVatNumber(row.vat_number ?? row.tax_id ?? ""); 
     setPhone(row.phone ?? "");
     setEmail(row.email ?? "");
 
-    // 2) company_settings defaults
     const { data: cs } = await supabase
       .from("company_settings")
       .select("company_id, default_stamp_enabled, default_stamp_amount, default_vat_pct")
@@ -180,7 +174,7 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
       setStampAmount(Number(settings.default_stamp_amount ?? 1.0));
       setDefaultVatPct(Number(settings.default_vat_pct ?? 19));
     } else {
-      // fallback si row n'existe pas encore
+      
       setStampEnabled(false);
       setStampAmount(1.0);
       setDefaultVatPct(19);
@@ -191,7 +185,7 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [companyId]);
 
   async function save() {
@@ -214,7 +208,6 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
     const vatPct = Number.isFinite(Number(defaultVatPct)) ? Number(defaultVatPct) : 19;
     const stAmt = Number.isFinite(Number(stampAmount)) ? Number(stampAmount) : 1.0;
 
-    // 1) update companies (TEIF identité)
     const { error: e1 } = await supabase
       .from("companies")
       .update({
@@ -240,7 +233,6 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
         phone: phone.trim() || null,
         email: email.trim() || null,
 
-        // compat (si ces colonnes existent chez vous)
         vat_rate: vatPct,
         stamp_duty: stAmt,
 
@@ -254,7 +246,6 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
       return;
     }
 
-    // 2) upsert company_settings (defaults facture)
     const { error: e2 } = await supabase
       .from("company_settings")
       .upsert(
@@ -303,7 +294,7 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
         <div className="text-sm text-slate-600">Chargement...</div>
       ) : (
         <div className="space-y-5">
-          {/* Identité société */}
+          {}
           <div className="space-y-2">
             <div className="text-sm font-semibold">Identité société</div>
             <div className="grid gap-3 md:grid-cols-2">
@@ -349,7 +340,7 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
             </div>
           </div>
 
-          {/* Adresse */}
+          {}
           <div className="space-y-2">
             <div className="text-sm font-semibold">Adresse</div>
             <div className="grid gap-3 md:grid-cols-2">
@@ -385,7 +376,7 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
             </div>
           </div>
 
-          {/* Contact + TVA number */}
+          {}
           <div className="space-y-2">
             <div className="text-sm font-semibold">Contact + TVA</div>
             <div className="grid gap-3 md:grid-cols-2">
@@ -406,7 +397,7 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
             </div>
           </div>
 
-          {/* Defaults facture */}
+          {}
           <div className="space-y-2">
             <div className="text-sm font-semibold">Paramètres facture (auto, sans répétition)</div>
             <div className="grid gap-3 md:grid-cols-3">

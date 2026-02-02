@@ -60,7 +60,7 @@ export default async function GroupSelectPage(props: { searchParams?: Promise<{ 
           <div className="ftn-card-glow" />
           <div className="ftn-card-head">
             <div className="ftn-card-titleRow">
-              <div className="ftn-ic">🧭</div>
+              <div className="ftn-ic"></div>
               <div>
                 <div className="ftn-card-title">Basculer vers un groupe</div>
                 <div className="ftn-card-sub">Choisissez un groupe pour afficher son espace.</div>

@@ -19,7 +19,6 @@ export async function POST(req: Request) {
   if (!company_id) return NextResponse.json({ ok: false, error: "company_id requis" }, { status: 400 });
   if (!title) return NextResponse.json({ ok: false, error: "title requis" }, { status: 400 });
 
-  // Permission minimale: membership active (RLS peut renforcer)
   const { data: m } = await supabase
     .from("memberships")
     .select("is_active")

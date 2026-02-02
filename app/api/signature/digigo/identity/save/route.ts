@@ -19,7 +19,6 @@ export async function POST(req: Request) {
   const email = s((body as any).email);
   const national_id = s((body as any).national_id);
 
-  // Règle: au moins tel OU email
   if (!phone && !email) {
     return NextResponse.json({ ok: false, error: "IDENTITY_INCOMPLETE", message: "Téléphone OU email requis (au moins un)." }, { status: 400 });
     }

@@ -18,11 +18,9 @@ export default async function TtnApiEnLignePage({ params }: Props) {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // ✅ Sécurité: l'utilisateur doit avoir le droit de configurer TTN
   const ok = await canCompanyAction(supabase, auth.user.id, companyId, "submit_ttn");
   if (!ok) redirect(`/companies/${companyId}`);
 
-  // ✅ Environnement TTN (adapter si vous avez un switch test/production)
   const env: "test" | "production" = "production";
 
   const { data: company } = await supabase
@@ -33,8 +31,6 @@ export default async function TtnApiEnLignePage({ params }: Props) {
 
   if (!company?.id) redirect(`/companies/${companyId}/ttn`);
 
-  // ✅ Lire les credentials avec le service role (bypass RLS),
-  // mais on NE renvoie jamais le mot de passe au navigateur.
   const admin = createAdminClient();
   const { data: cred } = await admin
     .from("ttn_credentials")

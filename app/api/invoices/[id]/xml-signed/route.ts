@@ -22,7 +22,6 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const ok = await canCompanyAction(supabase, auth.user.id, companyId, "submit_ttn");
   if (!ok) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
 
-  // on prend production par défaut
   const { data: sig } = await supabase
     .from("invoice_signatures")
     .select("signed_xml,environment")

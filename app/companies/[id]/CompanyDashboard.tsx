@@ -44,7 +44,6 @@ export default async function CompanyDashboard({ companyId }: { companyId: strin
     .eq("company_id", companyId)
     .maybeSingle();
 
-  // Fetch recent invoices (last 30 days) for KPIs
   const { data: invoices30 } = await supabase
     .from("invoices")
     .select("id,invoice_number,status,total_ttc,created_at")

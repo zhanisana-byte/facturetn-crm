@@ -32,7 +32,7 @@ function sleep(ms: number) {
 }
 
 export function isTTNEnabled() {
-  // NEXT_PUBLIC_TTN_ENABLED est aussi lisible côté server.
+  
   return process.env.NEXT_PUBLIC_TTN_ENABLED === "1";
 }
 
@@ -42,11 +42,10 @@ export function getTTNMode(): "mock" | "real" {
 }
 
 async function mockTTNTest(environment: "test" | "production"): Promise<TTNTestResult> {
-  // Simuler une latence réseau réaliste
+  
   const latency = 250 + Math.floor(Math.random() * 700);
   await sleep(latency);
 
-  // Simuler quelques erreurs typiques (faible taux)
   const roll = Math.random();
   if (roll < 0.06) {
     return {
@@ -85,7 +84,7 @@ async function mockTTNTest(environment: "test" | "production"): Promise<TTNTestR
 export async function testTTNApi(opts: {
   environment: "test" | "production";
   missing?: string[];
-  // Les identifiants réels seront utilisés quand TTN_MODE=real
+  
   wsUrl?: string;
   wsLogin?: string;
   wsPassword?: string;
@@ -116,8 +115,6 @@ export async function testTTNApi(opts: {
     return mockTTNTest(opts.environment);
   }
 
-  // Mode réel: implémentation branchée dans app/api/companies/[id]/ttn/test-api/route.ts
-  // (on garde le code existant consultEfactSOAP). Ici, on renvoie un message clair.
   return {
     ok: false,
     mode: "real",

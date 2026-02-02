@@ -57,7 +57,7 @@ export default function CabinetCompanyInvitationsClient({
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [cabinetGroupId]);
 
   const filtered = useMemo(() => {
@@ -95,7 +95,7 @@ export default function CabinetCompanyInvitationsClient({
     }
 
     await load();
-    alert(action === "accept" ? "Invitation acceptée ✅" : "Invitation refusée ✅");
+    alert(action === "accept" ? "Invitation acceptée " : "Invitation refusée ");
   }
 
   return (

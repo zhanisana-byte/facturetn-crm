@@ -52,7 +52,6 @@ export async function POST(req: Request, ctx: Ctx) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  // 1) Charger facture
   const { data: invoice, error: invErr } = await supabase
     .from("invoices")
     .select("*")
@@ -66,7 +65,6 @@ export async function POST(req: Request, ctx: Ctx) {
     );
   }
 
-  // 2) Charger société (seller)
   const companyId =
     (invoice as any)?.company_id ??
     (invoice as any)?.seller_company_id ??
@@ -101,7 +99,6 @@ export async function POST(req: Request, ctx: Ctx) {
   );
   const invoiceTitle = `Facture ${invoiceNumber}`;
 
-  // 3) Module email pas encore branché => réponse propre
   const smtpConfigured =
     !!process.env.SMTP_HOST &&
     !!process.env.SMTP_PORT &&
@@ -126,7 +123,6 @@ export async function POST(req: Request, ctx: Ctx) {
     );
   }
 
-  // ✅ Quand vous ajoutes un provider (nodemailer, resend, etc.), vous implémentes ici.
   return NextResponse.json(
     {
       ok: false,

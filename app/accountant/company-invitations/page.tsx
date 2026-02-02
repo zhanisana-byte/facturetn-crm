@@ -11,7 +11,6 @@ export default async function AccountantCompanyInvitationsPage() {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // Cabinet actif (workspace)
   const { data: ws } = await supabase
     .from("user_workspace")
     .select("active_group_id")
@@ -21,14 +20,12 @@ export default async function AccountantCompanyInvitationsPage() {
   const cabinetGroupId = ws?.active_group_id ?? null;
   if (!cabinetGroupId) redirect("/switch");
 
-  // Nom du cabinet
   const { data: g } = await supabase
     .from("groups")
     .select("id, group_name, group_type")
     .eq("id", cabinetGroupId)
     .maybeSingle();
 
-  // Sécurité : si ce n’est pas un cabinet -> switch
   if (!g?.id || String(g.group_type ?? "") !== "cabinet") redirect("/switch");
 
   const cabinetName = g.group_name ?? "Cabinet";

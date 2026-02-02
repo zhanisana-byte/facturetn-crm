@@ -8,12 +8,9 @@ export const dynamic = "force-dynamic";
 export default async function ProfilePage() {
   const { supabase, user } = await getAuthUser();
 
-  // Workspace
   const ws = await ensureWorkspaceRow(supabase, user.id);
   const activeMode = ws?.active_mode ?? "profil";
 
-  // ✅ /profile doit toujours rester accessible.
-  // Si on arrive ici depuis un autre mode, on repasse en "profil" et on va vers le dashboard profil
   if (activeMode !== "profil") {
     await supabase
       .from("user_workspace")
@@ -28,10 +25,9 @@ export default async function ProfilePage() {
         { onConflict: "user_id" }
       );
 
-    redirect("/profile/dashboard"); // ✅ PAS /dashboard
+    redirect("/profile/dashboard"); 
   }
 
-  // User
   const { data: me, error: meErr } = await supabase
     .from("app_users")
     .select("id,email,full_name,account_type")

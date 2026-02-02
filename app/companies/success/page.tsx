@@ -12,7 +12,7 @@ export default async function CompanySuccessPage({ searchParams }: PageProps) {
   if (!id) redirect("/pages/new");
 
   return (
-    <AppShell accountType="profil" title="Création réussie ✅">
+    <AppShell accountType="profil" title="Création réussie ">
       <Card className="p-6 max-w-xl">
         <p className="text-sm text-slate-600">
           Votre société a été créée avec succès. Vous pouvez maintenant compléter ses informations.

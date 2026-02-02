@@ -15,7 +15,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "membership_id et company_id requis" }, { status: 400 });
   }
 
-  // authz: only company owner can edit roles/permissions
   const { data: company } = await supabase
     .from("companies")
     .select("id,owner_user_id")

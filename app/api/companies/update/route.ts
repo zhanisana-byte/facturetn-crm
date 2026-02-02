@@ -18,7 +18,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "company_id required" }, { status: 400 });
     }
 
-    // ✅ Permission: doit avoir membership active sur la société
     const { data: mem } = await supabase
       .from("memberships")
       .select("role,is_active")
@@ -30,7 +29,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     }
 
-    // ⚠️ autoriser seulement des champs “safe”
     const patch: any = {
       company_name: body?.company_name ? String(body.company_name).trim() : undefined,
       tax_id: body?.tax_id !== undefined ? String(body.tax_id).trim() || null : undefined,
@@ -39,7 +37,6 @@ export async function POST(req: Request) {
       phone: body?.phone !== undefined ? String(body.phone).trim() || null : undefined,
     };
 
-    // remove undefined
     Object.keys(patch).forEach((k) => patch[k] === undefined && delete patch[k]);
 
     const { error } = await supabase.from("companies").update(patch).eq("id", company_id);

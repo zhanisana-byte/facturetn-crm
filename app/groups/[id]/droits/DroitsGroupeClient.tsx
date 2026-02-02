@@ -204,7 +204,7 @@ export default function DroitsGroupeClient({
   async function copy(text: string) {
     try {
       await navigator.clipboard.writeText(text);
-      alert("Copié ✅");
+      alert("Copié ");
     } catch {
       alert("Impossible de copier automatiquement. Veuillez copier manuellement.");
     }
@@ -212,10 +212,10 @@ export default function DroitsGroupeClient({
 
   return (
     <div className="space-y-6">
-      {/* Bloc succès si société interne créée */}
+      {}
       {createdCompanyId ? (
         <div className="ftn-card-lux p-4 border border-emerald-200 bg-emerald-50">
-          <div className="text-base font-semibold text-emerald-900">Création réussie ✅</div>
+          <div className="text-base font-semibold text-emerald-900">Création réussie </div>
           <div className="mt-1 text-sm text-emerald-900/80">
             La société interne a été créée. Vous pouvez maintenant gérer votre équipe et les accès par société.
           </div>
@@ -233,7 +233,7 @@ export default function DroitsGroupeClient({
         </div>
       ) : null}
 
-      {/* Header premium + ID */}
+      {}
       <div className="ftn-card-lux p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -263,9 +263,9 @@ export default function DroitsGroupeClient({
         <div className="ftn-card p-3 border border-rose-200 bg-rose-50 text-rose-800 text-sm">{err}</div>
       ) : null}
 
-      {/* Layout 2 colonnes */}
+      {}
       <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
-        {/* Liste équipe */}
+        {}
         <div className="ftn-card p-4">
           <div className="flex items-center justify-between gap-2">
             <div className="text-sm font-semibold">Votre équipe</div>
@@ -323,7 +323,7 @@ export default function DroitsGroupeClient({
           </div>
         </div>
 
-        {/* Détails membre sélectionné */}
+        {}
         <div className="ftn-card p-4">
           {!selected ? (
             <div className="text-sm text-slate-500">Veuillez sélectionner un membre.</div>
@@ -358,7 +358,7 @@ export default function DroitsGroupeClient({
                 </div>
               </div>
 
-              {/* Permissions page */}
+              {}
               <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
                 <div className="text-sm font-semibold">Accès à la page</div>
                 <div className="mt-3 flex flex-wrap gap-4">
@@ -385,7 +385,7 @@ export default function DroitsGroupeClient({
                 ) : null}
               </div>
 
-              {/* Sociétés + filtres */}
+              {}
               <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>

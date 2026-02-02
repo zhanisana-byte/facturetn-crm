@@ -23,7 +23,6 @@ export default function LoginClient() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Si déjà connecté -> switch direct
   useEffect(() => {
     const supabase = createClient();
 
@@ -53,13 +52,12 @@ export default function LoginClient() {
         return;
       }
 
-      // On conserve le pays côté navigateur (utile plus tard si vous ajoutez FR)
       try {
         if (typeof window !== "undefined") {
           window.localStorage.setItem("ftn_country", country);
         }
       } catch {
-        // ignore
+        
       }
 
       router.replace(nextUrl);

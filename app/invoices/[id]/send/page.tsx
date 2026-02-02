@@ -21,8 +21,7 @@ export default async function SendInvoiceEmailPage({ params }: PageProps) {
     .maybeSingle();
 
   const t = mapDbAccountType(profile?.account_type);
-  // ✅ Factures visibles uniquement Profil Pro + Société
-  // ✅ Le PROFIL est le seul qui facture
+
   if (t !== "profil") redirect("/switch");
 
   return (

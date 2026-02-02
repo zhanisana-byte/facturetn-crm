@@ -15,7 +15,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "group_member_id et group_id requis" }, { status: 400 });
   }
 
-  // authz: owner or admin can manage
   const { data: group } = await supabase
     .from("groups")
     .select("id,owner_user_id")

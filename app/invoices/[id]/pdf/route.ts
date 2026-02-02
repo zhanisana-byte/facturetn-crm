@@ -7,24 +7,16 @@ import { createClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * PDF Facture “TTN-style”
- * - pdf-lib only (Vercel safe)
- * - Multi-pages + entête tableau répété
- * - Retourne Buffer (compatible Next 15 types)
- */
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
     const supabase = await createClient();
 
-    // Auth
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    // Invoice
     const { data: invoice, error: invErr } = await supabase
       .from("invoices")
       .select("*")
@@ -35,14 +27,12 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       return NextResponse.json({ ok: false, error: invErr?.message || "Not found" }, { status: 404 });
     }
 
-    // Items
     const { data: items } = await supabase
       .from("invoice_items")
       .select("*")
       .eq("invoice_id", id)
       .order("line_no", { ascending: true });
 
-    // Company
     const { data: company } = await supabase
       .from("companies")
       .select("*")
@@ -53,7 +43,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     const toNum = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
     const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
-    // ---- Extract header info
     const docTypeRaw = safe((invoice as any).document_type || "facture");
     const docType =
       docTypeRaw.toLowerCase() === "devis"
@@ -70,7 +59,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     const dueDate = safe((invoice as any).due_date || "").slice(0, 10);
     const currency = safe((invoice as any).currency || "TND");
 
-    // ---- Seller (company)
     const sellerName = safe(company?.company_name || "Société");
     const sellerMF = safe(company?.tax_id || "");
     const sellerAdr = safe(company?.address || "");
@@ -78,7 +66,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     const sellerTel = safe((company as any)?.phone || "");
     const sellerEmail = safe((company as any)?.email || "");
 
-    // ---- Buyer (customer)
     const buyerName = safe((invoice as any).customer_name || "");
     const buyerMF = safe((invoice as any).customer_tax_id || "");
     const buyerAdr = safe((invoice as any).customer_address || "");
@@ -86,7 +73,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     const buyerEmail = safe((invoice as any).customer_email || "");
     const dest = safe((invoice as any).destination || "");
 
-    // ---- Totals (prefer invoice totals)
     const inv_subtotal_ht = round3(toNum((invoice as any).total_ht ?? (invoice as any).subtotal_ht));
     const inv_total_vat = round3(toNum((invoice as any).total_vat ?? (invoice as any).total_tax));
     const stamp_enabled = Boolean((invoice as any).stamp_enabled);
@@ -98,7 +84,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       )
     );
 
-    // ---- If totals missing, compute from items (fallback)
     const arr = Array.isArray(items) ? items : [];
     let calcHT = 0;
     let calcVAT = 0;
@@ -124,12 +109,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         ? inv_total_ttc
         : round3(calcTTC + (stamp_enabled ? stamp_amount : 0));
 
-    // ---- PDF setup
     const pdfDoc = await PDFDocument.create();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    // A4 points
     const PAGE_W = 595.28;
     const PAGE_H = 841.89;
 
@@ -161,11 +144,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       page.drawText(String(text ?? ""), { x, y, size, font: bold ? fontBold : font, color });
     };
 
-    // Header (returns y start after blocks)
     const header = (page: PDFPage) => {
       const top = PAGE_H - margin;
 
-      // Title band
       page.drawRectangle({
         x: margin,
         y: top - 34,
@@ -178,13 +159,11 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
       drawTxt(page, docType, margin + 12, top - 24, 14, true);
 
-      // Right meta
       const rightX = PAGE_W - margin - 220;
       drawTxt(page, `N° : ${invNumber || "—"}`, rightX, top - 24, 10, true);
       drawTxt(page, `Date : ${issueDate}`, rightX, top - 38, 9, false, muted);
       if (dueDate) drawTxt(page, `Échéance : ${dueDate}`, rightX, top - 52, 9, false, muted);
 
-      // Seller/Buyer boxes
       const boxY = top - 34 - 12 - 120;
       const boxH = 120;
       const boxW = (PAGE_W - margin * 2 - 12) / 2;
@@ -192,7 +171,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       drawBox(page, margin, boxY, boxW, boxH);
       drawBox(page, margin + boxW + 12, boxY, boxW, boxH);
 
-      // Seller
       drawTxt(page, "VENDEUR (SOCIÉTÉ)", margin + 10, boxY + boxH - 16, 8, true, muted);
       drawTxt(page, sellerName, margin + 10, boxY + boxH - 34, 11, true);
       if (sellerMF) drawTxt(page, `MF : ${sellerMF}`, margin + 10, boxY + boxH - 50, 9, false);
@@ -204,7 +182,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         .join("  •  ");
       if (sellerContact) drawTxt(page, sellerContact, margin + 10, boxY + 12, 8, false, muted);
 
-      // Buyer
       const bx = margin + boxW + 12;
       drawTxt(page, "ACHETEUR (CLIENT)", bx + 10, boxY + boxH - 16, 8, true, muted);
       drawTxt(page, buyerName || "—", bx + 10, boxY + boxH - 34, 11, true);
@@ -234,7 +211,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         borderWidth: 1,
       });
 
-      // columns
       const colDesc = x0 + 8;
       const colQty = x0 + 280;
       const colPU = x0 + 330;
@@ -254,7 +230,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
     const ensureSpace = (y: number, needed: number) => y - needed >= 170;
 
-    // ---- Start PDF
     let page = addPage();
     let y = header(page);
     y = tableHeader(page, y);
@@ -287,7 +262,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         y = tableHeader(page, y);
       }
 
-      // separator
       page.drawLine({
         start: { x: margin, y: y + 4 },
         end: { x: PAGE_W - margin, y: y + 4 },
@@ -310,7 +284,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       y -= d2 ? (rowH + 10) : rowH;
     }
 
-    // Totals / QR blocks
     if (!ensureSpace(y, 240)) {
       page = addPage();
       y = header(page);
@@ -336,7 +309,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     if (stamp_enabled) { tRow("Timbre", fmtMoney(stamp_amount), yy); yy -= 14; }
     tRow("Net à payer", fmtMoney(total_ttc), yy, true);
 
-    // QR payload
     const payloadObj: any = {
       spec: "TEIF-QR",
       version: "1.0",
@@ -367,7 +339,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     drawTxt(page, "Export / vérification technique", qrX + 12 + qrSize + 12, qrY + 64, 9, false, muted);
     drawTxt(page, `Hash: ${payloadObj.hash.slice(0, 16)}…`, qrX + 12 + qrSize + 12, qrY + 48, 8, false, muted);
 
-    // Footer notes
     const footerY = 140;
     page.drawLine({
       start: { x: margin, y: footerY + 18 },
@@ -383,9 +354,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
     drawTxt(page, notes.join("  •  "), margin, footerY, 8, false, muted);
 
-    // Export (Next 15 safe)
-    const pdfBytes = await pdfDoc.save(); // Uint8Array
-    const body = Buffer.from(pdfBytes);   // ✅ FIX build
+    const pdfBytes = await pdfDoc.save(); 
+    const body = Buffer.from(pdfBytes);   
 
     return new NextResponse(body, {
       status: 200,

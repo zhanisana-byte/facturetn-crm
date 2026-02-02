@@ -1,4 +1,4 @@
-// app/groups/[id]/page.tsx
+
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -72,7 +72,6 @@ export default async function GroupDetailPage({
 
   if (!isOwner && myRole !== "admin") redirect("/groups/select");
 
-  // Compteurs (interne/externe)
   const { data: allLinks } = await supabase
     .from("group_companies")
     .select("company_id, link_type, subscription_ends_at")
@@ -82,7 +81,6 @@ export default async function GroupDetailPage({
   const internalCount = all.filter((l: any) => (l.link_type ?? "internal") !== "external").length;
   const externalCount = all.filter((l: any) => (l.link_type ?? "internal") === "external").length;
 
-  // Expirations (externes uniquement)
   const now = Date.now();
   const soonMs = 30 * 24 * 60 * 60 * 1000;
 
@@ -96,7 +94,6 @@ export default async function GroupDetailPage({
       .map((l: any) => String(l.company_id))
   );
 
-  // Tableau externes (abonnements)
   const { data: externalLinks } = await supabase
     .from("group_companies")
     .select("company_id, link_type, subscription_ends_at, companies(id,company_name,tax_id)")
@@ -116,7 +113,6 @@ export default async function GroupDetailPage({
     };
   });
 
-  // Liste paginée + filtrée
   let listQ = supabase
     .from("group_companies")
     .select("company_id, link_type, subscription_ends_at, companies(id,company_name,tax_id)", {
@@ -177,8 +173,8 @@ export default async function GroupDetailPage({
               + Créer société interne
             </Link>
 
-            {/* ✅ On SUPPRIME l'invitation/ajout externe depuis le groupe */}
-            {/* Les externes arrivent via "Invitations reçues (sociétés)" */}
+            {}
+            {}
             <Link className="ftn-btn" href={`/groups/${groupId}/invitations-received`} prefetch={false}>
               Invitations reçues (sociétés)
             </Link>
@@ -190,7 +186,7 @@ export default async function GroupDetailPage({
         </div>
       </div>
 
-      {/* Chronos */}
+      {}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="ftn-card p-4">
           <div className="text-xs opacity-70">Sociétés internes</div>
@@ -275,7 +271,7 @@ export default async function GroupDetailPage({
               </div>
             ))}
 
-            {/* Pagination */}
+            {}
             <div className="flex items-center justify-between pt-2">
               <div className="text-xs opacity-70">
                 Affichage {from + 1}–{Math.min(to + 1, total)} / {total}
@@ -301,7 +297,7 @@ export default async function GroupDetailPage({
         )}
       </div>
 
-      {/* Tableau externe (abonnements) — sans bouton ajout */}
+      {}
       <div className="ftn-card p-4">
         <div className="flex items-center justify-between">
           <div>
@@ -309,7 +305,7 @@ export default async function GroupDetailPage({
             <div className="text-xs opacity-70">Date fin • “Bientôt” = ≤ 30 jours</div>
           </div>
 
-          {/* ✅ supprimé: + Ajouter société externe */}
+          {}
         </div>
 
         {externalRows.length === 0 ? (

@@ -1,4 +1,4 @@
-// app/subscription/activate/page.tsx
+
 import AppShell from "@/app/components/AppShell";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -17,7 +17,6 @@ function shortRefFromId(id: string) {
   return `ABO-${s.slice(0, 8).toUpperCase()}`;
 }
 
-/** ✅ Identité bancaire (renseignée) */
 const BANK_INFO = {
   bankName: "Attijari bank",
   swift: "BSTUTNTT",
@@ -33,9 +32,6 @@ async function countActiveInternalCompaniesForGroup(opts: {
   supabase: any;
   groupId: string;
 }) {
-  // ✅ Dans votre schéma: group_companies n’a PAS is_active.
-  // ✅ Le statut actif est dans companies.is_active.
-  // Donc: compter les liens internes dont la société est active.
 
   const { count, error } = await opts.supabase
     .from("group_companies")
@@ -45,7 +41,7 @@ async function countActiveInternalCompaniesForGroup(opts: {
     .eq("companies.is_active", true);
 
   if (error) {
-    // fallback safe: si jointure bloquée / RLS / autre
+    
     const { count: c2 } = await opts.supabase
       .from("group_companies")
       .select("id", { count: "exact", head: true })
@@ -63,9 +59,7 @@ async function computePriceHt(opts: {
   scopeType: "company" | "group";
   scopeId: string;
 }) {
-  // ✅ Règles FactureTN
-  // - Société: 50 DT / mois
-  // - Groupe: 29 DT / mois * nb sociétés internes ACTIVES (companies.is_active = true)
+
   if (opts.scopeType === "company") return 50;
 
   const nbActives = await countActiveInternalCompaniesForGroup({
@@ -89,7 +83,6 @@ export default async function SubscriptionActivatePage({
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // Resolve scope + back link + shell context
   let scopeType: "company" | "group" | null = null;
   let scopeId: string | null = null;
   let title = "Abonnement";
@@ -106,7 +99,6 @@ export default async function SubscriptionActivatePage({
   let activeCompanyId: string | null = null;
   let activeGroupId: string | null = null;
 
-  // ✅ IMPORTANT: string (jamais null)
   let scopeLabel: string = "Abonnement";
 
   if (companyId) {
@@ -145,10 +137,8 @@ export default async function SubscriptionActivatePage({
 
   if (!scopeType || !scopeId) redirect("/subscription");
 
-  // ✅ PRIX: Société=50, Groupe=29*nb sociétés internes actives
   const priceHt = await computePriceHt({ supabase, scopeType, scopeId });
 
-  // Create or update a platform subscription (manual activation workflow)
   const { data: existingSub } = await supabase
     .from("platform_subscriptions")
     .select("id,status,price_ht,scope_type,scope_id")
@@ -169,8 +159,8 @@ export default async function SubscriptionActivatePage({
     const { data: updated, error: updErr } = await supabase
       .from("platform_subscriptions")
       .update({
-        status: "paused", // paiement attendu (activation manuelle)
-        price_ht: priceHt, // ✅ force le nouveau prix
+        status: "paused", 
+        price_ht: priceHt, 
         quantity: 1,
         note: noteText,
         updated_at: new Date().toISOString(),
@@ -202,7 +192,6 @@ export default async function SubscriptionActivatePage({
 
   const reference = shortRefFromId(upsertedSub.id);
 
-  // Create (best-effort) a pending payment record if none pending exists
   const { data: existingPending } = await supabase
     .from("platform_payments")
     .select("id")
@@ -214,7 +203,7 @@ export default async function SubscriptionActivatePage({
     await supabase.from("platform_payments").insert({
       subscription_id: upsertedSub.id,
       payer_user_id: auth.user.id,
-      amount_ht: priceHt, // ✅ montant correct
+      amount_ht: priceHt, 
       method: "virement",
       status: "pending",
       reference,
@@ -222,7 +211,6 @@ export default async function SubscriptionActivatePage({
     });
   }
 
-  // Petit label prix lisible
   const priceLabel =
     scopeType === "company"
       ? "50 DT / mois (HT)"

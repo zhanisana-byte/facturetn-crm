@@ -21,7 +21,6 @@ export default async function AccountantDroitsPage() {
     redirect("/accountant");
   }
 
-  // Le cabinet est une société (company) possédée par le comptable
   const { data: cabinetList } = await supabase
     .from("companies")
     .select("id, company_name, tax_id, owner_user_id")

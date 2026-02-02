@@ -1,4 +1,4 @@
-// app/accountant/team/page.tsx
+
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import CabinetTeamPermissionsClient from "./CabinetTeamPermissionsClient";
@@ -20,7 +20,6 @@ export default async function TeamPage() {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // Cabinet actif (workspace)
   const { data: ws } = await supabase
     .from("user_workspace")
     .select("active_group_id")
@@ -30,21 +29,18 @@ export default async function TeamPage() {
   const cabinetId = ws?.active_group_id ?? null;
   if (!cabinetId) redirect("/switch");
 
-  // ✅ Cabinet name (required by CabinetTeamPermissionsClient)
   const { data: cabinet } = await supabase
     .from("groups")
     .select("id, group_name, group_type")
     .eq("id", cabinetId)
     .maybeSingle();
 
-  // Si ce n’est pas un cabinet -> switch
   if (!cabinet?.id || String(cabinet.group_type ?? "") !== "cabinet") {
     redirect("/switch");
   }
 
   const cabinetName = String(cabinet.group_name ?? "Cabinet");
 
-  // Mon rôle
   const { data: me } = await supabase
     .from("group_members")
     .select("role")
@@ -52,7 +48,6 @@ export default async function TeamPage() {
     .eq("user_id", auth.user.id)
     .maybeSingle();
 
-  // Membres du cabinet
   const { data: rawMembers } = await supabase
     .from("group_members")
     .select(
@@ -69,7 +64,6 @@ export default async function TeamPage() {
     )
     .eq("group_id", cabinetId);
 
-  // ✅ FIX: Supabase peut renvoyer app_users comme ARRAY => on force un OBJET
   const members: MemberRow[] = (rawMembers ?? []).map((m: any) => ({
     user_id: String(m.user_id),
     role: (m.role ?? null) as any,
@@ -78,8 +72,6 @@ export default async function TeamPage() {
     app_users: Array.isArray(m.app_users) ? (m.app_users[0] ?? null) : (m.app_users ?? null),
   }));
 
-  // Sociétés liées (cabinet)
-  // (On garde votre logique actuelle — si votre projet utilise un autre nom de table, dites-moi et je l’aligne)
   const { data: rawLinks } = await supabase
     .from("group_company_links")
     .select(
@@ -100,7 +92,6 @@ export default async function TeamPage() {
     .map((c: any) => c?.companies ?? null)
     .filter(Boolean);
 
-  // Permissions
   const { data: permissions } = await supabase
     .from("accountant_company_assignments")
     .select("*")

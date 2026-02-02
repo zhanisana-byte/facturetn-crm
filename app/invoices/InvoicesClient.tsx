@@ -15,11 +15,10 @@ type InvoiceRow = {
   issue_date: string | null;
   invoice_number: string | null;
 
-  // “Renommer”
   unique_reference: string | null;
 
-  document_type: string | null; // facture | devis | avoir
-  invoice_mode: string | null; // normal | permanente
+  document_type: string | null; 
+  invoice_mode: string | null; 
 
   subtotal_ht: number | null;
   total_vat: number | null;
@@ -74,7 +73,7 @@ export default function InvoicesClient({
     setLoading(true);
     setErr(null);
     try {
-      // Invoices
+      
       const { data: inv, error: invErr } = await supabase
         .from("invoices")
         .select(
@@ -88,7 +87,6 @@ export default function InvoicesClient({
       const invoices = (inv ?? []) as InvoiceRow[];
       setRows(invoices);
 
-      // Users map
       const ids = Array.from(new Set(invoices.map((x) => x.created_by_user_id).filter(Boolean))) as string[];
       if (!ids.length) {
         setUsersMap(new Map());
@@ -114,7 +112,7 @@ export default function InvoicesClient({
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, []);
 
   const companyName = useMemo(() => new Map(companies.map((c) => [c.id, c.name])), [companies]);
@@ -123,7 +121,7 @@ export default function InvoicesClient({
     const set = new Set<string>();
     for (const r of rows) {
       const d = (r.issue_date || "").slice(0, 10);
-      if (d.length === 10) set.add(d.slice(0, 7)); // YYYY-MM
+      if (d.length === 10) set.add(d.slice(0, 7)); 
     }
     return Array.from(set).sort().reverse();
   }, [rows]);

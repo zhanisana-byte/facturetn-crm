@@ -57,7 +57,6 @@ export default function CompanyPermissionsPicker({
     return out;
   }, [effectiveSelectedIds, perms]);
 
-  // ✅ On envoie au server via inputs hidden
   const hiddenSelected = JSON.stringify(effectiveSelectedIds);
   const hiddenPerms = JSON.stringify(effectivePerms);
 

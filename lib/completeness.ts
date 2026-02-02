@@ -3,8 +3,6 @@ export type Completeness = {
   missing: string[];
 };
 
-// Identité société minimale pour être "TEIF/TTN ready".
-// (On garde volontairement cette liste courte mais structurée.)
 export function companyCompleteness(company: {
   company_name?: string | null;
   tax_id?: string | null;
@@ -27,13 +25,6 @@ export function companyCompleteness(company: {
   return { ok: missing.length === 0, missing };
 }
 
-/**
- * TTN — complétude selon le mode + type de connexion
- * - ttn_mode = 'direct_ttn_tokens' => ttn_key_name / ttn_public_key / ttn_secret
- * - sinon (provider_facturetn) :
- *    - connection_type = 'webservice' => ws_url/ws_login/ws_password/ws_matricule
- *    - connection_type = 'sftp'      => public_ip + token_pack_ref (souvent requis)
- */
 export function ttnCompleteness(ttn: any): Completeness {
   const missing: string[] = [];
 

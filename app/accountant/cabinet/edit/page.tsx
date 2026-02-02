@@ -19,7 +19,6 @@ async function saveCabinet(formData: FormData) {
   const ctx = await resolveCabinetContext(supabase, auth.user.id);
   requireCabinet(ctx);
 
-  // Authz : owner/admin
   const { data: me } = await supabase
     .from("group_members")
     .select("role,is_active")

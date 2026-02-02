@@ -26,7 +26,7 @@ async function logTest(
       message: payload.message ?? null,
     });
   } catch {
-    // ignore
+    
   }
 }
 
@@ -98,7 +98,6 @@ export async function POST(_req: Request, ctx: Ctx) {
     if (!(company.address || company.city)) missing.push("company_address_or_city");
   }
 
-  // onboarding required (minimum recommended)
   if (!(cred as any).public_ip) missing.push("public_ip");
   if (!(cred as any).cert_serial_number) missing.push("cert_serial_number");
   if (!(cred as any).cert_email) missing.push("cert_email");

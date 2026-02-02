@@ -1,10 +1,6 @@
 import type { SidebarItem } from "./types";
 import type { AccountType } from "@/app/types";
 
-/* =====================================================
- * TYPES EXPORTÉS (utilisés par useShellState)
- * ===================================================== */
-
 export type ActivePage =
   | { type: "profile"; id?: string }
   | { type: "invoices"; id?: string }
@@ -32,10 +28,6 @@ export type PageType =
   | "group"
   | "switch";
 
-/* =====================================================
- * SIDEBAR CONFIG
- * ===================================================== */
-
 export function getSidebarItems({
   accountType,
   pathname,
@@ -49,9 +41,7 @@ export function getSidebarItems({
   activeGroupId?: string | null;
   isPdg?: boolean;
 }): SidebarItem[] {
-  /* =====================================================
-   * PDG – SUPER ADMIN
-   * ===================================================== */
+  
   if (isPdg) {
     return [
       { kind: "title", key: "pdg", label: "PDG" },
@@ -69,9 +59,6 @@ export function getSidebarItems({
     ];
   }
 
-  /* =====================================================
-   * PROFIL
-   * ===================================================== */
   if (accountType === "profil") {
     return [
       { kind: "title", key: "p", label: "Profil" },
@@ -90,9 +77,6 @@ export function getSidebarItems({
     ];
   }
 
-  /* =====================================================
-   * CABINET / COMPTABLE
-   * ===================================================== */
   if (accountType === "comptable") {
     return [
       { kind: "title", key: "c", label: "Cabinet" },
@@ -123,9 +107,6 @@ export function getSidebarItems({
     ];
   }
 
-/* =====================================================
-   * SOCIÉTÉ
-   * ===================================================== */
   if (accountType === "entreprise" && activeCompanyId) {
     const base = `/companies/${activeCompanyId}`;
 
@@ -134,7 +115,6 @@ export function getSidebarItems({
 
       { kind: "link", key: "s_dash", label: "Dashboard", href: base, icon: "dashboard" },
 
-      // ⚠️ vous utilises déjà /companies/edit/[id] dans votre projet
       { kind: "link", key: "s_profile", label: "Ma société", href: `/companies/edit/${activeCompanyId}`, icon: "company" },
 
       { kind: "link", key: "s_ttn", label: "Paramètres TTN", href: `${base}/ttn`, icon: "ttn" },
@@ -148,9 +128,6 @@ export function getSidebarItems({
     ];
   }
 
-  /* =====================================================
-   * GROUPE
-   * ===================================================== */
   if (accountType === "multi_societe" && activeGroupId) {
     const base = `/groups/${activeGroupId}`;
 
@@ -175,8 +152,6 @@ export function getSidebarItems({
       { kind: "link", key: "g_switch", label: "Switch", href: "/switch", icon: "switch" },
     ];
   }
-/* =====================================================
-   * FALLBACK
-   * ===================================================== */
+
   return [{ kind: "link", key: "fallback_switch", label: "Switch", href: "/switch", icon: "switch" }];
 }

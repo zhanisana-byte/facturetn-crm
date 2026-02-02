@@ -8,7 +8,7 @@ type ShellState = {
   accountType: AccountType;
   activePage: ActivePage;
   activeCompanyId: string | null;
-  activeGroupId: string | null; // ✅ AJOUT
+  activeGroupId: string | null; 
 };
 
 const KEY = "ftn_shell_state_v1";
@@ -25,43 +25,37 @@ function safeParse<T>(raw: string | null): T | null {
 export function useShellState(input: {
   accountType: AccountType;
   activeCompanyId?: string | null;
-  activeGroupId?: string | null; // ✅ AJOUT
+  activeGroupId?: string | null; 
 }) {
   const [state, setState] = useState<ShellState>(() => ({
     accountType: input.accountType,
     activePage: null,
     activeCompanyId: input.activeCompanyId ?? null,
-    activeGroupId: input.activeGroupId ?? null, // ✅ AJOUT
+    activeGroupId: input.activeGroupId ?? null, 
   }));
 
-  // ✅ Restore from sessionStorage
   useEffect(() => {
     const stored = safeParse<Partial<ShellState>>(sessionStorage.getItem(KEY));
 
-    // si rien stocké -> on initialise
     if (!stored) {
       sessionStorage.setItem(KEY, JSON.stringify(state));
       return;
     }
 
-    // accountType from server is source of truth
     const merged: ShellState = {
       accountType: input.accountType,
 
-      // activePage peut être null ou stocké
       activePage: (stored.activePage ?? null) as ActivePage,
 
-      // company/group: priorité à l'input serveur si fourni
       activeCompanyId: (input.activeCompanyId ?? stored.activeCompanyId ?? null) as string | null,
       activeGroupId: (input.activeGroupId ?? stored.activeGroupId ?? null) as string | null,
     };
 
     setState(merged);
     sessionStorage.setItem(KEY, JSON.stringify(merged));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [input.accountType, input.activeCompanyId, input.activeGroupId]);
 
-  // ✅ Persist on change
   useEffect(() => {
     sessionStorage.setItem(KEY, JSON.stringify(state));
   }, [state]);

@@ -54,7 +54,7 @@ export default function RecapClient({
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(r);
     }
-    // tri interne
+    
     for (const [k, v] of map.entries()) {
       v.sort((a, b) => (a.full_name || a.email).localeCompare(b.full_name || b.email));
       map.set(k, v);
@@ -64,7 +64,7 @@ export default function RecapClient({
 
   return (
     <div className="space-y-6">
-      {/* Mes pages */}
+      {}
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="font-semibold mb-2">Mes pages</div>
 
@@ -83,7 +83,7 @@ export default function RecapClient({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {/* adapte le lien vers votre page détail si besoin */}
+                  {}
                   <Link className="ftn-btn-ghost" href={`/companies/${p.id}`}>
                     Ouvrir
                   </Link>
@@ -96,7 +96,7 @@ export default function RecapClient({
         )}
       </div>
 
-      {/* Mes équipes */}
+      {}
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="flex items-center justify-between gap-2 mb-3">
           <div>

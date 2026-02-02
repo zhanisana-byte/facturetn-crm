@@ -26,7 +26,6 @@ export async function POST(req: Request) {
   if (!invited_email || !invited_email.includes("@")) return NextResponse.json({ error: "Email invalide" }, { status: 400 });
   if (!["owner", "admin"].includes(role)) return NextResponse.json({ error: "Rôle invalide" }, { status: 400 });
 
-  // vérifier que c'est bien un cabinet
   const { data: g, error: gErr } = await supabase
     .from("groups")
     .select("id, group_type, owner_user_id")
@@ -39,7 +38,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Cabinet introuvable." }, { status: 404 });
   }
 
-  // permission: owner/admin du cabinet
   const isOwner = g.owner_user_id === auth.user.id;
   if (!isOwner) {
     const { data: gm, error: gmErr } = await supabase
@@ -57,7 +55,6 @@ export async function POST(req: Request) {
     }
   }
 
-  // invited_user_id (optionnel)
   const { data: invitedUser, error: invitedErr } = await supabase
     .from("app_users")
     .select("id")
@@ -65,7 +62,7 @@ export async function POST(req: Request) {
     .maybeSingle();
 
   if (invitedErr) {
-    // pas bloquant: on continue quand même sans invited_user_id
+    
   }
 
   const { data, error } = await supabase
@@ -85,12 +82,10 @@ export async function POST(req: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  // ✅ Guard TS (corrige votre build)
   if (!data?.token) {
     return NextResponse.json({ error: "INVITE_CREATE_FAILED" }, { status: 500 });
   }
 
-  // Base URL propre (utilise votre helper si possible)
   const originFromReq = (() => {
     try {
       return new URL((req as any).url).origin;
@@ -103,12 +98,11 @@ export async function POST(req: Request) {
     (typeof getPublicBaseUrl === "function" ? getPublicBaseUrl() : "") ||
     (process.env.NEXT_PUBLIC_SITE_URL || originFromReq || "").trim();
 
-  if (base && !/^https?:\/\//i.test(base)) base = `https://${base}`;
+  if (base && !/^https?:\/\
   base = base.replace(/\/+$/, "");
 
   const inviteLink = `${base}/accountant/invitations?token=${encodeURIComponent(data.token)}`;
 
-  // Envoi email (Resend) - best effort
   try {
     await sendEmailResend({
       to: invited_email,
@@ -125,7 +119,7 @@ export async function POST(req: Request) {
       `,
     });
   } catch {
-    // ignore
+    
   }
 
   return NextResponse.json({ ok: true, inviteLink });

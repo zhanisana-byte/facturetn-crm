@@ -16,7 +16,7 @@ type Member = {
 function roleLabel(m: Member) {
   if (m.role === "owner") return "Owner";
   if (m.role === "accountant") return "Comptable";
-  if (m.role === "staff") return "Admin"; // UI label (DB = staff)
+  if (m.role === "staff") return "Admin"; 
   return "Viewer";
 }
 
@@ -96,15 +96,14 @@ export default function DroitsSocieteClient({
 
   function promoteAdmin(id: string, v: boolean) {
     if (!v) return;
-    // Admin = staff (UI) — on ne force PAS toutes les permissions.
-    // Les permissions sont gérées séparément via délégation.
+
     setMember(id, { role: "staff" } as any);
   }
 
   function isDelegationOnly(m: Member) {
     const hasOps =
       !!m.can_manage_customers || !!m.can_create_invoices || !!m.can_validate_invoices || !!m.can_submit_ttn;
-    // Heuristique: si viewer + permissions => "Délégation" (sans gestion)
+    
     return String(m.role || "") === "viewer" && hasOps;
   }
 
@@ -222,7 +221,7 @@ export default function DroitsSocieteClient({
                     </div>
                   </div>
 
-                  {/* Permissions (opérations) */}
+                  {}
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
                     <span className="text-slate-600">Mode:</span>
                     <select

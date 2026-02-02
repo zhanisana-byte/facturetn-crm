@@ -48,7 +48,7 @@ export default function DigiGoSignatureClient({
   }, [identity]);
 
   const status = useMemo(() => {
-    if (configured) return { label: "Enregistré ✅", kind: "ok" as const };
+    if (configured) return { label: "Enregistré ", kind: "ok" as const };
     return { label: "Non configuré", kind: "neutral" as const };
   }, [configured]);
 
@@ -79,7 +79,6 @@ export default function DigiGoSignatureClient({
         return;
       }
 
-      // ✅ Marquer "DigiGO configuré" (sans imposer le provider ici)
       const currentCfg = (initial?.signature_config && typeof initial.signature_config === "object") ? initial.signature_config : {};
       const mergedCfg = { ...currentCfg, digigo_configured: true };
 
@@ -99,7 +98,7 @@ export default function DigiGoSignatureClient({
         return;
       }
 
-      setMsg({ ok: true, text: "DigiGO enregistré avec succès ✅" });
+      setMsg({ ok: true, text: "DigiGO enregistré avec succès " });
       location.reload();
     } catch (e: any) {
       setMsg({ ok: false, text: e?.message || "Erreur réseau." });

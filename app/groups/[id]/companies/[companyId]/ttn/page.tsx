@@ -13,7 +13,6 @@ export default async function GroupCompanyTTNRedirect({ params }: Props) {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // optional: ensure linked
   const { data: link } = await supabase
     .from("group_companies")
     .select("id")

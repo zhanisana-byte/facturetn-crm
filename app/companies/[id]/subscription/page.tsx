@@ -1,4 +1,4 @@
-// app/companies/[id]/subscription/page.tsx
+
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
@@ -28,7 +28,7 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24;
 function startOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
-// Jours calendaires (sans "~", plus stable)
+
 function diffCalendarDays(from: Date, to: Date) {
   const a = startOfDay(from).getTime();
   const b = startOfDay(to).getTime();
@@ -66,7 +66,6 @@ export default async function CompanySubscriptionPage(props: { params?: Promise<
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // Company
   const { data: company } = await supabase
     .from("companies")
     .select("id, company_name, tax_id")
@@ -75,7 +74,6 @@ export default async function CompanySubscriptionPage(props: { params?: Promise<
 
   if (!company?.id) redirect("/switch");
 
-  // AuthZ: owner/admin actif via memberships
   const { data: myMembership } = await supabase
     .from("memberships")
     .select("role,is_active")
@@ -87,14 +85,12 @@ export default async function CompanySubscriptionPage(props: { params?: Promise<
     myMembership?.is_active && (myMembership.role === "owner" || myMembership.role === "admin")
   );
 
-  // ✅ Modèle: 1 mois gratuit, puis paiement mensuel
   const createdAt = auth.user.created_at ? new Date(auth.user.created_at) : new Date();
   const trialEndsAt = addMonths(createdAt, 1);
   const now = new Date();
   const trialActive = now < trialEndsAt;
   const daysLeft = diffCalendarDays(now, trialEndsAt);
 
-  // Best-effort status (ne casse pas si table absente)
   let subscriptionStatus: SubStatus = trialActive ? "trialing" : "inactive";
   try {
     const { data: sub } = await supabase
@@ -105,7 +101,7 @@ export default async function CompanySubscriptionPage(props: { params?: Promise<
 
     if (sub?.status) subscriptionStatus = String(sub.status) as SubStatus;
   } catch {
-    // ignore
+    
   }
 
   const pricePerMonth = 50;
@@ -123,13 +119,13 @@ export default async function CompanySubscriptionPage(props: { params?: Promise<
           </div>
 
           {subscriptionStatus === "active" ? (
-            <Pill tone="success">✅ Actif</Pill>
+            <Pill tone="success"> Actif</Pill>
           ) : subscriptionStatus === "trialing" ? (
-            <Pill tone="gold">🎁 Essai</Pill>
+            <Pill tone="gold"> Essai</Pill>
           ) : subscriptionStatus === "past_due" ? (
-            <Pill tone="warning">⏳ Paiement en retard</Pill>
+            <Pill tone="warning"> Paiement en retard</Pill>
           ) : subscriptionStatus === "canceled" ? (
-            <Pill tone="warning">⛔ Annulé</Pill>
+            <Pill tone="warning"> Annulé</Pill>
           ) : (
             <Pill>Inactif</Pill>
           )}

@@ -1,4 +1,4 @@
-// lib/email/sendEmail.ts
+
 export type EmailAttachment = {
   filename: string;
   content: Uint8Array | Buffer;
@@ -26,10 +26,6 @@ function toBase64(content: Uint8Array | Buffer) {
   return buf.toString("base64");
 }
 
-/**
- * Envoi d'email via Resend API (sans SDK)
- * → Compatible Vercel / Serverless
- */
 export async function sendEmailResend(input: SendEmailInput) {
   const apiKey = requireEnv("RESEND_API_KEY");
   const fromDefault = requireEnv("RESEND_FROM");

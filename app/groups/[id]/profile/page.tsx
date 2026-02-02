@@ -27,7 +27,6 @@ export default async function GroupProfilePage({ params, searchParams }: PagePro
   const user = s.session?.user;
   if (!user) redirect("/login");
 
-  // Stabiliser le contexte: workspace Groupe (sidebar fixe)
   const ws = await ensureWorkspaceRow(supabase, user.id);
   if (ws?.active_mode !== "multi_societe" || ws?.active_group_id !== id) {
     try {
@@ -42,7 +41,7 @@ export default async function GroupProfilePage({ params, searchParams }: PagePro
         { onConflict: "user_id" }
       );
     } catch {
-      // ignore
+      
     }
   }
 
@@ -58,7 +57,6 @@ export default async function GroupProfilePage({ params, searchParams }: PagePro
     return <div className="ftn-alert">Groupe introuvable.</div>;
   }
 
-  // Authz : owner ou admin
   const isOwner = group.owner_user_id === user.id;
   let myRole: string | null = isOwner ? "owner" : null;
   if (!isOwner) {
@@ -81,7 +79,6 @@ export default async function GroupProfilePage({ params, searchParams }: PagePro
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) redirect("/login");
 
-    // Authz re-check
     const { data: g } = await supabase
       .from("groups")
       .select("id,owner_user_id")

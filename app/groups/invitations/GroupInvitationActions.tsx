@@ -26,7 +26,7 @@ export default function GroupInvitationActions({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
       });
-      // best-effort: read error
+      
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         alert(j?.error || "Erreur.");

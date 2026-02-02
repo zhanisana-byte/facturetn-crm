@@ -32,7 +32,6 @@ export async function POST(req: Request) {
 
   if (invErr || !inv) return NextResponse.json({ error: "Invitation introuvable." }, { status: 404 });
 
-  // vérifier email
   const { data: profile } = await supabase
     .from("app_users")
     .select("email")
@@ -62,7 +61,6 @@ export async function POST(req: Request) {
 
   if (updInv) return NextResponse.json({ error: updInv.message }, { status: 400 });
 
-  // ✅ créer membership via service role
   const svc = createServiceClient();
 
   const obj = safeParseObjective(inv.objective ?? null);
@@ -91,8 +89,6 @@ export async function POST(req: Request) {
     );
 
   if (gmErr) return NextResponse.json({ error: gmErr.message }, { status: 400 });
-
-  // ✅ visibilité entités: si admin/owner -> le groupe apparaîtra via switch/workspace (pas besoin de copier sociétés)
 
   return NextResponse.json({ ok: true, group_id: inv.group_id });
 }

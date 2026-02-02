@@ -15,7 +15,7 @@ export default function ModeEnvoiManualClient({ company, initial }: { company: C
   const environment = "production" as const;
 
   const configured = useMemo(() => String(initial?.send_mode ?? "") === "manual", [initial]);
-  const status = configured ? { label: "Activé ✅", kind: "ok" as const } : { label: "Non activé", kind: "neutral" as const };
+  const status = configured ? { label: "Activé ", kind: "ok" as const } : { label: "Non activé", kind: "neutral" as const };
 
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -46,7 +46,7 @@ export default function ModeEnvoiManualClient({ company, initial }: { company: C
         return;
       }
 
-      setMsg({ ok: true, text: "Déclaration manuelle activée ✅" });
+      setMsg({ ok: true, text: "Déclaration manuelle activée " });
       location.reload();
     } catch (e: any) {
       setMsg({ ok: false, text: e?.message || "Erreur réseau." });

@@ -56,14 +56,12 @@ export default async function AccountantDashboardPage() {
   const ctx = await resolveCabinetContext(supabase, userId);
   requireCabinet(ctx);
 
-  // Cabinet info
   const { data: cabinet } = await supabase
     .from("groups")
     .select("id, group_name, subscription_status, trial_ends_at, subscription_ends_at")
     .eq("id", ctx.cabinetGroupId)
     .maybeSingle();
 
-  // Sociétés liées au cabinet
   const { data: links } = await supabase
     .from("group_companies")
     .select("company_id, link_type, created_at, companies(id,company_name,tax_id)")
@@ -72,7 +70,6 @@ export default async function AccountantDashboardPage() {
 
   const companyIds = (links ?? []).map((x: any) => String(x?.company_id)).slice(0, 500);
 
-  // Fin d’abonnement des sociétés (alerte)
   const nowIso = new Date().toISOString();
   const subMap = new Map<string, { endsAt: string | null; daysLeft: number | null }>();
 
@@ -117,7 +114,7 @@ export default async function AccountantDashboardPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl p-6 space-y-4">
-      {/* Header */}
+      {}
       <div className="rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div>
@@ -154,7 +151,7 @@ export default async function AccountantDashboardPage() {
         </div>
       </div>
 
-      {/* Alerte abonnements sociétés */}
+      {}
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 md:col-span-2">
           <div className="text-sm font-semibold text-slate-900">Sociétés liées</div>

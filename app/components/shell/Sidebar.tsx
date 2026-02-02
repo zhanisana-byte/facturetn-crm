@@ -203,7 +203,7 @@ export default function Sidebar({
 
   return (
     <>
-      {/* Overlay mobile */}
+      {}
       {mobileOpen ? (
         <button className="ftn-overlay" aria-label="Fermer le menu" onClick={onCloseMobile} />
       ) : null}
@@ -217,7 +217,7 @@ export default function Sidebar({
           </div>
         </div>
 
-        {/* NAV premium */}
+        {}
         <nav className="ftn-nav">
           {items.map((it) => {
             if (it.kind === "divider") return <div key={it.key} className="my-3 h-px bg-white/10" />;

@@ -25,7 +25,6 @@ export default async function GroupInvitationsPage({ params }: Props) {
 
   const isOwner = group.owner_user_id === userId;
 
-  // owner/admin seulement
   if (!isOwner) {
     const { data: gm } = await supabase
       .from("group_members")

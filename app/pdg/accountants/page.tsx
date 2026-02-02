@@ -30,7 +30,7 @@ export default async function PdgAccountantsPage() {
     .select(
       "id,email,full_name,created_at,accountant_status,accountant_free_access,accountant_verified_at"
     )
-    // Compat: ancien label = "comptable", nouveau = "cabinet"
+    
     .in("account_type", ["cabinet", "comptable"])
     .order("created_at", { ascending: false })
     .limit(300);
@@ -120,7 +120,7 @@ export default async function PdgAccountantsPage() {
               <td>{u.email}</td>
               <td>{u.full_name || "—"}</td>
               <td className="capitalize">{u.accountant_status || "—"}</td>
-              <td>{u.accountant_free_access ? "✅" : "—"}</td>
+              <td>{u.accountant_free_access ? "" : "—"}</td>
               <td>{fmtDate(u.accountant_verified_at)}</td>
               <td>{fmtDate(u.created_at)}</td>
               <td>

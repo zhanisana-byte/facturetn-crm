@@ -20,7 +20,7 @@ type Row = {
   can_create_invoices?: boolean | null;
   can_validate_invoices?: boolean | null;
   can_submit_ttn?: boolean | null;
-  companies?: CompanyRow[] | null; // ✅ tableau
+  companies?: CompanyRow[] | null; 
 };
 
 function Pill({ children }: { children: ReactNode }) {
@@ -47,29 +47,23 @@ export default async function ProfileClientsPage() {
   const { data: memberships, error } = await supabase
     .from("memberships")
     .select(
-      // NOTE: ne pas faire de select imbriqué sur une relation TTN non-standard
-      // (ça a provoqué des erreurs type “stack depth limit exceeded” sur certains schémas).
-      // On Vérifiez l'existence TTN via une requête séparée sur company_ttn_settings.
+
       "company_id, role, can_manage_customers, can_create_invoices, can_validate_invoices, can_submit_ttn, companies(id, company_name, tax_id, owner_user_id)"
     )
     .eq("user_id", auth.user.id)
     .eq("is_active", true)
     .order("created_at", { ascending: false });
 
-  // ✅ Cast propre: unknown -> Row[]
   const rows = ((memberships ?? []) as unknown as Row[]).filter(
     (m) => (m?.companies?.length ?? 0) > 0
   );
 
-  // ✅ Owner ids depuis companies[0]
   const ownerIds = Array.from(
     new Set(rows.map((r) => r.companies?.[0]?.owner_user_id).filter(Boolean) as string[])
   );
 
-  // 3) Statut TTN: on récupère les company_id qui ont un enregistrement dans company_ttn_settings
   const companyIds = Array.from(new Set(rows.map((r) => r.company_id).filter(Boolean))) as string[];
 
-  // ⚡ Paralléliser owners + TTN (réduit fortement la latence)
   const [{ data: ownersData }, { data: ttnRows }] = await Promise.all([
     ownerIds.length
       ? supabase.from("app_users").select("id, full_name, email").in("id", ownerIds)
@@ -107,7 +101,7 @@ export default async function ProfileClientsPage() {
                 </thead>
                 <tbody>
                   {rows.map((m) => {
-                    const c = m.companies![0]; // ✅ 1 société liée par membership
+                    const c = m.companies![0]; 
                     const ownerId = c.owner_user_id ?? null;
                     const isMine = ownerId === auth.user.id;
                     const owner = ownerId ? owners.get(ownerId) : null;

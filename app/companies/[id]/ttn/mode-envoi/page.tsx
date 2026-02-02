@@ -29,7 +29,7 @@ export default async function ModeEnvoiChoosePage({ params }: Props) {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <a href={`/companies/${companyId}/ttn/mode-envoi/en-ligne`} className="rounded-2xl border p-5 hover:bg-slate-50 transition">
-          <div className="text-lg font-semibold">🚀 Envoi direct TTN (en ligne)</div>
+          <div className="text-lg font-semibold"> Envoi direct TTN (en ligne)</div>
           <div className="text-sm opacity-70 mt-2">
             Envoi automatique vers TTN via connexion Webservice (API). Requiert WS URL + Login + Password.
           </div>
@@ -37,7 +37,7 @@ export default async function ModeEnvoiChoosePage({ params }: Props) {
         </a>
 
         <a href={`/companies/${companyId}/ttn/mode-envoi/manuel`} className="rounded-2xl border p-5 hover:bg-slate-50 transition">
-          <div className="text-lg font-semibold">📝 Déclaration manuelle</div>
+          <div className="text-lg font-semibold"> Déclaration manuelle</div>
           <div className="text-sm opacity-70 mt-2">
             Aucun paramètre de connexion TTN requis. Vous exportez le TEIF (XML) et vous déposez manuellement sur TTN.
           </div>

@@ -12,7 +12,6 @@ export default async function CreateCompanyPage() {
   const user = s.session?.user;
   if (!user) redirect("/login");
 
-  // ✅ IMPORTANT: création société depuis Profil => sidebar Profil (pas “entreprise”)
   return (
     <AppShell title="Créer une société" subtitle="Espace Profil" accountType="profil">
       <div className="mx-auto w-full max-w-xl p-6">

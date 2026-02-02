@@ -29,7 +29,6 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // ✅ Factures visibles uniquement Profil Pro + Société
   const { data: profile } = await supabase
     .from("app_users")
     .select("account_type")
@@ -37,10 +36,9 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
     .maybeSingle();
 
   const t = mapDbAccountType(profile?.account_type);
-  // ✅ Le PROFIL est le seul qui facture
+  
   if (t !== "profil") redirect("/switch");
 
-  // ⚡ Charger facture + lignes en parallèle (réduit la latence)
   const [{ data: invoice, error: invErr }, { data: items }] = await Promise.all([
     supabase.from("invoices").select("*").eq("id", id).single(),
     supabase.from("invoice_items").select("*").eq("invoice_id", id).order("line_no", { ascending: true }),
@@ -85,13 +83,12 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
   const validatedAt = (invoice as any).accountant_validated_at || null;
   const validatedBy = (invoice as any).accountant_validated_by || null;
 
-  // Permissions (owner OR memberships.*)
   let canValidate = false;
   let canSubmitTTN = false;
   let canSubmitForValidation = false;
 
   if (companyId) {
-    // ⚡ Company owner + membership en parallèle
+    
     const [{ data: comp }, { data: mem }] = await Promise.all([
       supabase.from("companies").select("id,owner_user_id").eq("id", companyId).maybeSingle(),
       supabase
@@ -112,7 +109,6 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
     canSubmitTTN = isOwner || (isActive && (roleOwner || mem?.can_submit_ttn === true));
   }
 
-  // Display validated-by email
   let validatedByEmail: string | null = null;
   if (validatedBy) {
     const { data: vb } = await supabase
@@ -123,10 +119,8 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
     validatedByEmail = vb?.email ? String(vb.email) : null;
   }
 
-  // ✅ règle business : TTN seulement après validation si requise
   const canSendTTN = canSubmitTTN && (requireValidation ? !!validatedAt : true);
 
-  // Signature (TTN)
   let signatureProvider: string = "none";
   let signatureRequired = false;
   let invoiceSigned = false;
@@ -178,7 +172,7 @@ const subtotal = (invoice as any).subtotal_ht ?? 0;
 
   return (
     <div className="p-6 max-w-5xl space-y-5">
-      {/* Header */}
+      {}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold">Facture {invoiceNumber ? `• ${invoiceNumber}` : ""}</h1>
@@ -190,7 +184,7 @@ const subtotal = (invoice as any).subtotal_ht ?? 0;
             {requireValidation ? (
               validatedAt ? (
                 <Badge>
-                  Validée ✅{validatedByEmail ? ` • ${validatedByEmail}` : ""}
+                  Validée {validatedByEmail ? ` • ${validatedByEmail}` : ""}
                 </Badge>
               ) : (
                 <Badge>
@@ -213,7 +207,7 @@ const subtotal = (invoice as any).subtotal_ht ?? 0;
         </Link>
       </div>
 
-      {/* Lignes */}
+      {}
       <div className="rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold">Lignes</h2>
@@ -285,10 +279,10 @@ const subtotal = (invoice as any).subtotal_ht ?? 0;
         </div>
       </div>
 
-      {/* ✅ Actions (Client Component) */}
+      {}
       <InvoiceActions
         invoiceId={String((invoice as any).id)}
-        companyId={companyId} // ✅ IMPORTANT
+        companyId={companyId} 
         documentType={String((invoice as any).document_type || "facture")}
         canSendTTN={canSendTTN}
         canValidate={canValidate}

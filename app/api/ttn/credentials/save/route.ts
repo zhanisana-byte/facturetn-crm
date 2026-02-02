@@ -10,12 +10,11 @@ const hasKey = (obj: any, key: string) => obj && Object.prototype.hasOwnProperty
 
 export async function POST(req: Request) {
   try {
-    // ✅ client user (pour vérifier la session)
+    
     const supabaseUser = await createClient();
     const { data: auth } = await supabaseUser.auth.getUser();
     if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
-    // ✅ client admin (bypass RLS)
     const supabase = createAdminClient();
 
     const body = await req.json().catch(() => ({} as any));
@@ -25,7 +24,6 @@ export async function POST(req: Request) {
 
     const environment = (s(body.environment) === "production" ? "production" : "test") as "test" | "production";
 
-    // Lire existant
     const { data: existing, error: exErr } = await supabase
       .from("ttn_credentials")
       .select("*")
@@ -77,7 +75,6 @@ export async function POST(req: Request) {
     const final_ws_login = wsLoginProvided ? (s(body.ws_login) || null) : (existing?.ws_login ?? null);
     const final_ws_password = wsPasswordProvided ? (s(body.ws_password) || null) : (existing?.ws_password ?? null);
 
-    // ✅ règles : vérifier ws_* uniquement si on touche l’API
     const isTouchingApiConfig = sendModeProvided || connectionTypeProvided || anyWsProvided;
     if (isTouchingApiConfig && final_send_mode === "api" && final_connection_type === "webservice") {
       if (isBlank(final_ws_url) || isBlank(final_ws_login) || isBlank(final_ws_password)) {
@@ -92,7 +89,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // ✅ signature obligatoire : valider seulement si on touche signature/require_signature
     const isTouchingSignatureRules = requireSignatureProvided || signatureProviderProvided;
     if (isTouchingSignatureRules && final_send_mode === "api" && final_require_signature && final_signature_provider === "none") {
       return NextResponse.json(
@@ -101,7 +97,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // ws_matricule fallback tax_id
     let final_ws_matricule: string | null = hasKey(body, "ws_matricule") ? (s(body.ws_matricule) || null) : (existing?.ws_matricule ?? null);
     if (!final_ws_matricule) {
       const { data: c } = await supabase.from("companies").select("tax_id").eq("id", company_id).maybeSingle();

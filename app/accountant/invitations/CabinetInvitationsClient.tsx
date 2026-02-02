@@ -88,7 +88,6 @@ export default function CabinetInvitationsClient({ cabinetGroupId }: { cabinetGr
       return;
     }
 
-    // Invitations reçues par email (cabinet seulement)
     const { data } = await supabase
       .from("group_invitations")
       .select("id, group_id, invited_email, role, status, created_at, token, objective, groups(group_name,group_type)")
@@ -121,13 +120,13 @@ export default function CabinetInvitationsClient({ cabinetGroupId }: { cabinetGr
   useEffect(() => {
     loadSentForThisCabinet();
     loadMyEmailAndReceived();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [cabinetGroupId]);
 
   useEffect(() => {
-    // auto load token invitation from URL
+    
     loadTokenInvitation(tokenFromUrl);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [tokenFromUrl]);
 
   const pendingSent = useMemo(() => rows.filter((r) => r.status === "pending"), [rows]);
@@ -197,7 +196,7 @@ export default function CabinetInvitationsClient({ cabinetGroupId }: { cabinetGr
 
   return (
     <div className="space-y-4">
-      {/* 0) Carte Token depuis email */}
+      {}
       {showTokenBox ? (
         <div className="ftn-card p-4">
           <div className="font-semibold mb-2">Invitation (via lien email)</div>
@@ -241,7 +240,7 @@ export default function CabinetInvitationsClient({ cabinetGroupId }: { cabinetGr
         </div>
       ) : null}
 
-      {/* 1) Inviter */}
+      {}
       <div className="ftn-card p-4">
         <div className="font-semibold mb-2">Inviter un profil</div>
         <div className="text-xs opacity-70 mb-3">
@@ -251,7 +250,7 @@ export default function CabinetInvitationsClient({ cabinetGroupId }: { cabinetGr
         <CreateCabinetInvitationForm cabinetGroupId={cabinetGroupId} onCreated={loadSentForThisCabinet} />
       </div>
 
-      {/* 2) Invitations envoyées en attente */}
+      {}
       <div className="ftn-card p-4">
         <div className="font-semibold mb-2">Invitations envoyées — en attente ({pendingSent.length})</div>
         {loading ? (
@@ -278,7 +277,7 @@ export default function CabinetInvitationsClient({ cabinetGroupId }: { cabinetGr
         )}
       </div>
 
-      {/* 3) Invitations envoyées acceptées */}
+      {}
       <div className="ftn-card p-4">
         <div className="font-semibold mb-2">Invitations envoyées — acceptées ({acceptedSent.length})</div>
         {loading ? (
@@ -299,7 +298,7 @@ export default function CabinetInvitationsClient({ cabinetGroupId }: { cabinetGr
         )}
       </div>
 
-      {/* 4) Invitations reçues (pour l’email connecté) */}
+      {}
       <div className="ftn-card p-4">
         <div className="font-semibold mb-2">Invitations reçues ({received.length})</div>
 

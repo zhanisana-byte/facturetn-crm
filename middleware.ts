@@ -23,10 +23,8 @@ function isPublicAsset(pathname: string) {
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // 1) assets publics
   if (isPublicAsset(pathname)) return NextResponse.next();
 
-  // 2) routes auth + routes publiques
   const isAuthRoute =
     pathname.startsWith("/login") ||
     pathname.startsWith("/register") ||
@@ -43,7 +41,6 @@ export async function middleware(req: NextRequest) {
 
   const res = NextResponse.next();
 
-  // ✅ Supabase server client (edge) + cookies
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -61,11 +58,9 @@ export async function middleware(req: NextRequest) {
     }
   );
 
-  // 3) session
   const { data } = await supabase.auth.getSession();
   const session = data.session;
 
-  // connecté et va sur /login etc -> /switch
   if (session && isAuthRoute) {
     const url = req.nextUrl.clone();
     url.pathname = "/switch";
@@ -73,10 +68,8 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // routes publiques: OK
   if (isPublicRoute || isAuthRoute) return res;
 
-  // toutes les autres routes: session obligatoire
   if (!session) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
@@ -84,10 +77,8 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // /switch est toujours autorisé
   if (pathname === "/switch" || pathname.startsWith("/switch/")) return res;
 
-  // Déduire l'espace demandé via URL
   const area = pathname.startsWith("/companies")
     ? "companies"
     : pathname.startsWith("/groups")
@@ -98,17 +89,15 @@ export async function middleware(req: NextRequest) {
     ? "pdg"
     : "profil";
 
-  // 4) Lire account_type (avec cache cookie simple)
   const cachedUid = req.cookies.get("ftn_uid")?.value;
   const cachedType = req.cookies.get("ftn_account_type")?.value;
 
   let accountTypeRaw = "";
 
-  // cache
   if (cachedUid === session.user.id && cachedType) {
     accountTypeRaw = String(cachedType).toLowerCase().trim();
   } else {
-    // ⚠️ IMPORTANT : si RLS bloque app_users, on fallback en "profil"
+    
     try {
       const { data: profile, error } = await supabase
         .from("app_users")
@@ -117,7 +106,7 @@ export async function middleware(req: NextRequest) {
         .maybeSingle();
 
       if (error) {
-        // fallback robuste
+        
         accountTypeRaw = "profil";
       } else {
         accountTypeRaw = String(profile?.account_type ?? "").toLowerCase().trim();
@@ -148,7 +137,6 @@ export async function middleware(req: NextRequest) {
     });
   }
 
-  // normalisation legacy
   const accountType =
     accountTypeRaw === "cabinet"
       ? "comptable"
@@ -158,38 +146,32 @@ export async function middleware(req: NextRequest) {
       ? "entreprise"
       : accountTypeRaw;
 
-  // PROFIL : accès total (très important pour éviter blocage)
   if (accountType === "profil") return res;
 
-  // PDG only
   if (area === "pdg") {
     if (accountTypeRaw !== "pdg")
       return NextResponse.redirect(new URL("/switch", req.url));
     return res;
   }
 
-  // ENTREPRISE : uniquement /companies
   if (accountType === "entreprise") {
     if (area !== "companies")
       return NextResponse.redirect(new URL("/switch", req.url));
     return res;
   }
 
-  // GROUPE : uniquement /groups
   if (accountType === "multi_societe") {
     if (area !== "groups")
       return NextResponse.redirect(new URL("/switch", req.url));
     return res;
   }
 
-  // COMPTABLE : uniquement /accountant
   if (accountType === "comptable") {
     if (area !== "accountant")
       return NextResponse.redirect(new URL("/switch", req.url));
     return res;
   }
 
-  // fallback
   return NextResponse.redirect(new URL("/switch", req.url));
 }
 

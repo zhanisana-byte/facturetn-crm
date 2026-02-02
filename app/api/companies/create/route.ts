@@ -18,7 +18,6 @@ export async function POST(req: Request) {
     const company_name = String(body?.company_name ?? "").trim();
     const tax_id = String(body?.tax_id ?? "").trim() || null;
 
-    // ✅ Champs utiles pour XML TTN
     const address = String(body?.address ?? "").trim() || null;
     const email = String(body?.email ?? "").trim() || null;
     const phone = String(body?.phone ?? "").trim() || null;
@@ -70,8 +69,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: cErr.message }, { status: 400 });
     }
 
-    // ✅ IMPORTANT: créer le membership owner (pour permissions + page Récap)
-    // On tente, et si la table/colonnes n'existent pas dans une ancienne base, on ignore.
     try {
       await supabase.from("memberships").upsert(
         {
@@ -87,7 +84,7 @@ export async function POST(req: Request) {
         { onConflict: "company_id,user_id" } as any
       );
     } catch {
-      // ignore
+      
     }
 
     return NextResponse.json({ ok: true, company: comp }, { status: 200 });

@@ -1,4 +1,4 @@
-// app/api/invoices/[id]/xml/route.ts
+
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { canCompanyAction } from "@/lib/permissions/companyPerms";
@@ -19,13 +19,11 @@ export async function GET(
 
   const supabase = await createClient();
 
-  // Auth
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) {
     return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
   }
 
-  // Load invoice
   const { data: invoice, error: invErr } = await supabase
     .from("invoices")
     .select("*")
@@ -44,7 +42,6 @@ export async function GET(
     return NextResponse.json({ ok: false, error: "COMPANY_ID_MISSING" }, { status: 400 });
   }
 
-  // Permission: on exige "submit_ttn" (ou adapte si vous veux juste create_invoices)
   const allowed = await canCompanyAction(
     supabase,
     auth.user.id,
@@ -56,7 +53,6 @@ export async function GET(
     return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
   }
 
-  // Load items
   const { data: items, error: itemsErr } = await supabase
     .from("invoice_items")
     .select("*")
@@ -67,7 +63,6 @@ export async function GET(
     return NextResponse.json({ ok: false, error: itemsErr.message }, { status: 500 });
   }
 
-  // Load company (seller)
   const { data: sellerCompany, error: compErr } = await supabase
     .from("companies")
     .select("*")
@@ -81,7 +76,6 @@ export async function GET(
     );
   }
 
-  // Build TEIF XML (TeifBuildInput)
   const teifXml = buildCompactTeifXml({
     invoiceId: String((invoice as any).id),
     companyId: String((sellerCompany as any).id),
@@ -157,7 +151,6 @@ export async function GET(
     })),
   });
 
-  // ✅ Validate expects string XML
   const problems = validateTeifMinimum(teifXml);
   if (problems.length > 0) {
     return NextResponse.json(
@@ -166,7 +159,6 @@ export async function GET(
     );
   }
 
-  // Optional: enforce size
   const sized = enforceMaxSize(teifXml);
   const finalXml = sized.xml;
 

@@ -32,7 +32,6 @@ export async function POST(req: Request) {
 
   if (invErr || !inv) return NextResponse.json({ error: "Invitation introuvable." }, { status: 404 });
 
-  // vérifier email
   const { data: profile } = await supabase
     .from("app_users")
     .select("email")
@@ -62,7 +61,6 @@ export async function POST(req: Request) {
 
   if (updInv) return NextResponse.json({ error: updInv.message }, { status: 400 });
 
-  // service role -> créer membership
   const svc = createServiceClient();
 
   const obj = safeParseObjective(inv.objective ?? null);

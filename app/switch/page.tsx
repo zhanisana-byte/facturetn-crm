@@ -38,7 +38,6 @@ export default async function SwitchPage({
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  // 1) Récupérer les sociétés accessibles via memberships (actives)
   const { data: ms, error: msErr } = await supabase
     .from("memberships")
     .select("company_id, role, is_active, companies(id, company_name, tax_id)")
@@ -46,8 +45,7 @@ export default async function SwitchPage({
     .eq("is_active", true);
 
   if (msErr) {
-    // On affiche quand même la page, mais avec liste vide
-    // (évite écran blanc)
+
     console.error("Switch memberships error:", msErr.message);
   }
 
@@ -62,7 +60,6 @@ export default async function SwitchPage({
       }))
       .filter((x) => x.id) ?? [];
 
-  // 2) Récupérer les groupes/cabinets où l’utilisateur est membre
   const { data: gm, error: gmErr } = await supabase
     .from("group_members")
     .select("group_id, role, is_active, groups(id, group_name, group_type)")
@@ -87,7 +84,6 @@ export default async function SwitchPage({
       })
       .filter((x) => x.id) ?? [];
 
-  // 3) Unifier
   const spaces = [...companies, ...groups];
 
   return (

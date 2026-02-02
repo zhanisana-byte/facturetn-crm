@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 type Company = { id: string; company_name?: string | null };
 
 type Props = {
-  // optional: preselect company
+  
   defaultCompanyId?: string | null;
 };
 
@@ -38,7 +38,6 @@ export default function CreateInvitationForm({ defaultCompanyId = null }: Props)
       setLoading(true);
       setError(null);
 
-      // companies visible to the user via memberships
       const { data, error } = await supabase
         .from("memberships")
         .select("company_id, companies(id, company_name)")
@@ -75,7 +74,7 @@ export default function CreateInvitationForm({ defaultCompanyId = null }: Props)
     return () => {
       mounted = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, []);
 
   const canSend = useMemo(() => {
@@ -109,7 +108,7 @@ export default function CreateInvitationForm({ defaultCompanyId = null }: Props)
       }
 
       const link = json?.inviteLink ? String(json.inviteLink) : "";
-      setSuccess(link ? `Invitation créée ✅ Lien: ${link}` : "Invitation créée ✅");
+      setSuccess(link ? `Invitation créée  Lien: ${link}` : "Invitation créée ");
       setEmail("");
       setObjective("");
     } catch (e: any) {

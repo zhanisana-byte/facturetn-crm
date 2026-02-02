@@ -16,7 +16,7 @@ export default async function GroupsInvitationsPage() {
         <div className="ftn-card-glow" />
         <div className="ftn-card-head">
           <div className="ftn-card-titleRow">
-            <div className="ftn-ic">📨</div>
+            <div className="ftn-ic"></div>
             <div>
               <div className="ftn-card-title">Invitations groupe</div>
               <div className="ftn-card-sub">

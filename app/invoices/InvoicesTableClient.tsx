@@ -14,8 +14,8 @@ type InvoiceRow = {
   issue_date: string | null;
   total_ttc: number | null;
 
-  document_type: string | null; // facture | devis | avoir
-  invoice_mode: string | null;  // normal | permanente
+  document_type: string | null; 
+  invoice_mode: string | null;  
   status: string | null;
 
   created_by_user_id: string | null;
@@ -28,10 +28,10 @@ type AppUser = {
 };
 
 function pillLabel(type: string | null, mode: string | null) {
-  // Mode permanente => on affiche "Permanente"
+  
   if (mode === "permanente") return "Permanente";
   if (!type) return "—";
-  // type = facture|devis|avoir
+  
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
@@ -63,11 +63,10 @@ export default function InvoicesTableClient({
   const [rows, setRows] = useState<InvoiceRow[]>([]);
   const [usersMap, setUsersMap] = useState<Map<string, AppUser>>(new Map());
 
-  // ✅ Filtres (simples)
   const [companyId, setCompanyId] = useState<string>("all");
-  const [docType, setDocType] = useState<string>("all"); // facture|devis|avoir
-  const [createdBy, setCreatedBy] = useState<string>("all"); // user_id
-  const [q, setQ] = useState<string>(""); // invoice number search
+  const [docType, setDocType] = useState<string>("all"); 
+  const [createdBy, setCreatedBy] = useState<string>("all"); 
+  const [q, setQ] = useState<string>(""); 
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -107,7 +106,6 @@ export default function InvoicesTableClient({
 
     const companyIds = companies.map((c) => c.id);
 
-    // ✅ On charge TOUT par défaut (toutes les factures)
     let query = supabase!
       .from("invoices")
       .select(
@@ -117,7 +115,6 @@ export default function InvoicesTableClient({
       .order("created_at", { ascending: false })
       .limit(300);
 
-    // filtres server-side (rapides)
     if (companyId !== "all") query = query.eq("company_id", companyId);
     if (docType !== "all") query = query.eq("document_type", docType);
     if (createdBy !== "all") query = query.eq("created_by_user_id", createdBy);
@@ -136,7 +133,6 @@ export default function InvoicesTableClient({
       invoice_number: r.invoice_number ?? null,
     }));
 
-    // filtre client-side simple (recherche N°)
     const qq = q.trim().toLowerCase();
     if (qq) {
       list = list.filter((r) =>
@@ -144,7 +140,6 @@ export default function InvoicesTableClient({
       );
     }
 
-    // ✅ Charger les auteurs (app_users) en une seule requête
     const ids = Array.from(
       new Set(list.map((r) => r.created_by_user_id).filter(Boolean) as string[])
     );
@@ -189,15 +184,14 @@ export default function InvoicesTableClient({
     await load();
   }
 
-  // ✅ Load initial + reload sur filtres
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [companyId, docType, createdBy]);
 
   return (
     <div className="ftn-card">
-      {/* Header */}
+      {}
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -226,10 +220,10 @@ export default function InvoicesTableClient({
         ) : null}
         {err ? <div className="ftn-alert">{err}</div> : null}
 
-        {/* ✅ Filtrage UI propre (tableau/grille) */}
+        {}
         <div className="rounded-xl border bg-white/60 p-3">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-            {/* Société */}
+            {}
             <div className="md:col-span-3">
               <div className="text-xs text-slate-600 mb-1">Société</div>
               <select
@@ -246,7 +240,7 @@ export default function InvoicesTableClient({
               </select>
             </div>
 
-            {/* Type facture */}
+            {}
             <div className="md:col-span-3">
               <div className="text-xs text-slate-600 mb-1">Type de facture</div>
               <select
@@ -261,7 +255,7 @@ export default function InvoicesTableClient({
               </select>
             </div>
 
-            {/* Qui a créé */}
+            {}
             <div className="md:col-span-3">
               <div className="text-xs text-slate-600 mb-1">Créée par</div>
               <select
@@ -270,7 +264,7 @@ export default function InvoicesTableClient({
                 onChange={(e) => setCreatedBy(e.target.value)}
               >
                 <option value="all">Tous</option>
-                {/* options dynamiques depuis la liste actuelle */}
+                {}
                 {Array.from(usersMap.values())
                   .sort((a, b) => displayUser(a).localeCompare(displayUser(b)))
                   .map((u) => (
@@ -281,7 +275,7 @@ export default function InvoicesTableClient({
               </select>
             </div>
 
-            {/* Recherche */}
+            {}
             <div className="md:col-span-3">
               <div className="text-xs text-slate-600 mb-1">Recherche</div>
               <input
@@ -295,7 +289,7 @@ export default function InvoicesTableClient({
               />
             </div>
 
-            {/* Actions filtre */}
+            {}
             <div className="md:col-span-12 flex flex-wrap gap-2 justify-end">
               <button className="ftn-btn ftn-btn-ghost" type="button" onClick={() => load()}>
                 Appliquer
@@ -308,7 +302,7 @@ export default function InvoicesTableClient({
                   setDocType("all");
                   setCreatedBy("all");
                   setQ("");
-                  // reload après reset
+                  
                   setTimeout(() => load(), 0);
                 }}
               >
@@ -319,7 +313,7 @@ export default function InvoicesTableClient({
         </div>
       </div>
 
-      {/* Table */}
+      {}
       <div className="mt-4">
         {loading ? (
           <div className="ftn-muted">Chargement...</div>
