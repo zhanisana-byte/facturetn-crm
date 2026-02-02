@@ -15,9 +15,13 @@ type BuildTeifInvoiceXmlInput = {
     issueDate?: string;
     dueDate?: string;
     currency?: string;
+
     customerName?: string;
     customerTaxId?: string;
+    customerEmail?: string;
+    customerPhone?: string;
     customerAddress?: string;
+
     notes?: string;
   };
   totals: {
