@@ -98,8 +98,7 @@ export async function buildInvoicePdf(opts: {
 
   const metaYTop = height - margin - 28;
   const issueDate =
-    safe(invoice.issue_date).slice(0, 10) ||
-    new Date().toISOString().slice(0, 10);
+    safe(invoice.issue_date).slice(0, 10) || new Date().toISOString().slice(0, 10);
 
   const meta: [string, string][] = [
     ["N°", safe(invoice.invoice_no) || safe(invoice.id).slice(0, 8).toUpperCase()],
@@ -145,6 +144,7 @@ export async function buildInvoicePdf(opts: {
   });
 
   y -= 12;
+
   const cols = {
     desc: margin,
     qty: width - margin - 200,
@@ -226,4 +226,57 @@ export async function buildInvoicePdf(opts: {
   return await pdf.save();
 }
 
-export const invoicePdf = buildInvoicePdf;
+export async function invoicePdf(
+  a: { company: Company; invoice: Invoice; items: Item[] } | any,
+  b?: any
+): Promise<Uint8Array> {
+  if (a && typeof a === "object" && "company" in a && "invoice" in a && "items" in a && b == null) {
+    return buildInvoicePdf(a as { company: Company; invoice: Invoice; items: Item[] });
+  }
+
+  const inv = a || {};
+  const itemsRaw = Array.isArray(b) ? b : [];
+
+  const company: Company = {
+    company_name: safe(inv.seller_name || inv.company_name || inv.company || ""),
+    tax_id: safe(inv.seller_tax_id || inv.tax_id || inv.taxId || ""),
+    address: safe(inv.seller_address || inv.address || ""),
+    city: safe(inv.seller_city || inv.city || ""),
+    postal_code: safe(inv.seller_postal_code || inv.postal_code || ""),
+    country: safe(inv.seller_country || inv.country || "TN"),
+  };
+
+  const invoice: Invoice = {
+    id: safe(inv.id || inv.invoice_id || inv.invoiceId || ""),
+    invoice_no: safe(inv.invoice_no || inv.invoice_number || inv.number || ""),
+    issue_date: safe(inv.issue_date || inv.date || ""),
+    due_date: safe(inv.due_date || ""),
+    currency: safe(inv.currency || "TND"),
+    customer_name: safe(inv.customer_name || ""),
+    customer_tax_id: safe(inv.customer_tax_id || ""),
+    customer_address: safe(inv.customer_address || ""),
+    customer_email: safe(inv.customer_email || ""),
+    customer_phone: safe(inv.customer_phone || ""),
+    vat_amount: inv.vat_amount != null ? Number(inv.vat_amount) : 0,
+  };
+
+  const items: Item[] = itemsRaw.map((it: any) => {
+    const qty = Number(it.qty ?? it.quantity ?? 0);
+    const unit = Number(it.unit_price ?? it.unit_price_ht ?? 0);
+    const line =
+      it.line_total != null
+        ? Number(it.line_total)
+        : it.line_total_ht != null
+        ? Number(it.line_total_ht)
+        : qty * unit;
+
+    return {
+      description: safe(it.description || ""),
+      qty,
+      unit_price: unit,
+      line_total: line,
+    };
+  });
+
+  return buildInvoicePdf({ company, invoice, items });
+}
