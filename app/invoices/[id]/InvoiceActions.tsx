@@ -24,47 +24,58 @@ function nowLocalDefault() {
   return fmtDateTimeLocal(d.toISOString());
 }
 
+type Props = {
+  invoiceId: string;
+
+  invoiceSigned: boolean;
+  signatureRequired: boolean;
+
+  companyId?: string;
+  documentType?: string;
+
+  canSendTTN?: boolean;
+  canValidate?: boolean;
+  canSubmitForValidation?: boolean;
+
+  validationRequired?: boolean;
+  status?: string;
+
+  validatedAt?: string | null;
+
+  ttnStatus?: string;
+  ttnScheduledAt?: string | null;
+  ttnSendMode?: "api" | "manual";
+
+  signatureProvider?: string;
+  signaturePending?: boolean;
+
+  digigoTransactionId?: string;
+  digigoOtpId?: string;
+
+  viewedBeforeSignatureAt?: string | null;
+};
+
 export default function InvoiceActions({
   invoiceId,
   companyId,
-  documentType,
-  canSendTTN,
-  canValidate,
-  canSubmitForValidation,
-  validationRequired,
-  status,
-  validatedAt,
-  ttnStatus,
-  ttnScheduledAt,
-  ttnSendMode,
-  signatureProvider,
+  documentType = "facture",
+  canSendTTN = true,
+  canValidate = false,
+  canSubmitForValidation = false,
+  validationRequired = false,
+  status = "draft",
+  validatedAt = null,
+  ttnStatus = "not_sent",
+  ttnScheduledAt = null,
+  ttnSendMode = "manual",
+  signatureProvider = "digigo",
   signatureRequired,
   invoiceSigned,
-  signaturePending,
-  digigoTransactionId,
-  digigoOtpId,
-  viewedBeforeSignatureAt,
-}: {
-  invoiceId: string;
-  companyId?: string;
-  documentType: string;
-  canSendTTN: boolean;
-  canValidate: boolean;
-  canSubmitForValidation: boolean;
-  validationRequired: boolean;
-  status: string;
-  validatedAt: string | null;
-  ttnStatus: string;
-  ttnScheduledAt: string | null;
-  ttnSendMode: "api" | "manual";
-  signatureProvider: string;
-  signatureRequired: boolean;
-  invoiceSigned: boolean;
-  signaturePending: boolean;
-  digigoTransactionId: string;
-  digigoOtpId: string;
-  viewedBeforeSignatureAt: string | null;
-}) {
+  signaturePending = false,
+  digigoTransactionId = "",
+  digigoOtpId = "",
+  viewedBeforeSignatureAt = null,
+}: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -72,7 +83,10 @@ export default function InvoiceActions({
   const isDevis = useMemo(() => String(documentType).toLowerCase() === "devis", [documentType]);
   const isNotSent = useMemo(() => String(ttnStatus) === "not_sent", [ttnStatus]);
 
-  const needsValidation = useMemo(() => Boolean(validationRequired) && !validatedAt, [validationRequired, validatedAt]);
+  const needsValidation = useMemo(
+    () => Boolean(validationRequired) && !validatedAt,
+    [validationRequired, validatedAt]
+  );
 
   const signatureBlockReason = useMemo(() => {
     if (!signatureRequired) return null;
@@ -267,6 +281,12 @@ export default function InvoiceActions({
             {viewedBeforeSignatureAt ? ` — Vue: ${new Date(viewedBeforeSignatureAt).toLocaleString()}` : ""}
           </div>
         ) : null}
+
+        <div className="mt-3 text-xs text-slate-400">
+          {companyId ? `Company: ${companyId} — ` : ""}
+          {status ? `Status: ${status} — ` : ""}
+          {ttnSendMode ? `Mode: ${ttnSendMode}` : ""}
+        </div>
       </div>
     </div>
   );
