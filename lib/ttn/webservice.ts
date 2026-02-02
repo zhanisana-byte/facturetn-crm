@@ -1,5 +1,6 @@
 export type TTNWebserviceConfig = {
-  endpoint: string;
+  endpoint?: string;
+  url?: string;
   login: string;
   password: string;
   matricule: string;
@@ -20,6 +21,13 @@ function escXml(s: string) {
 function normalizeServiceNs(ns?: string) {
   const v = String(ns || "").trim();
   return v || "http://service.ws.einvoice.finances.gov.tn/";
+}
+
+function normalizeEndpoint(cfg: TTNWebserviceConfig) {
+  const a = String(cfg.endpoint || "").trim();
+  if (a) return a;
+  const b = String(cfg.url || "").trim();
+  return b;
 }
 
 export function buildSaveEfactEnvelope(cfg: TTNWebserviceConfig, xmlB64: string) {
@@ -71,9 +79,13 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
 }
 
 export async function ttnSaveEfact(cfg: TTNWebserviceConfig, xmlB64: string) {
+  const endpoint = normalizeEndpoint(cfg);
+  if (!endpoint) return { ok: false, status: 0, text: "Missing TTN endpoint" };
+
   const envelope = buildSaveEfactEnvelope(cfg, xmlB64);
+
   return fetchWithTimeout(
-    cfg.endpoint,
+    endpoint,
     {
       method: "POST",
       headers: {
@@ -87,9 +99,13 @@ export async function ttnSaveEfact(cfg: TTNWebserviceConfig, xmlB64: string) {
 }
 
 export async function ttnConsultEfact(cfg: TTNWebserviceConfig, uuid: string) {
+  const endpoint = normalizeEndpoint(cfg);
+  if (!endpoint) return { ok: false, status: 0, text: "Missing TTN endpoint" };
+
   const envelope = buildConsultEfactEnvelope(cfg, uuid);
+
   return fetchWithTimeout(
-    cfg.endpoint,
+    endpoint,
     {
       method: "POST",
       headers: {
