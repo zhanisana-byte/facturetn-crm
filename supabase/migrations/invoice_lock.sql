@@ -22,9 +22,31 @@ as $$
           (i.signature_status is not null and i.signature_status = 'signed')
           or i.signed_xml_path is not null
           or i.signed_pdf_path is not null
-          or (i.signature_provider is not null and i.signature_provider <> 'none')
         )
     );
+$$;
+
+create or replace function public.ftn_only_ttn_fields_changed()
+returns trigger
+language plpgsql
+as $$
+declare
+  allowed boolean;
+begin
+  allowed :=
+    new.ttn_status is not distinct from old.ttn_status
+    and new.ttn_reference is not distinct from old.ttn_reference
+    and new.ttn_last_error is not distinct from old.ttn_last_error
+    and new.ttn_scheduled_at is not distinct from old.ttn_scheduled_at
+    and new.ttn_submitted_at is not distinct from old.ttn_submitted_at
+    and new.ttn_validated_at is not distinct from old.ttn_validated_at
+    and new.ttn_save_id is not distinct from old.ttn_save_id
+    and new.ttn_generated_ref is not distinct from old.ttn_generated_ref
+    and new.ttn_signed is not distinct from old.ttn_signed
+    and new.ttn_submitted_by is not distinct from old.ttn_submitted_by;
+
+  return not allowed;
+end;
 $$;
 
 create or replace function public.ftn_block_mutation_if_invoice_signed()
@@ -45,6 +67,13 @@ begin
   end if;
 
   if public.ftn_invoice_is_signed(inv_id) then
+    if tg_table_name = 'invoices' and tg_op = 'UPDATE' then
+      if public.ftn_only_ttn_fields_changed() then
+        raise exception 'Invoice is signed and cannot be modified (TTN fields only).' using errcode = 'P0001';
+      end if;
+      return new;
+    end if;
+
     raise exception 'Invoice is signed and cannot be modified or deleted.' using errcode = 'P0001';
   end if;
 
