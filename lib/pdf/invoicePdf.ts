@@ -225,3 +225,5 @@ export async function buildInvoicePdf(opts: {
 
   return await pdf.save();
 }
+
+export const invoicePdf = buildInvoicePdf;
