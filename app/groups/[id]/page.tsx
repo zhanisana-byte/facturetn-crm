@@ -30,6 +30,10 @@ function toTime(d: string | null | undefined) {
   return Number.isFinite(t) ? t : null;
 }
 
+function isNumber(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
 export default async function GroupDetailPage({
   params,
   searchParams,
@@ -97,8 +101,8 @@ export default async function GroupDetailPage({
 
   const nextExpiryTs = all
     .map((l: any) => toTime(l.subscription_ends_at))
-    .filter((t: any) => typeof t === "number" && t >= now)
-    .sort((a: number, b: number) => a - b)[0] as number | undefined;
+    .filter((t): t is number => isNumber(t) && t >= now)
+    .sort((a, b) => a - b)[0];
 
   const nextExpiryLabel = nextExpiryTs ? new Date(nextExpiryTs).toLocaleDateString() : "—";
 
@@ -225,11 +229,7 @@ export default async function GroupDetailPage({
         ) : (
           <div className="mt-3 grid gap-2">
             {companies.map((c) => (
-              <div
-                key={c.id}
-                className="rounded-2xl border p-3"
-                style={{ borderColor: "rgba(148,163,184,.24)" }}
-              >
+              <div key={c.id} className="rounded-2xl border p-3" style={{ borderColor: "rgba(148,163,184,.24)" }}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="font-semibold">{c.name}</div>
