@@ -15,13 +15,23 @@ function s(v: unknown) {
 }
 
 async function getSignaturePolicy(supabase: any, companyId: string) {
-  const { data: cred } = await supabase
+  const { data: prod } = await supabase
     .from("ttn_credentials")
-    .select("signature_provider,require_signature")
+    .select("signature_provider,require_signature,environment")
     .eq("company_id", companyId)
     .eq("environment", "production")
     .maybeSingle();
 
+  const { data: test } = prod
+    ? { data: null }
+    : await supabase
+        .from("ttn_credentials")
+        .select("signature_provider,require_signature,environment")
+        .eq("company_id", companyId)
+        .eq("environment", "test")
+        .maybeSingle();
+
+  const cred = prod ?? test;
   const provider = String((cred as any)?.signature_provider ?? "none");
   const required = Boolean((cred as any)?.require_signature) || provider !== "none";
   return { required, provider };
@@ -36,10 +46,22 @@ async function hasSignedXml(supabase: any, invoiceId: string) {
   return sig?.signed_xml ? String(sig.signed_xml) : null;
 }
 
-async function requireValidationIfNeeded(supabase: any, invoice: any) {
+async function requireValidationIfNeeded(_supabase: any, invoice: any) {
   const need = Boolean(invoice?.require_accountant_validation);
   if (!need) return true;
   return Boolean(invoice?.accountant_validated_at);
+}
+
+async function writeTtnEvent(supabase: any, invoice: any, status: string, message: string, userId?: string) {
+  const companyId = String(invoice?.company_id || "");
+  await supabase.from("ttn_events").insert({
+    invoice_id: invoice?.id ?? null,
+    company_id: companyId || null,
+    status,
+    message: message.slice(0, 2000),
+    created_by: userId ?? null,
+    created_at: nowIso(),
+  });
 }
 
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -93,19 +115,29 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 
   if (itemsErr) return NextResponse.json({ ok: false, error: itemsErr.message }, { status: 500 });
 
-  const { data: ttn, error: ttnErr } = await supabase
-    .from("company_ttn_settings")
-    .select("ws_url, ws_login, ws_password, ttn_matricule")
+  const { data: credProd } = await supabase
+    .from("ttn_credentials")
+    .select("ws_url, ws_login, ws_password, ws_matricule, environment")
     .eq("company_id", companyId)
+    .eq("environment", "production")
     .maybeSingle();
 
-  if (ttnErr) return NextResponse.json({ ok: false, error: ttnErr.message }, { status: 500 });
+  const { data: credTest } = credProd
+    ? { data: null }
+    : await supabase
+        .from("ttn_credentials")
+        .select("ws_url, ws_login, ws_password, ws_matricule, environment")
+        .eq("company_id", companyId)
+        .eq("environment", "test")
+        .maybeSingle();
+
+  const cred = credProd ?? credTest;
 
   const cfg: TTNWebserviceConfig = {
-    url: s(ttn?.ws_url),
-    login: s(ttn?.ws_login),
-    password: s(ttn?.ws_password),
-    matricule: s(ttn?.ttn_matricule),
+    url: s((cred as any)?.ws_url),
+    login: s((cred as any)?.ws_login),
+    password: s((cred as any)?.ws_password),
+    matricule: s((cred as any)?.ws_matricule),
   };
 
   if (!cfg.url || !cfg.login || !cfg.password || !cfg.matricule) {
@@ -122,7 +154,9 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   const teifXml = buildCompactTeifXml({
     invoiceId: String((invoice as any).id),
     companyId: String((company as any).id),
-    documentType: String((invoice as any).document_type ?? ((invoice as any).invoice_type === "credit_note" ? "avoir" : "facture")),
+    documentType: String(
+      (invoice as any).document_type ?? ((invoice as any).invoice_type === "credit_note" ? "avoir" : "facture")
+    ),
     invoiceNumber: s((invoice as any).invoice_number ?? (invoice as any).number ?? (invoice as any).ref),
     issueDate: s((invoice as any).issue_date ?? (invoice as any).date ?? (invoice as any).created_at),
     dueDate: s((invoice as any).due_date),
@@ -163,13 +197,17 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 
   const problems = validateTeifMinimum(teifXml);
   if (problems.length > 0) {
-    await supabase
-      .from("invoices")
-      .update({
-        ttn_status: "rejected",
-        ttn_last_error: `TEIF_INVALID: ${problems.join(" | ")}`.slice(0, 4000),
-      })
-      .eq("id", id);
+    await writeTtnEvent(supabase, invoice, "failed", `TEIF_INVALID: ${problems.join(" | ")}`, auth.user.id);
+
+    try {
+      await supabase
+        .from("invoices")
+        .update({
+          ttn_status: "rejected",
+          ttn_last_error: `TEIF_INVALID: ${problems.join(" | ")}`.slice(0, 4000),
+        })
+        .eq("id", id);
+    } catch {}
 
     return NextResponse.json({ ok: false, error: "TEIF_INVALID", details: problems }, { status: 400 });
   }
@@ -187,30 +225,42 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   await supabase
-    .from("invoices")
-    .update({
-      ttn_status: "submitted",
-      ttn_last_error: null,
-      ttn_submitted_at: nowIso(),
-      ttn_scheduled_at: null,
-    })
-    .eq("id", id);
-
-  await supabase
     .from("ttn_invoice_queue")
     .update({ status: "canceled", canceled_at: nowIso(), last_error: null })
     .eq("invoice_id", id);
 
+  await writeTtnEvent(supabase, invoice, "pending", "TTN_SEND_STARTED", auth.user.id);
+
   try {
     const wsRes = await saveEfactSOAP(cfg, finalXml);
+
+    await writeTtnEvent(
+      supabase,
+      invoice,
+      wsRes.ok ? "sent" : "failed",
+      wsRes.ok ? "TTN_SEND_OK" : `TTN_SEND_HTTP_${wsRes.status}`,
+      auth.user.id
+    );
 
     const patch: any = {
       ttn_save_id: wsRes.idSaveEfact ?? null,
       ttn_last_error: wsRes.ok ? null : `HTTP_${wsRes.status}`,
       ttn_status: wsRes.ok ? "submitted" : "rejected",
+      ttn_submitted_at: wsRes.ok ? nowIso() : null,
+      ttn_scheduled_at: null,
     };
 
-    await supabase.from("invoices").update(patch).eq("id", id);
+    try {
+      await supabase.from("invoices").update(patch).eq("id", id);
+    } catch {
+      await writeTtnEvent(
+        supabase,
+        invoice,
+        "failed",
+        "INVOICE_UPDATE_BLOCKED_AFTER_SIGNATURE",
+        auth.user.id
+      );
+    }
 
     return NextResponse.json({
       ok: wsRes.ok,
@@ -220,7 +270,12 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     });
   } catch (e: any) {
     const msg = String(e?.message ?? "TTN_SEND_ERROR");
-    await supabase.from("invoices").update({ ttn_status: "rejected", ttn_last_error: msg.slice(0, 4000) }).eq("id", id);
+    await writeTtnEvent(supabase, invoice, "failed", msg, auth.user.id);
+
+    try {
+      await supabase.from("invoices").update({ ttn_status: "rejected", ttn_last_error: msg.slice(0, 4000) }).eq("id", id);
+    } catch {}
+
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
