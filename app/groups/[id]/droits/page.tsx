@@ -1,24 +1,19 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import DroitsGroupeClient, { type GroupCompany } from "./DroitsGroupeClient";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export default async function GroupeDroitsPage(props: {
-  params?: Promise<{ id: string }>;
-  searchParams?: Promise<{ createdCompany?: string }>;
+export default async function GroupRightsPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
 }) {
-  const params = (await props.params) ?? ({} as any);
-  const sp = (await props.searchParams) ?? {};
-  const createdCompanyId = String((sp as any).createdCompany ?? "");
-  const { id: groupId } = params as any;
+  const { id: groupId } = await params;
 
   const supabase = await createClient();
-
-  const { data: s } = await supabase.auth.getSession();
-  const user = s.session?.user;
-  if (!user) redirect("/login");
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) redirect("/login");
 
   const { data: group } = await supabase
     .from("groups")
@@ -26,81 +21,73 @@ export default async function GroupeDroitsPage(props: {
     .eq("id", groupId)
     .maybeSingle();
 
-  if (!group?.id) {
-    return (
-      <div className="mx-auto max-w-3xl p-6">
-        <h1 className="text-2xl font-semibold">Équipe & permissions</h1>
-        <p className="mt-2 text-sm text-slate-600">Groupe introuvable.</p>
-      </div>
-    );
-  }
+  if (!group?.id) redirect("/groups/select");
 
-  const isOwner = group.owner_user_id === user.id;
-
-  let myRole: string | null = isOwner ? "owner" : null;
-  let isMember = false;
-
+  const isOwner = group.owner_user_id === auth.user.id;
   if (!isOwner) {
     const { data: gm } = await supabase
       .from("group_members")
-      .select("id, role, is_active")
+      .select("role,is_active")
       .eq("group_id", groupId)
-      .eq("user_id", user.id)
+      .eq("user_id", auth.user.id)
       .eq("is_active", true)
       .maybeSingle();
 
-    isMember = !!gm?.id;
-    myRole = gm?.role ?? null;
+    if (gm?.role !== "admin") redirect("/groups/select");
   }
-
-  const canManage = isOwner || myRole === "admin";
-  if (!isOwner && !isMember) redirect("/groups");
-
-  const { data: members } = await supabase
-    .from("group_members")
-    .select(
-      `
-      id,
-      user_id,
-      role,
-      permissions,
-      is_active,
-      created_at,
-      app_users:app_users (
-        full_name,
-        email
-      )
-    `
-    )
-    .eq("group_id", groupId)
-    .order("created_at", { ascending: true });
 
   const { data: links } = await supabase
     .from("group_companies")
-    .select("company_id, link_type, companies(id,company_name,tax_id)")
+    .select("company_id, companies(id, company_name, tax_id)")
     .eq("group_id", groupId)
     .order("created_at", { ascending: false });
 
-  const companies: GroupCompany[] = (links ?? []).map((l: any) => {
-    const c = l?.companies;
+  const rows = (links ?? []).map((l: any) => {
+    const c = l?.companies ?? null;
     return {
       id: String(c?.id ?? l?.company_id ?? ""),
       name: String(c?.company_name ?? "Société"),
       taxId: String(c?.tax_id ?? "—"),
-      "managed",
+      type: "managed" as const,
     };
   });
 
   return (
-    <DroitsGroupeClient
-      groupId={groupId}
-      groupName={group.group_name ?? "Groupe"}
-      isOwner={isOwner}
-      myRole={myRole}
-      canManage={canManage}
-      members={(members as any[]) ?? []}
-      companies={companies}
-      createdCompanyId={createdCompanyId || null}
-    />
+    <div className="p-6 space-y-4">
+      <div className="ftn-card-lux p-4">
+        <div className="text-xl font-semibold">{group.group_name}</div>
+        <div className="text-sm opacity-80">Accès et rattachements</div>
+      </div>
+
+      <div className="ftn-card p-4">
+        <div className="font-semibold">Sociétés gérées</div>
+        <div className="text-xs opacity-70">Liste des sociétés accessibles par ce groupe</div>
+
+        {rows.length === 0 ? (
+          <div className="ftn-muted mt-3">Aucune société liée pour le moment.</div>
+        ) : (
+          <div className="mt-3 overflow-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs opacity-70 border-b">
+                <tr>
+                  <th className="py-2 pr-3">Société</th>
+                  <th className="py-2 pr-3">MF</th>
+                  <th className="py-2 pr-3">Type</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id} className="border-b" style={{ borderColor: "rgba(148,163,184,.16)" }}>
+                    <td className="py-2 pr-3">{r.name}</td>
+                    <td className="py-2 pr-3">{r.taxId}</td>
+                    <td className="py-2 pr-3">Gérée</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
