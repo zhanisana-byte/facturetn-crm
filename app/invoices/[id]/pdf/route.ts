@@ -13,18 +13,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
   }
 
-  const { data: invoice, error } = await supabase
-    .from("invoices")
-    .select("id")
-    .eq("id", id)
-    .maybeSingle();
-
-  if (error || !invoice) {
+  const { data: inv, error } = await supabase.from("invoices").select("id").eq("id", id).maybeSingle();
+  if (error || !inv) {
     return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
   }
 
-  return NextResponse.json(
-    { ok: false, error: "PDF_DISABLED_TEMPORARILY" },
-    { status: 501 }
-  );
+  return NextResponse.json({ ok: false, error: "PDF_DISABLED_TEMP" }, { status: 501 });
 }
