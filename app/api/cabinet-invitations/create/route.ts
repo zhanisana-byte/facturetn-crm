@@ -1,126 +1,92 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import crypto from "crypto";
-import { sendEmailResend } from "@/lib/email/sendEmail";
-import { getPublicBaseUrl } from "@/lib/url";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function token() {
-  return crypto.randomBytes(24).toString("base64url");
+type Body = {
+  cabinet_id: string;
+  email?: string;
+  name?: string;
+  permissions?: string[];
+};
+
+function getOriginFromReq(req: Request) {
+  const h = req.headers;
+  const xfProto = h.get("x-forwarded-proto");
+  const xfHost = h.get("x-forwarded-host");
+  const host = h.get("host");
+  const proto = xfProto ? xfProto.split(",")[0].trim() : "https";
+  const finalHost = (xfHost ? xfHost.split(",")[0].trim() : host)?.trim();
+  return finalHost ? `${proto}://${finalHost}` : "";
+}
+
+function normalizeBaseUrl(raw: string) {
+  const v = (raw || "").trim();
+  if (!v) return "";
+  try {
+    const u = new URL(v);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return "";
+  }
 }
 
 export async function POST(req: Request) {
   const supabase = await createClient();
+
   const { data: auth } = await supabase.auth.getUser();
-  if (!auth?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const body = await req.json().catch(() => ({}));
-  const cabinet_group_id = String(body.cabinet_group_id || "").trim();
-  const invited_email = String(body.invited_email || "").trim().toLowerCase();
-  const role = String(body.role || "admin").trim();
-  const objective = String(body.objective || "").trim();
-
-  if (!cabinet_group_id) return NextResponse.json({ error: "cabinet_group_id requis" }, { status: 400 });
-  if (!invited_email || !invited_email.includes("@")) return NextResponse.json({ error: "Email invalide" }, { status: 400 });
-  if (!["owner", "admin"].includes(role)) return NextResponse.json({ error: "Rôle invalide" }, { status: 400 });
-
-  const { data: g, error: gErr } = await supabase
-    .from("groups")
-    .select("id, group_type, owner_user_id")
-    .eq("id", cabinet_group_id)
-    .maybeSingle();
-
-  if (gErr) return NextResponse.json({ error: gErr.message }, { status: 400 });
-
-  if (!g?.id || g.group_type !== "cabinet") {
-    return NextResponse.json({ error: "Cabinet introuvable." }, { status: 404 });
+  if (!auth?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const isOwner = g.owner_user_id === auth.user.id;
-  if (!isOwner) {
-    const { data: gm, error: gmErr } = await supabase
-      .from("group_members")
-      .select("role,is_active")
-      .eq("group_id", cabinet_group_id)
-      .eq("user_id", auth.user.id)
-      .eq("is_active", true)
-      .maybeSingle();
-
-    if (gmErr) return NextResponse.json({ error: gmErr.message }, { status: 400 });
-
-    if (!gm?.is_active || !["owner", "admin"].includes(String(gm.role).toLowerCase())) {
-      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
-    }
+  let body: Body;
+  try {
+    body = (await req.json()) as Body;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { data: invitedUser, error: invitedErr } = await supabase
-    .from("app_users")
-    .select("id")
-    .eq("email", invited_email)
-    .maybeSingle();
-
-  if (invitedErr) {
-    
+  const cabinet_id = String(body.cabinet_id || "").trim();
+  if (!cabinet_id) {
+    return NextResponse.json({ error: "cabinet_id is required" }, { status: 400 });
   }
+
+  const permissions = Array.isArray(body.permissions) ? body.permissions.map(String) : [];
+
+  const token = crypto.randomUUID();
 
   const { data, error } = await supabase
-    .from("group_invitations")
+    .from("cabinet_invitations")
     .insert({
-      group_id: cabinet_group_id,
-      invited_email,
-      invited_by_user_id: auth.user.id,
-      role,
-      objective: objective || null,
-      token: token(),
+      cabinet_id,
+      created_by: auth.user.id,
+      token,
+      email: body.email ? String(body.email).trim().toLowerCase() : null,
+      name: body.name ? String(body.name).trim() : null,
+      permissions,
       status: "pending",
-      invited_user_id: invitedUser?.id ?? null,
     })
-    .select("token")
-    .maybeSingle();
+    .select("id, token")
+    .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-
-  if (!data?.token) {
-    return NextResponse.json({ error: "INVITE_CREATE_FAILED" }, { status: 500 });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
-  const originFromReq = (() => {
-    try {
-      return new URL((req as any).url).origin;
-    } catch {
-      return "";
-    }
-  })();
-
-  let base =
-    (typeof getPublicBaseUrl === "function" ? getPublicBaseUrl() : "") ||
-    (process.env.NEXT_PUBLIC_SITE_URL || originFromReq || "").trim();
-
-  if (base && !/^https?:\/\
-  base = base.replace(/\/+$/, "");
+  const originFromReq = getOriginFromReq(req);
+  const base =
+    normalizeBaseUrl(process.env.NEXT_PUBLIC_SITE_URL || "") ||
+    normalizeBaseUrl(originFromReq) ||
+    "";
 
   const inviteLink = `${base}/accountant/invitations?token=${encodeURIComponent(data.token)}`;
 
-  try {
-    await sendEmailResend({
-      to: invited_email,
-      subject: "Invitation Cabinet — FactureTN",
-      html: `
-        <div style="font-family:Arial,sans-serif;line-height:1.5">
-          <p>Bonjour,</p>
-          <p>Vous avez reçu une invitation sur FactureTN.</p>
-          <p><a href="${inviteLink}">Ouvrir l’invitation</a></p>
-          <p style="color:#6b7280;font-size:12px;margin-top:24px">
-            Si le bouton ne marche pas, copiez/collez ce lien :<br/>${inviteLink}
-          </p>
-        </div>
-      `,
-    });
-  } catch {
-    
-  }
-
-  return NextResponse.json({ ok: true, inviteLink });
+  return NextResponse.json({
+    ok: true,
+    id: data.id,
+    token: data.token,
+    inviteLink,
+  });
 }
