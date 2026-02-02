@@ -1,24 +1,14 @@
-
-
-export type TTNWebserviceConfig = {
-  url: string; 
+export type TTNWebServiceConfig = {
+  endpoint: string;
   login: string;
   password: string;
   matricule: string;
-};
-
-export type TTNSaveEfactResult = {
-  ok: boolean;
-  status: number;
-  raw: string;
-  
-  idSaveEfact?: string | null;
-  
-  generatedRef?: string | null;
+  soapAction?: string;
+  serviceNs?: string;
 };
 
 function escXml(s: string) {
-  return s
+  return String(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -26,78 +16,37 @@ function escXml(s: string) {
     .replace(/'/g, "&apos;");
 }
 
-export async function saveEfactSOAP(cfg: TTNWebserviceConfig, teifXml: string) {
-  // According to TTN WS spec, documentEfact is a byte[] (SOAP base64).
-  // We send base64 of UTF-8 bytes.
-  const xmlB64 = Buffer.from(teifXml, "utf8").toString("base64");
-
-  const envelope = `<?xml version="1.0" encoding="utf-8"?>` +
-`<soapenv:Envelope xmlns:soapenv="http:
-`<soapenv:Header/>` +
-`<soapenv:Body>` +
-`<ser:saveEfact>` +
-`<login>${escXml(cfg.login)}</login>` +
-`<password>${escXml(cfg.password)}</password>` +
-`<matricule>${escXml(cfg.matricule)}</matricule>` +
-`<documentEfact>${xmlB64}</documentEfact>` +
-`</ser:saveEfact>` +
-`</soapenv:Body>` +
-`</soapenv:Envelope>`;
-
-  const res = await fetch(cfg.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/xml; charset=utf-8",
-      "SOAPAction": "",
-    },
-    body: envelope,
-    cache: "no-store",
-  });
-
-  const text = await res.text();
-
-  const idMatch = text.match(/<return>([^<]+)<\/return>/i);
-  const idSaveEfact = idMatch ? idMatch[1] : null;
-
-  return { ok: res.ok, status: res.status, raw: text, idSaveEfact } satisfies TTNSaveEfactResult;
+export function buildSaveEfactEnvelope(cfg: TTNWebServiceConfig, xmlB64: string) {
+  const serviceNs = cfg.serviceNs || "http://service.ws.einvoice.finances.gov.tn/";
+  return (
+    `<?xml version="1.0" encoding="utf-8"?>` +
+    `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ser="${escXml(serviceNs)}">` +
+    `<soapenv:Header/>` +
+    `<soapenv:Body>` +
+    `<ser:saveEfact>` +
+    `<login>${escXml(cfg.login)}</login>` +
+    `<password>${escXml(cfg.password)}</password>` +
+    `<matricule>${escXml(cfg.matricule)}</matricule>` +
+    `<documentEfact>${escXml(xmlB64)}</documentEfact>` +
+    `</ser:saveEfact>` +
+    `</soapenv:Body>` +
+    `</soapenv:Envelope>`
+  );
 }
 
-export type TTNConsultCriteria = {
-  documentNumber?: string;
-  idSaveEfact?: string;
-  generatedRef?: string;
-  documentType?: string;
-};
+export async function ttnSaveEfact(cfg: TTNWebServiceConfig, xmlB64: string) {
+  const envelope = buildSaveEfactEnvelope(cfg, xmlB64);
 
-export async function consultEfactSOAP(cfg: TTNWebserviceConfig, criteria: TTNConsultCriteria) {
-  const envelope = `<?xml version="1.0" encoding="utf-8"?>` +
-`<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ser="http://services.elfatoura.tradenet.com.tn/">` +
-`<soapenv:Header/>` +
-`<soapenv:Body>` +
-`<ser:consultEfact>` +
-`<login>${escXml(cfg.login)}</login>` +
-`<password>${escXml(cfg.password)}</password>` +
-`<matricule>${escXml(cfg.matricule)}</matricule>` +
-`<efactCriteria>` +
-(criteria.documentNumber ? `<documentNumber>${escXml(criteria.documentNumber)}</documentNumber>` : ``) +
-(criteria.idSaveEfact ? `<idSaveEfact>${escXml(criteria.idSaveEfact)}</idSaveEfact>` : ``) +
-(criteria.generatedRef ? `<generatedRef>${escXml(criteria.generatedRef)}</generatedRef>` : ``) +
-(criteria.documentType ? `<documentType>${escXml(criteria.documentType)}</documentType>` : ``) +
-`</efactCriteria>` +
-`</ser:consultEfact>` +
-`</soapenv:Body>` +
-`</soapenv:Envelope>`;
-
-  const res = await fetch(cfg.url, {
+  const res = await fetch(cfg.endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "text/xml; charset=utf-8",
-      "SOAPAction": "",
+      SOAPAction: cfg.soapAction || "saveEfact",
     },
     body: envelope,
     cache: "no-store",
   });
 
   const text = await res.text();
-  return { ok: res.ok, status: res.status, raw: text };
+  return { ok: res.ok, status: res.status, text };
 }
