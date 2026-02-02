@@ -4,7 +4,6 @@ import { Card } from "@/components/ui";
 export default async function NewWorkspacePage() {
   return (
     <div className="space-y-10">
-      {/* SECTION HAUT : SOCIÉTÉ */}
       <Card className="p-6">
         <h2 className="text-xl font-semibold">Créer une société</h2>
         <p className="text-sm text-slate-600 mt-2 max-w-xl">
@@ -22,27 +21,25 @@ export default async function NewWorkspacePage() {
         </div>
       </Card>
 
-      {/* SECTION BAS : ESPACE DE TRAVAIL */}
       <div className="space-y-4">
         <div>
           <h2 className="text-xl font-semibold">Créer un espace de travail</h2>
           <p className="text-sm text-slate-600 mt-1">
-            Choisissez le type d’espace selon votre activité.
+            Choisissez le type d’espace selon votre organisation.
           </p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          {/* GROUPE */}
           <Card className="p-5">
             <h3 className="text-lg font-semibold">Groupe</h3>
             <p className="text-sm text-slate-600 mt-1">
-              Pour centraliser plusieurs sociétés sous un même espace.
+              Pour une structure qui regroupe plusieurs sociétés sous un seul abonnement.
             </p>
 
             <ul className="list-disc list-inside text-sm text-slate-600 mt-3 space-y-1">
-              <li>Gestion multi-société</li>
-              <li>Vue centralisée (sociétés, accès)</li>
-              <li>Chaque société garde son abonnement</li>
+              <li>Un seul pack ou abonnement global</li>
+              <li>Gestion centralisée de plusieurs sociétés</li>
+              <li>Accès et suivi multi-société</li>
             </ul>
 
             <div className="mt-4">
@@ -55,17 +52,16 @@ export default async function NewWorkspacePage() {
             </div>
           </Card>
 
-          {/* CABINET */}
           <Card className="p-5 bg-slate-50">
             <h3 className="text-lg font-semibold">Cabinet</h3>
             <p className="text-sm text-slate-600 mt-1">
-              Pour les cabinets qui prennent en charge des clients.
+              Pour les cabinets qui gèrent des sociétés clientes après honoraires.
             </p>
 
             <ul className="list-disc list-inside text-sm text-slate-600 mt-3 space-y-1">
-              <li>Gestion de plusieurs clients</li>
-              <li>Facturation pour le compte des clients</li>
-              <li>Honoraires + clients avec abonnement</li>
+              <li>Gestion de plusieurs sociétés clientes</li>
+              <li>Chaque société paie son propre abonnement</li>
+              <li>Facturation des honoraires du cabinet</li>
             </ul>
 
             <div className="mt-4">
