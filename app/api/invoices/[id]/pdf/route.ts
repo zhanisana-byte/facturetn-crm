@@ -1,80 +1,103 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { invoicePdf } from "@/lib/pdf/invoicePdf";
 
-export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-function isSigned(inv: any) {
-  if (!inv) return false;
-  const st = String(inv.signature_status || "").toLowerCase();
-  if (st === "signed") return true;
-  if (inv.signed_at) return true;
-  if (inv.signature_xml || inv.signed_xml) return true;
-  return Boolean(inv.invoice_signed);
+function s(v: any) {
+  return String(v ?? "").trim();
 }
 
-export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params;
+export async function GET(_: Request, { params }: { params: { id: string } }) {
   const supabase = await createClient();
-
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
-  const body = await req.json().catch(() => ({}));
+  const invoiceId = s(params?.id);
+  if (!invoiceId) return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
 
-  const { data: current, error: e1 } = await supabase.from("invoices").select("*").eq("id", id).maybeSingle();
-  if (e1 || !current) return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
+  const { data: invoice, error: eInv } = await supabase
+    .from("invoices")
+    .select("*")
+    .eq("id", invoiceId)
+    .single();
 
-  if (isSigned(current)) {
-    return NextResponse.json({ ok: false, error: "INVOICE_LOCKED_SIGNED" }, { status: 409 });
-  }
+  if (eInv || !invoice) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
-  const allowed: any = {};
-  const keys = [
-    "issue_date",
-    "due_date",
-    "invoice_number",
-    "customer_name",
-    "customer_tax_id",
-    "customer_address",
-    "customer_email",
-    "customer_phone",
-    "destination",
-    "currency",
-    "stamp_enabled",
-    "stamp_amount",
-    "notes",
-  ];
+  const { data: company, error: eC } = await supabase
+    .from("companies")
+    .select("*")
+    .eq("id", (invoice as any).company_id)
+    .single();
 
-  for (const k of keys) {
-    if (k in body) allowed[k] = body[k];
-  }
+  if (eC || !company) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
 
-  const { data, error } = await supabase.from("invoices").update(allowed).eq("id", id).select("*").maybeSingle();
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+  const { data: items, error: eItems } = await supabase
+    .from("invoice_items")
+    .select("*")
+    .eq("invoice_id", invoiceId)
+    .order("line_no", { ascending: true });
 
-  return NextResponse.json({ ok: true, invoice: data });
-}
+  if (eItems) return NextResponse.json({ ok: false, error: "ITEMS_READ_FAILED" }, { status: 500 });
 
-export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params;
-  const supabase = await createClient();
+  const invNo = s((invoice as any).invoice_number || (invoice as any).invoice_no || "");
+  const docType = s((invoice as any).document_type || "facture");
+  const issueDate = s((invoice as any).issue_date || "");
 
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+  const stamp =
+    (invoice as any).stamp_amount != null
+      ? Number((invoice as any).stamp_amount)
+      : (invoice as any).stamp_duty != null
+      ? Number((invoice as any).stamp_duty)
+      : 0;
 
-  const { data: current, error: e1 } = await supabase.from("invoices").select("*").eq("id", id).maybeSingle();
-  if (e1 || !current) return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
+  const totalVat =
+    (invoice as any).total_vat != null
+      ? Number((invoice as any).total_vat)
+      : (invoice as any).total_tva != null
+      ? Number((invoice as any).total_tva)
+      : 0;
 
-  if (isSigned(current)) {
-    return NextResponse.json({ ok: false, error: "INVOICE_LOCKED_SIGNED" }, { status: 409 });
-  }
+  const pdfBytes = await invoicePdf(
+    {
+      invoice_no: invNo || `INV-${invoiceId.slice(0, 8)}`,
+      issue_date: issueDate || new Date().toISOString().slice(0, 10),
+      due_date: s((invoice as any).due_date || ""),
+      currency: s((invoice as any).currency || "TND"),
+      customer_name: s((invoice as any).customer_name || ""),
+      customer_tax_id: s((invoice as any).customer_tax_id || ""),
+      customer_address: s((invoice as any).customer_address || ""),
+      customer_email: s((invoice as any).customer_email || ""),
+      customer_phone: s((invoice as any).customer_phone || ""),
+      notes: s((invoice as any).notes || ""),
+      subtotal_ht: Number((invoice as any).subtotal_ht || 0),
+      vat_amount: Number(totalVat || 0),
+      total_ttc: Number((invoice as any).total_ttc || 0),
+      net_to_pay: Number((invoice as any).net_to_pay || 0),
+      stamp_duty: Number(stamp || 0),
+      document_type: docType,
+      seller_name: s((company as any).company_name || ""),
+      seller_tax_id: s((company as any).tax_id || (company as any).taxId || ""),
+      seller_address: s((company as any).address || ""),
+    },
+    (items || []).map((it: any) => ({
+      description: s(it.description || ""),
+      qty: Number(it.quantity || 0),
+      unit_price: Number(it.unit_price_ht || 0),
+      vat_pct: Number(it.vat_pct || 0),
+      discount_pct: Number(it.discount_pct || 0),
+      line_total_ht: Number(it.line_total_ht || 0),
+      line_total_ttc: Number(it.line_total_ttc || 0),
+    }))
+  );
 
-  const { error: eItems } = await supabase.from("invoice_items").delete().eq("invoice_id", id);
-  if (eItems) return NextResponse.json({ ok: false, error: eItems.message }, { status: 400 });
-
-  const { error: eInv } = await supabase.from("invoices").delete().eq("id", id);
-  if (eInv) return NextResponse.json({ ok: false, error: eInv.message }, { status: 400 });
-
-  return NextResponse.json({ ok: true });
+  return new NextResponse(pdfBytes, {
+    status: 200,
+    headers: {
+      "content-type": "application/pdf",
+      "content-disposition": `inline; filename="${docType}_${invNo || invoiceId}.pdf"`,
+      "cache-control": "no-store",
+    },
+  });
 }
