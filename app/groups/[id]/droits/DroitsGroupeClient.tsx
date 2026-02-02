@@ -17,7 +17,7 @@ export type GroupCompany = {
   id: string;
   name: string;
   taxId: string;
-  linkType: "managed";
+  linkType: "external" | "managed";
 };
 
 const PAGE_PERMS = [
@@ -42,6 +42,10 @@ function roleBadge(role: string | null | undefined) {
 
 function safeObj(v: any) {
   return v && typeof v === "object" ? v : {};
+}
+
+function labelLinkType(t: "external" | "managed") {
+  return t === "managed" ? "Gérée" : "Externe";
 }
 
 export default function DroitsGroupeClient({
@@ -98,20 +102,20 @@ export default function DroitsGroupeClient({
     return safeObj(comps[companyId]);
   }
 
-  function memberManagedCounts(m: MemberRow) {
+  function memberCompanyCounts(m: MemberRow) {
     const p = safeObj(m.permissions);
     const comps = safeObj(p.companies);
 
-    let managed = 0;
+    let total = 0;
 
     for (const c of companies ?? []) {
       const cp = safeObj(comps[c.id]);
       const hasAny = COMPANY_PERMS.some((k) => Boolean(cp[k.key]));
       if (!hasAny) continue;
-      if (c.linkType === "managed") managed += 1;
-      else managed += 1;
+      total += 1;
     }
-    return { managed };
+
+    return { total };
   }
 
   function patchMember(memberId: string, patch: Partial<MemberRow>) {
@@ -213,17 +217,19 @@ export default function DroitsGroupeClient({
     <div className="space-y-6">
       {createdCompanyId ? (
         <div className="ftn-card-lux p-4 border border-emerald-200 bg-emerald-50">
-          <div className="text-base font-semibold text-emerald-900">Création réussie </div>
+          <div className="text-base font-semibold text-emerald-900">Action réussie </div>
           <div className="mt-1 text-sm text-emerald-900/80">
-            La société gérée a été créée. Vous pouvez maintenant gérer votre équipe et les accès par société.
+            Vous pouvez maintenant gérer votre équipe et les accès par société.
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <Link className="ftn-btn-primary" href={`/companies/${createdCompanyId}`} prefetch={false}>
               Voir la société
             </Link>
-            <Link className="ftn-btn-secondary" href={`/groups/${groupId}/ttn`} prefetch={false}>
+
+            <Link className="ftn-btn-secondary" href={`/companies/${createdCompanyId}/ttn`} prefetch={false}>
               Paramètres TTN
             </Link>
+
             <Link className="ftn-btn-secondary" href={`/groups/${groupId}/clients`} prefetch={false}>
               Mes sociétés
             </Link>
@@ -249,16 +255,12 @@ export default function DroitsGroupeClient({
                 Copier
               </button>
             </div>
-            <div className="mt-1 text-xs text-slate-500">
-              Communiquez cet ID à une société pour vous envoyer une invitation.
-            </div>
+            <div className="mt-1 text-xs text-slate-500">Communiquez cet ID à une société pour vous envoyer une invitation.</div>
           </div>
         </div>
       </div>
 
-      {err ? (
-        <div className="ftn-card p-3 border border-rose-200 bg-rose-50 text-rose-800 text-sm">{err}</div>
-      ) : null}
+      {err ? <div className="ftn-card p-3 border border-rose-200 bg-rose-50 text-rose-800 text-sm">{err}</div> : null}
 
       <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
         <div className="ftn-card p-4">
@@ -280,7 +282,7 @@ export default function DroitsGroupeClient({
             {membersFiltered.map((m) => {
               const b = roleBadge(m.role);
               const isSelected = m.id === selectedId;
-              const c = memberManagedCounts(m);
+              const c = memberCompanyCounts(m);
 
               return (
                 <button
@@ -301,20 +303,15 @@ export default function DroitsGroupeClient({
                   </div>
 
                   <div className="mt-2 text-xs text-slate-600">
-                    Sociétés gérées : <span className="font-semibold">gérées {c.managed}</span> ·{" "}
-                    <span className="font-semibold">gérées {c.managed}</span>
+                    Sociétés avec accès : <span className="font-semibold">{c.total}</span>
                   </div>
 
-                  {m.is_active === false ? (
-                    <div className="mt-2 text-xs text-rose-700">Accès désactivé</div>
-                  ) : null}
+                  {m.is_active === false ? <div className="mt-2 text-xs text-rose-700">Accès désactivé</div> : null}
                 </button>
               );
             })}
 
-            {membersFiltered.length === 0 ? (
-              <div className="text-sm text-slate-500">Aucun membre.</div>
-            ) : null}
+            {membersFiltered.length === 0 ? <div className="text-sm text-slate-500">Aucun membre.</div> : null}
           </div>
         </div>
 
@@ -386,12 +383,9 @@ export default function DroitsGroupeClient({
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    <select
-                      className="ftn-input"
-                      value={filterType}
-                      onChange={(e) => setFilterType(e.target.value as any)}
-                    >
-                      <option value="all">Toutes</option>                    </select>
+                    <select className="ftn-input" value={filterType} onChange={(e) => setFilterType(e.target.value as any)}>
+                      <option value="all">Toutes</option>
+                    </select>
 
                     <input
                       className="ftn-input w-64"
@@ -433,9 +427,7 @@ export default function DroitsGroupeClient({
                               </td>
                               <td className="py-3 px-2 text-slate-600">{c.taxId}</td>
                               <td className="py-3 px-2">
-                                <span className="text-xs text-slate-600">
-                                  {c.linkType === "managed" ? "Gérée" : "Gérée"}
-                                </span>
+                                <span className="text-xs text-slate-600">{labelLinkType(c.linkType)}</span>
                               </td>
                               <td className="py-3 px-2">
                                 <div className="flex flex-wrap gap-3">
@@ -447,9 +439,7 @@ export default function DroitsGroupeClient({
                                           type="checkbox"
                                           checked={checked}
                                           disabled={!canManage || selected.is_active === false}
-                                          onChange={(e) =>
-                                            setCompanyPerm(selected.id, c.id, p.key, e.target.checked)
-                                          }
+                                          onChange={(e) => setCompanyPerm(selected.id, c.id, p.key, e.target.checked)}
                                         />
                                         {p.label}
                                       </label>
