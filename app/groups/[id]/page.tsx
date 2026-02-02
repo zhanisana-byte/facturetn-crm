@@ -1,4 +1,3 @@
-
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -8,7 +7,6 @@ export const runtime = "nodejs";
 
 type Search = {
   q?: string;
-  type?: "all";
   page?: string;
 };
 
@@ -26,6 +24,12 @@ function fmtDate(d: string | null | undefined) {
   }
 }
 
+function toTime(d: string | null | undefined) {
+  if (!d) return null;
+  const t = new Date(d).getTime();
+  return Number.isFinite(t) ? t : null;
+}
+
 export default async function GroupDetailPage({
   params,
   searchParams,
@@ -36,7 +40,6 @@ export default async function GroupDetailPage({
   const { id: groupId } = await params;
   const sp = (await searchParams) ?? {};
   const q = String(sp.q ?? "").trim();
-  const type = (sp.type ?? "all") as Search["type"];
   const page = asInt(sp.page, 1);
 
   const pageSize = 10;
@@ -74,51 +77,37 @@ export default async function GroupDetailPage({
 
   const { data: allLinks } = await supabase
     .from("group_companies")
-    .select("company_id, link_type, subscription_ends_at")
+    .select("company_id, subscription_ends_at")
     .eq("group_id", groupId);
 
   const all = allLinks ?? [];
-    
+
   const now = Date.now();
   const soonMs = 30 * 24 * 60 * 60 * 1000;
 
   const expiringSoonIds = new Set(
     all
-      .filter((l: any) => true && l.subscription_ends_at)
+      .filter((l: any) => l?.subscription_ends_at)
       .filter((l: any) => {
-        const t = new Date(l.subscription_ends_at).getTime();
-        return Number.isFinite(t) && t - now <= soonMs;
+        const t = toTime(l.subscription_ends_at);
+        return t !== null && t - now <= soonMs;
       })
       .map((l: any) => String(l.company_id))
   );
 
-  const { data: externalLinks } = await supabase
-    .from("group_companies")
-    .select("company_id, link_type, subscription_ends_at, companies(id,company_name,tax_id)")
-    .eq("group_id", groupId)
-        .order("subscription_ends_at", { ascending: true, nullsFirst: false })
-    .limit(200);
+  const nextExpiryTs = all
+    .map((l: any) => toTime(l.subscription_ends_at))
+    .filter((t: any) => typeof t === "number" && t >= now)
+    .sort((a: number, b: number) => a - b)[0] as number | undefined;
 
-  const externalRows = (externalLinks ?? []).map((l: any) => {
-    const cid = String(l.companies?.id ?? l.company_id);
-    return {
-      id: cid,
-      name: String(l.companies?.company_name ?? "Société"),
-      taxId: String(l.companies?.tax_id ?? "—"),
-      subscriptionEndsAt: l.subscription_ends_at as string | null,
-      expiringSoon: expiringSoonIds.has(String(l.company_id)),
-    };
-  });
+  const nextExpiryLabel = nextExpiryTs ? new Date(nextExpiryTs).toLocaleDateString() : "—";
 
   let listQ = supabase
     .from("group_companies")
-    .select("company_id, link_type, subscription_ends_at, companies(id,company_name,tax_id)", {
-      count: "exact",
-    })
+    .select("company_id, subscription_ends_at, companies(id,company_name,tax_id)", { count: "exact" })
     .eq("group_id", groupId)
     .order("created_at", { ascending: false });
 
-  if (type && type !== "all") listQ = listQ.eq("link_type", type);
   if (q) listQ = listQ.or(`companies.company_name.ilike.%${q}%,companies.tax_id.ilike.%${q}%`);
 
   const { data: links, count: totalCount } = await listQ.range(from, to);
@@ -129,7 +118,6 @@ export default async function GroupDetailPage({
       id: cid,
       name: String(l.companies?.company_name ?? "Société"),
       taxId: String(l.companies?.tax_id ?? "—"),
-      linkType: "managed",
       subscriptionEndsAt: l.subscription_ends_at as string | null,
       expiringSoon: expiringSoonIds.has(String(l.company_id)),
     };
@@ -141,14 +129,32 @@ export default async function GroupDetailPage({
   const mkUrl = (next: Partial<Search>) => {
     const u = new URLSearchParams();
     const nq = next.q ?? q;
-    const nt = next.type ?? type;
     const np = next.page ?? String(page);
     if (nq) u.set("q", nq);
-    if (nt && nt !== "all") u.set("type", nt);
     if (np && np !== "1") u.set("page", np);
     const qs = u.toString();
     return qs ? `?${qs}` : "";
   };
+
+  const { data: expRowsRaw } = await supabase
+    .from("group_companies")
+    .select("company_id, subscription_ends_at, companies(id,company_name,tax_id)")
+    .eq("group_id", groupId)
+    .order("subscription_ends_at", { ascending: true, nullsFirst: false })
+    .limit(200);
+
+  const expRows = (expRowsRaw ?? []).map((l: any) => {
+    const cid = String(l.companies?.id ?? l.company_id);
+    const endsAt = l.subscription_ends_at as string | null;
+    const expSoon = expiringSoonIds.has(String(l.company_id));
+    return {
+      id: cid,
+      name: String(l.companies?.company_name ?? "Société"),
+      taxId: String(l.companies?.tax_id ?? "—"),
+      subscriptionEndsAt: endsAt,
+      expiringSoon: expSoon,
+    };
+  });
 
   return (
     <div className="p-6 space-y-4">
@@ -168,28 +174,28 @@ export default async function GroupDetailPage({
             <Link className="ftn-btn" href={`/groups/${groupId}/invitations-received`} prefetch={false}>
               Invitations reçues (sociétés)
             </Link>
-
             <Link className="ftn-btn" href={`/groups/${groupId}/invitations`} prefetch={false}>
               Inviter l’équipe
             </Link>
           </div>
         </div>
       </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="ftn-card p-4">
           <div className="text-xs opacity-70">Sociétés gérées</div>
           <div className="text-2xl font-semibold mt-1">{all.length}</div>
-          <div className="text-xs opacity-70 mt-1">Facturées dans le pack</div>
-        </div>
-        <div className="ftn-card p-4">
-          <div className="text-xs opacity-70">Sociétés gérées</div>
-          <div className="text-2xl font-semibold mt-1">{all.length}</div>
-          <div className="text-xs opacity-70 mt-1">Acceptées via invitations</div>
+          <div className="text-xs opacity-70 mt-1">Accès actif via rattachement</div>
         </div>
         <div className="ftn-card p-4">
           <div className="text-xs opacity-70">Expirent bientôt</div>
           <div className="text-2xl font-semibold mt-1">{expiringSoonIds.size}</div>
-          <div className="text-xs opacity-70 mt-1">Sociétés gérées uniquement (≤ 30 jours)</div>
+          <div className="text-xs opacity-70 mt-1">Fin abonnement dans 30 jours</div>
+        </div>
+        <div className="ftn-card p-4">
+          <div className="text-xs opacity-70">Prochaine fin d’abonnement</div>
+          <div className="text-2xl font-semibold mt-1">{nextExpiryLabel}</div>
+          <div className="text-xs opacity-70 mt-1">Date la plus proche</div>
         </div>
       </div>
 
@@ -205,12 +211,10 @@ export default async function GroupDetailPage({
           <form className="flex flex-wrap gap-2" action={`/groups/${groupId}`} method="get">
             <input type="hidden" name="page" value="1" />
             <input name="q" defaultValue={q} className="ftn-input" placeholder="Rechercher (nom / MF)" />
-            <select name="type" defaultValue={type ?? "all"} className="ftn-input" style={{ maxWidth: 200 }}>
-              <option value="all">Tous types</option>            </select>
             <button className="ftn-btn" type="submit">
               Filtrer
             </button>
-            <Link className="ftn-btn ftn-btn-ghost" href={mkUrl({ q: "", type: "all", page: "1" })} prefetch={false}>
+            <Link className="ftn-btn ftn-btn-ghost" href={mkUrl({ q: "", page: "1" })} prefetch={false}>
               Reset
             </Link>
           </form>
@@ -230,14 +234,10 @@ export default async function GroupDetailPage({
                   <div>
                     <div className="font-semibold">{c.name}</div>
                     <div className="text-xs opacity-70">
-                      MF: {c.taxId} • Type: {c.linkType === "managed" ? "Gérée" : "Gérée"}
-                      {c.linkType === "managed" ? (
-                        <>
-                          {" "}
-                          • Expire: <b>{fmtDate(c.subscriptionEndsAt)}</b>
-                          {c.expiringSoon ? <span className="ml-2 ftn-pill ftn-pill-warn">Bientôt</span> : null}
-                        </>
-                      ) : null}
+                      MF: {c.taxId}
+                      {" • "}
+                      Fin abonnement: <b>{fmtDate(c.subscriptionEndsAt)}</b>
+                      {c.expiringSoon ? <span className="ml-2 ftn-pill ftn-pill-warn">Bientôt</span> : null}
                     </div>
                   </div>
 
@@ -255,6 +255,7 @@ export default async function GroupDetailPage({
                 </div>
               </div>
             ))}
+
             <div className="flex items-center justify-between pt-2">
               <div className="text-xs opacity-70">
                 Affichage {from + 1}–{Math.min(to + 1, total)} / {total}
@@ -279,16 +280,17 @@ export default async function GroupDetailPage({
           </div>
         )}
       </div>
+
       <div className="ftn-card p-4">
         <div className="flex items-center justify-between">
           <div>
-            <div className="font-semibold">Sociétés gérées — abonnements</div>
+            <div className="font-semibold">Abonnements des sociétés gérées</div>
             <div className="text-xs opacity-70">Date fin • “Bientôt” = ≤ 30 jours</div>
           </div>
         </div>
 
-        {externalRows.length === 0 ? (
-          <div className="ftn-muted mt-2">Aucune société gérée liée pour le moment.</div>
+        {expRows.length === 0 ? (
+          <div className="ftn-muted mt-2">Aucune société liée pour le moment.</div>
         ) : (
           <div className="overflow-auto mt-3">
             <table className="w-full text-sm">
@@ -301,21 +303,13 @@ export default async function GroupDetailPage({
                 </tr>
               </thead>
               <tbody>
-                {externalRows.map((c) => (
-                  <tr key={`ext-${c.id}`} className="border-b last:border-0">
-                    <td className="py-3 pr-3 font-semibold">{c.name}</td>
-                    <td className="py-3 pr-3">{c.taxId}</td>
-                    <td className="py-3 pr-3">{fmtDate(c.subscriptionEndsAt)}</td>
-                    <td className="py-3 pr-3">
-                      {c.subscriptionEndsAt ? (
-                        c.expiringSoon ? (
-                          <span className="ftn-pill ftn-pill-warn">Expire bientôt</span>
-                        ) : (
-                          <span className="ftn-pill">OK</span>
-                        )
-                      ) : (
-                        <span className="ftn-pill">—</span>
-                      )}
+                {expRows.map((c) => (
+                  <tr key={`m-${c.id}`} className="border-b" style={{ borderColor: "rgba(148,163,184,.16)" }}>
+                    <td className="py-2 pr-3">{c.name}</td>
+                    <td className="py-2 pr-3">{c.taxId}</td>
+                    <td className="py-2 pr-3">{fmtDate(c.subscriptionEndsAt)}</td>
+                    <td className="py-2 pr-3">
+                      {c.expiringSoon ? <span className="ftn-pill ftn-pill-warn">Bientôt</span> : "OK"}
                     </td>
                   </tr>
                 ))}
