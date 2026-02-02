@@ -60,9 +60,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     const currency = safe((invoice as any).currency || "TND");
 
     const sellerName = safe(company?.company_name || "Société");
-    const sellerMF = safe(company?.tax_id || "");
-    const sellerAdr = safe(company?.address || "");
-    const sellerCity = [company?.postal_code, company?.city, company?.country].filter(Boolean).join(" ");
+    const sellerMF = safe((company as any)?.tax_id || "");
+    const sellerAdr = safe((company as any)?.address || "");
+    const sellerCity = [(company as any)?.postal_code, (company as any)?.city, (company as any)?.country].filter(Boolean).join(" ");
     const sellerTel = safe((company as any)?.phone || "");
     const sellerEmail = safe((company as any)?.email || "");
 
@@ -90,10 +90,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     let calcTTC = 0;
 
     for (const it of arr) {
-      const qty = toNum(it.quantity);
-      const pu = toNum(it.unit_price_ht ?? it.unit_price);
-      const vatPct = toNum(it.vat_pct ?? it.vat);
-      const ht = round3(toNum(it.line_total_ht ?? (qty * pu)));
+      const qty = toNum((it as any).quantity);
+      const pu = toNum((it as any).unit_price_ht ?? (it as any).unit_price);
+      const vatPct = toNum((it as any).vat_pct ?? (it as any).vat);
+      const ht = round3(toNum((it as any).line_total_ht ?? (qty * pu)));
       const vatAmt = round3(ht * (vatPct / 100));
       const ttc = round3(ht + vatAmt);
 
@@ -118,253 +118,125 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
     const margin = 36;
 
-    const ink = rgb(0.08, 0.1, 0.12);
-    const muted = rgb(0.35, 0.37, 0.4);
-    const line = rgb(0.86, 0.87, 0.89);
-    const soft = rgb(0.97, 0.97, 0.98);
-    const chip = rgb(0.92, 0.94, 0.96);
-
-    const fmtMoney = (n: number) => `${Number(n).toFixed(3)} ${currency}`;
-
-    const addPage = () => pdfDoc.addPage([PAGE_W, PAGE_H]);
-
-    const drawBox = (page: PDFPage, x: number, y: number, w: number, h: number, fill = soft) => {
-      page.drawRectangle({ x, y, width: w, height: h, color: fill, borderColor: line, borderWidth: 1 });
+    const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+    const drawText = (p: PDFPage, text: string, x: number, y: number, size = 10, bold = false, color = rgb(0, 0, 0)) => {
+      p.drawText(text, { x, y, size, font: bold ? fontBold : font, color });
     };
 
-    const drawTxt = (
-      page: PDFPage,
-      text: string,
-      x: number,
-      y: number,
-      size: number,
-      bold = false,
-      color = ink
-    ) => {
-      page.drawText(String(text ?? ""), { x, y, size, font: bold ? fontBold : font, color });
+    const line = (p: PDFPage, x1: number, y1: number, x2: number, y2: number) => {
+      p.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, thickness: 1, color: rgb(0.85, 0.85, 0.85) });
     };
 
-    const header = (page: PDFPage) => {
-      const top = PAGE_H - margin;
+    const headerY = PAGE_H - margin - 10;
+    drawText(page, docType, margin, headerY, 18, true);
+    if (invNumber) drawText(page, `N° ${invNumber}`, margin, headerY - 22, 11, false);
+    drawText(page, `Date: ${issueDate}`, PAGE_W - margin - 160, headerY - 6, 10, false);
+    if (dueDate) drawText(page, `Échéance: ${dueDate}`, PAGE_W - margin - 160, headerY - 20, 10, false);
 
-      page.drawRectangle({
-        x: margin,
-        y: top - 34,
-        width: PAGE_W - margin * 2,
-        height: 34,
-        color: chip,
-        borderColor: line,
-        borderWidth: 1,
-      });
+    line(page, margin, headerY - 34, PAGE_W - margin, headerY - 34);
 
-      drawTxt(page, docType, margin + 12, top - 24, 14, true);
+    let y = headerY - 60;
 
-      const rightX = PAGE_W - margin - 220;
-      drawTxt(page, `N° : ${invNumber || "—"}`, rightX, top - 24, 10, true);
-      drawTxt(page, `Date : ${issueDate}`, rightX, top - 38, 9, false, muted);
-      if (dueDate) drawTxt(page, `Échéance : ${dueDate}`, rightX, top - 52, 9, false, muted);
+    drawText(page, "Vendeur", margin, y, 11, true);
+    drawText(page, sellerName, margin, y - 14, 10, false);
+    if (sellerMF) drawText(page, `MF: ${sellerMF}`, margin, y - 28, 10, false);
+    if (sellerAdr) drawText(page, sellerAdr, margin, y - 42, 10, false);
+    if (sellerCity) drawText(page, sellerCity, margin, y - 56, 10, false);
+    if (sellerTel) drawText(page, `Tél: ${sellerTel}`, margin, y - 70, 10, false);
+    if (sellerEmail) drawText(page, `Email: ${sellerEmail}`, margin, y - 84, 10, false);
 
-      const boxY = top - 34 - 12 - 120;
-      const boxH = 120;
-      const boxW = (PAGE_W - margin * 2 - 12) / 2;
+    const rightX = PAGE_W / 2 + 10;
+    drawText(page, "Client", rightX, y, 11, true);
+    drawText(page, buyerName || "-", rightX, y - 14, 10, false);
+    if (buyerMF) drawText(page, `MF: ${buyerMF}`, rightX, y - 28, 10, false);
+    if (buyerAdr) drawText(page, buyerAdr, rightX, y - 42, 10, false);
+    if (buyerTel) drawText(page, `Tél: ${buyerTel}`, rightX, y - 56, 10, false);
+    if (buyerEmail) drawText(page, `Email: ${buyerEmail}`, rightX, y - 70, 10, false);
+    if (dest) drawText(page, `Destination: ${dest}`, rightX, y - 84, 10, false);
 
-      drawBox(page, margin, boxY, boxW, boxH);
-      drawBox(page, margin + boxW + 12, boxY, boxW, boxH);
+    y -= 110;
+    line(page, margin, y, PAGE_W - margin, y);
+    y -= 18;
 
-      drawTxt(page, "VENDEUR (SOCIÉTÉ)", margin + 10, boxY + boxH - 16, 8, true, muted);
-      drawTxt(page, sellerName, margin + 10, boxY + boxH - 34, 11, true);
-      if (sellerMF) drawTxt(page, `MF : ${sellerMF}`, margin + 10, boxY + boxH - 50, 9, false);
-      if (sellerAdr) drawTxt(page, sellerAdr, margin + 10, boxY + boxH - 64, 9, false);
-      if (sellerCity) drawTxt(page, sellerCity, margin + 10, boxY + boxH - 78, 9, false);
+    drawText(page, "Description", margin, y, 10, true);
+    drawText(page, "Qté", PAGE_W - margin - 210, y, 10, true);
+    drawText(page, "PU HT", PAGE_W - margin - 160, y, 10, true);
+    drawText(page, "TVA%", PAGE_W - margin - 105, y, 10, true);
+    drawText(page, "Total TTC", PAGE_W - margin - 55, y, 10, true);
 
-      const sellerContact = [sellerTel ? `Tél: ${sellerTel}` : "", sellerEmail ? `Email: ${sellerEmail}` : ""]
-        .filter(Boolean)
-        .join("  •  ");
-      if (sellerContact) drawTxt(page, sellerContact, margin + 10, boxY + 12, 8, false, muted);
+    y -= 10;
+    line(page, margin, y, PAGE_W - margin, y);
+    y -= 16;
 
-      const bx = margin + boxW + 12;
-      drawTxt(page, "ACHETEUR (CLIENT)", bx + 10, boxY + boxH - 16, 8, true, muted);
-      drawTxt(page, buyerName || "—", bx + 10, boxY + boxH - 34, 11, true);
-      if (buyerMF) drawTxt(page, `MF : ${buyerMF}`, bx + 10, boxY + boxH - 50, 9, false);
-      if (buyerAdr) drawTxt(page, buyerAdr, bx + 10, boxY + boxH - 64, 9, false);
-      if (dest) drawTxt(page, `Destination : ${dest}`, bx + 10, boxY + boxH - 78, 9, false);
-
-      const buyerContact = [buyerTel ? `Tél: ${buyerTel}` : "", buyerEmail ? `Email: ${buyerEmail}` : ""]
-        .filter(Boolean)
-        .join("  •  ");
-      if (buyerContact) drawTxt(page, buyerContact, bx + 10, boxY + 12, 8, false, muted);
-
-      return boxY - 18;
-    };
-
-    const tableHeader = (page: PDFPage, y: number) => {
-      const x0 = margin;
-      const w = PAGE_W - margin * 2;
-
-      page.drawRectangle({
-        x: x0,
-        y: y - 20,
-        width: w,
-        height: 22,
-        color: chip,
-        borderColor: line,
-        borderWidth: 1,
-      });
-
-      const colDesc = x0 + 8;
-      const colQty = x0 + 280;
-      const colPU = x0 + 330;
-      const colHT = x0 + 395;
-      const colTVA = x0 + 452;
-      const colTTC = x0 + 515;
-
-      drawTxt(page, "Désignation", colDesc, y - 14, 9, true);
-      drawTxt(page, "Qté", colQty, y - 14, 9, true);
-      drawTxt(page, "PU HT", colPU, y - 14, 9, true);
-      drawTxt(page, "HT", colHT, y - 14, 9, true);
-      drawTxt(page, "TVA", colTVA, y - 14, 9, true);
-      drawTxt(page, "TTC", colTTC, y - 14, 9, true);
-
-      return y - 28;
-    };
-
-    const ensureSpace = (y: number, needed: number) => y - needed >= 170;
-
-    let page = addPage();
-    let y = header(page);
-    y = tableHeader(page, y);
-
-    const x0 = margin;
-    const colDesc = x0 + 8;
-    const colQty = x0 + 280;
-    const colPU = x0 + 330;
-    const colHT = x0 + 395;
-    const colTVA = x0 + 452;
-    const colTTC = x0 + 515;
-
-    const rowH = 16;
+    const fmtMoney = (v: number) => `${round3(v).toFixed(3)} ${currency}`;
 
     for (const it of arr) {
-      const desc = safe(it.description || it.name || "") || "—";
-      const qty = toNum(it.quantity);
-      const pu = toNum(it.unit_price_ht ?? it.unit_price);
-      const vatPct = toNum(it.vat_pct ?? it.vat);
-      const ht = round3(toNum(it.line_total_ht ?? (qty * pu)));
+      const desc = safe((it as any).description || "");
+      const qty = round3(toNum((it as any).quantity));
+      const pu = round3(toNum((it as any).unit_price_ht ?? (it as any).unit_price));
+      const vatPct = round3(toNum((it as any).vat_pct ?? (it as any).vat));
+      const ht = round3(toNum((it as any).line_total_ht ?? (qty * pu)));
       const vatAmt = round3(ht * (vatPct / 100));
       const ttc = round3(ht + vatAmt);
 
-      const has2 = desc.length > 52;
-      const rowNeeded = has2 ? rowH + 10 : rowH;
+      if (y < margin + 140) break;
 
-      if (!ensureSpace(y, rowNeeded + 8)) {
-        page = addPage();
-        y = header(page);
-        y = tableHeader(page, y);
-      }
+      drawText(page, desc.slice(0, 70), margin, y, 10, false);
+      drawText(page, String(qty), PAGE_W - margin - 210, y, 10, false);
+      drawText(page, round3(pu).toFixed(3), PAGE_W - margin - 160, y, 10, false);
+      drawText(page, String(vatPct), PAGE_W - margin - 105, y, 10, false);
+      drawText(page, round3(ttc).toFixed(3), PAGE_W - margin - 55, y, 10, false);
 
-      page.drawLine({
-        start: { x: margin, y: y + 4 },
-        end: { x: PAGE_W - margin, y: y + 4 },
-        thickness: 1,
-        color: line,
-      });
-
-      const d1 = desc.slice(0, 52);
-      const d2 = has2 ? desc.slice(52, 100) : "";
-
-      drawTxt(page, d1, colDesc, y - 8, 9, false);
-      if (d2) drawTxt(page, d2, colDesc, y - 20, 8, false);
-
-      drawTxt(page, String(qty || 0), colQty, y - 8, 9, false);
-      drawTxt(page, pu.toFixed(3), colPU, y - 8, 9, false);
-      drawTxt(page, ht.toFixed(3), colHT, y - 8, 9, false);
-      drawTxt(page, `${vatPct.toFixed(0)}%`, colTVA, y - 8, 9, false);
-      drawTxt(page, ttc.toFixed(3), colTTC, y - 8, 9, false);
-
-      y -= d2 ? (rowH + 10) : rowH;
+      y -= 16;
     }
 
-    if (!ensureSpace(y, 240)) {
-      page = addPage();
-      y = header(page);
-      y = tableHeader(page, y);
+    y -= 6;
+    line(page, margin, y, PAGE_W - margin, y);
+    y -= 18;
+
+    const tRow = (label: string, value: string, yy: number) => {
+      drawText(page, label, PAGE_W - margin - 220, yy, 10, false);
+      drawText(page, value, PAGE_W - margin - 55, yy, 10, true);
+    };
+
+    tRow("Total HT", fmtMoney(subtotal_ht), y);
+    y -= 14;
+    tRow("Total TVA", fmtMoney(total_vat), y);
+    y -= 14;
+    if (stamp_enabled) {
+      tRow("Timbre", fmtMoney(stamp_amount), y);
+      y -= 14;
     }
+    tRow("Total TTC", fmtMoney(total_ttc), y);
 
-    const totalsW = 260;
-    const totalsH = stamp_enabled ? 124 : 110;
-    const totalsX = PAGE_W - margin - totalsW;
-    const totalsY = 210;
-
-    drawBox(page, totalsX, totalsY, totalsW, totalsH, soft);
-    drawTxt(page, "TOTAUX", totalsX + 10, totalsY + totalsH - 16, 8, true, muted);
-
-    const tRow = (label: string, value: string, yy: number, bold = false) => {
-      drawTxt(page, label, totalsX + 10, yy, 9, true, muted);
-      drawTxt(page, value, totalsX + 140, yy, 9, bold, ink);
+    const qrPayload = {
+      id: String((invoice as any).id),
+      company_id: String((invoice as any).company_id),
+      issue_date: issueDate,
+      total_ttc: total_ttc,
+      currency: currency,
+      hash: crypto.createHash("sha256").update(`${(invoice as any).id}|${issueDate}|${total_ttc}|${currency}`).digest("hex"),
     };
 
-    let yy = totalsY + totalsH - 36;
-    tRow("Total HT", fmtMoney(subtotal_ht), yy); yy -= 14;
-    tRow("Total TVA", fmtMoney(total_vat), yy); yy -= 14;
-    if (stamp_enabled) { tRow("Timbre", fmtMoney(stamp_amount), yy); yy -= 14; }
-    tRow("Net à payer", fmtMoney(total_ttc), yy, true);
+    const qrDataUrl = await QRCode.toDataURL(JSON.stringify(qrPayload));
+    const qrBase64 = qrDataUrl.split(",")[1] || "";
+    const qrBytes = Uint8Array.from(Buffer.from(qrBase64, "base64"));
+    const qrImage = await pdfDoc.embedPng(qrBytes);
 
-    const payloadObj: any = {
-      spec: "TEIF-QR",
-      version: "1.0",
-      invoice: { number: invNumber, date: issueDate, currency },
-      seller: { name: sellerName, mf: sellerMF, address: sellerAdr },
-      buyer: { name: buyerName, mf: buyerMF, address: buyerAdr, destination: dest || "" },
-      totals: { subtotal_ht, total_vat, stamp_enabled, stamp_amount, total_ttc },
-      hash: "",
-    };
+    const qrSize = 90;
+    page.drawImage(qrImage, { x: margin, y: margin + 10, width: qrSize, height: qrSize });
+    drawText(page, "QR", margin + 32, margin + 2, 9, true, rgb(0.3, 0.3, 0.3));
 
-    const hashBase = JSON.stringify({ ...payloadObj, hash: "" });
-    payloadObj.hash = crypto.createHash("sha256").update(hashBase).digest("hex");
-
-    const qrText = JSON.stringify(payloadObj);
-    const qrPng = await QRCode.toDataURL(qrText, { errorCorrectionLevel: "M", margin: 1, scale: 4 });
-
-    const qrBytes = Buffer.from(qrPng.split(",")[1], "base64");
-    const qrImg = await pdfDoc.embedPng(qrBytes);
-
-    const qrSize = 92;
-    const qrX = margin;
-    const qrY = 210;
-
-    drawBox(page, qrX, qrY, 300, 110, soft);
-    page.drawImage(qrImg, { x: qrX + 12, y: qrY + 10, width: qrSize, height: qrSize });
-
-    drawTxt(page, "QR contrôle", qrX + 12 + qrSize + 12, qrY + 80, 10, true);
-    drawTxt(page, "Export / vérification technique", qrX + 12 + qrSize + 12, qrY + 64, 9, false, muted);
-    drawTxt(page, `Hash: ${payloadObj.hash.slice(0, 16)}…`, qrX + 12 + qrSize + 12, qrY + 48, 8, false, muted);
-
-    const footerY = 140;
-    page.drawLine({
-      start: { x: margin, y: footerY + 18 },
-      end: { x: PAGE_W - margin, y: footerY + 18 },
-      thickness: 1,
-      color: line,
-    });
-
-    const notes: string[] = [];
-    if (stamp_enabled) notes.push("Timbre fiscal inclus selon paramétrage.");
-    notes.push("Merci d’indiquer la référence de facture lors du paiement.");
-    notes.push("Document généré électroniquement.");
-
-    drawTxt(page, notes.join("  •  "), margin, footerY, 8, false, muted);
-
-    const pdfBytes = await pdfDoc.save(); 
-    const body = Buffer.from(pdfBytes);   
-
-    return new NextResponse(body, {
+    const pdfBytes = await pdfDoc.save();
+    return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${docType}-${invNumber || "document"}.pdf"`,
+        "Content-Disposition": `inline; filename="${docType}-${invNumber || id}.pdf"`,
+        "Cache-Control": "no-store",
       },
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "PDF error" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message || "PDF_ERROR" }, { status: 500 });
   }
 }
