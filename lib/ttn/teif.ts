@@ -1,10 +1,8 @@
-
-
 export type TeifBuildInput = {
   invoiceId: string;
   companyId: string;
 
-  documentType?: 'facture' | 'avoir' | 'devis' | string | null;
+  documentType?: "facture" | "avoir" | "devis" | string | null;
 
   invoiceNumber?: string | null;
   issueDate?: string | null;
@@ -41,7 +39,7 @@ export type TeifBuildInput = {
 
   notes?: string | null;
 
-  purpose?: 'preview' | 'ttn' | null;
+  purpose?: "preview" | "ttn" | null;
 
   items?: Array<{
     description: string;
@@ -69,12 +67,7 @@ function toNum(n: unknown): number {
 
 function fmtAmount(n: unknown): string {
   const x = toNum(n);
-  
   return x.toFixed(3);
-}
-
-function onlyDigits(s: string) {
-  return String(s || "").replace(/[^\d]/g, "");
 }
 
 function pad2(n: number) {
@@ -82,7 +75,6 @@ function pad2(n: number) {
 }
 
 function toDdMmYy(d: string | null | undefined): string {
-
   const s = String(d ?? "").trim();
   if (!s) return "";
   const dt = new Date(s);
@@ -104,9 +96,17 @@ function nonEmpty(v: unknown): string {
 }
 
 export function buildTeifXml(input: TeifBuildInput): string {
+  const purpose = (input.purpose ?? "preview") as "preview" | "ttn";
+  const docKind = String(input.documentType ?? "facture").toLowerCase();
+  const requireStrict = purpose === "ttn" && docKind !== "devis";
+
   const currency = (input.currency ?? "TND").toUpperCase();
 
-  const invoiceNumber = nonEmpty(input.invoiceNumber || input.invoiceId);
+  const invoiceNumberRaw = nonEmpty(input.invoiceNumber || "");
+  const invoiceNumber = requireStrict
+    ? requireNonEmpty("Le numéro de facture", invoiceNumberRaw)
+    : nonEmpty(invoiceNumberRaw || input.invoiceId);
+
   const issueDd = toDdMmYy(input.issueDate);
   const dueDd = toDdMmYy(input.dueDate);
 
@@ -114,23 +114,33 @@ export function buildTeifXml(input: TeifBuildInput): string {
   const supplierTax = nonEmpty(input.supplier?.taxId || "");
   const supplierAddr = nonEmpty(input.supplier?.address || "");
 
-  const purpose = (input.purpose ?? "preview") as "preview" | "ttn";
-  const docType = String(input.documentType ?? "facture").toLowerCase();
-  const requireStrict = purpose === "ttn" && docType !== "devis";
-
   if (requireStrict) {
     requireNonEmpty("Le matricule fiscal (MF) de la société", supplierTax);
     requireNonEmpty("Le nom de la société", supplierName);
     requireNonEmpty("L’adresse de la société", supplierAddr);
+    if (!issueDd) throw new Error("La date de facture est invalide");
   }
+
   const supplierStreet = nonEmpty(input.supplier?.street || "");
   const supplierCity = nonEmpty(input.supplier?.city || "");
   const supplierPostal = nonEmpty(input.supplier?.postalCode || "");
   const supplierCountry = nonEmpty(input.supplier?.country || "TN").toUpperCase() || "TN";
 
-  const customerName = nonEmpty(input.customer?.name || "");
-  const customerTax = nonEmpty(input.customer?.taxId || "NA");
-  const customerAddr = nonEmpty(input.customer?.address || "");
+  const customerNameRaw = nonEmpty(input.customer?.name || "");
+  const customerName = requireStrict
+    ? requireNonEmpty("Le nom du client", customerNameRaw)
+    : nonEmpty(customerNameRaw || "Client");
+
+  const customerTaxRaw = nonEmpty(input.customer?.taxId || "");
+  const customerTax = requireStrict
+    ? requireNonEmpty("Le matricule fiscal (MF) du client", customerTaxRaw)
+    : nonEmpty(customerTaxRaw || "NA");
+
+  const customerAddrRaw = nonEmpty(input.customer?.address || "");
+  const customerAddr = requireStrict
+    ? requireNonEmpty("L’adresse du client", customerAddrRaw)
+    : customerAddrRaw;
+
   const customerCity = nonEmpty(input.customer?.city || "");
   const customerPostal = nonEmpty(input.customer?.postalCode || "");
   const customerCountry = nonEmpty(input.customer?.country || "TN").toUpperCase() || "TN";
@@ -143,8 +153,17 @@ export function buildTeifXml(input: TeifBuildInput): string {
   const stampAmount = toNum(input.totals?.stampAmount);
 
   const notes = nonEmpty(input.notes || "");
-
   const items = Array.isArray(input.items) ? input.items : [];
+
+  if (requireStrict) {
+    if (items.length < 1) throw new Error("Au moins une ligne est obligatoire");
+    for (const it of items) {
+      const d = nonEmpty(it.description);
+      if (!d) throw new Error("Description de ligne manquante");
+      const q = toNum(it.qty);
+      if (q <= 0) throw new Error("Quantité invalide");
+    }
+  }
 
   const linesXml = items
     .map((it, idx) => {
@@ -154,7 +173,8 @@ export function buildTeifXml(input: TeifBuildInput): string {
 
       const discountPct = toNum((it as any).discount ?? 0);
       const lineHt = qty * price * (1 - Math.min(Math.max(discountPct, 0), 100) / 100);
-return `
+
+      return `
       <Lin>
         <ItemIdentifier>${escXml(String(idx + 1))}</ItemIdentifier>
         <LinImd>
@@ -200,7 +220,7 @@ return `
       <PartnerDetails functionCode="I-64">
         <Nad>
           <PartnerIdentifier type="I-01">${escXml(customerTax)}</PartnerIdentifier>
-          <PartnerName nameType="Qualification">${escXml(customerName || "Client")}</PartnerName>
+          <PartnerName nameType="Qualification">${escXml(customerName)}</PartnerName>
           <PartnerAdresses lang="fr">
             <AdressDescription>${escXml(customerAddr)}</AdressDescription>
             <Street></Street>
@@ -309,7 +329,6 @@ return `
       ${dueDd ? `<DateText format="ddMMyy" functionCode="I-32">${escXml(dueDd)}</DateText>` : ""}
     </Dtm>`;
 
-  const docKind = String(input.documentType ?? "facture").toLowerCase();
   const docTypeCode = docKind === "avoir" ? "I-12" : "I-11";
   const docTypeLabel = docKind === "avoir" ? "Facture d’avoir" : "Facture";
 
@@ -341,11 +360,13 @@ return `
     ${invoiceTax}
   </InvoiceBody>`;
 
-  return `<?xml version="1.0" encoding="UTF-8"?>` +
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>` +
     `<TEIF controlingAgency="TTN" version="1.8.8">` +
     `${header}` +
     `${body}` +
-    `</TEIF>`;
+    `</TEIF>`
+  );
 }
 
 export function buildCompactTeifXml(input: TeifBuildInput) {
@@ -395,13 +416,13 @@ export function enforceMaxSize(xml: string, maxBytes = 50_000) {
   if (originalSize <= maxBytes) {
     return { xml, originalSize, finalSize: originalSize, trimmed: false };
   }
-  
+
   let trimmedXml = xml.replace(/<Ftx>[\s\S]*?<\/Ftx>/g, "");
   const finalSize = Buffer.byteLength(trimmedXml, "utf8");
   if (finalSize <= maxBytes) {
     return { xml: trimmedXml, originalSize, finalSize, trimmed: true };
   }
-  
+
   trimmedXml = trimmedXml.replace(/<AmountDescription[\s\S]*?<\/AmountDescription>/g, "");
   return {
     xml: trimmedXml,
