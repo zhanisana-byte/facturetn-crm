@@ -91,13 +91,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       documentNumber: undefined,
     });
 
-    const raw = soap.raw;
+    const raw = soap.text;
 
     const generatedRef = extractAny(["generatedRef", "generatedREF", "GeneratedRef"], raw) || null;
-    const etat =
-      extractAny(["etat", "ETAT", "etatEfact", "ETATEFACT", "state", "STATUS", "status"], raw) || null;
-    const message =
-      extractAny(["message", "Message", "libelle", "LIBELLE", "errorMessage", "ERRORMESSAGE"], raw) || null;
+    const etat = extractAny(["etat", "ETAT", "etatEfact", "ETATEFACT", "state", "STATUS", "status"], raw) || null;
+    const message = extractAny(["message", "Message", "libelle", "LIBELLE", "errorMessage", "ERRORMESSAGE"], raw) || null;
 
     const mapped = mapEtatToStatus(etat);
 
