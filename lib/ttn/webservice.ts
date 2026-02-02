@@ -1,10 +1,11 @@
-export type TTNWebServiceConfig = {
+export type TTNWebserviceConfig = {
   endpoint: string;
   login: string;
   password: string;
   matricule: string;
   soapAction?: string;
   serviceNs?: string;
+  timeoutMs?: number;
 };
 
 function escXml(s: string) {
@@ -16,8 +17,13 @@ function escXml(s: string) {
     .replace(/'/g, "&apos;");
 }
 
-export function buildSaveEfactEnvelope(cfg: TTNWebServiceConfig, xmlB64: string) {
-  const serviceNs = cfg.serviceNs || "http://service.ws.einvoice.finances.gov.tn/";
+function normalizeServiceNs(ns?: string) {
+  const v = String(ns || "").trim();
+  return v || "http://service.ws.einvoice.finances.gov.tn/";
+}
+
+export function buildSaveEfactEnvelope(cfg: TTNWebserviceConfig, xmlB64: string) {
+  const serviceNs = normalizeServiceNs(cfg.serviceNs);
   return (
     `<?xml version="1.0" encoding="utf-8"?>` +
     `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ser="${escXml(serviceNs)}">` +
@@ -34,19 +40,72 @@ export function buildSaveEfactEnvelope(cfg: TTNWebServiceConfig, xmlB64: string)
   );
 }
 
-export async function ttnSaveEfact(cfg: TTNWebServiceConfig, xmlB64: string) {
+export function buildConsultEfactEnvelope(cfg: TTNWebserviceConfig, uuid: string) {
+  const serviceNs = normalizeServiceNs(cfg.serviceNs);
+  return (
+    `<?xml version="1.0" encoding="utf-8"?>` +
+    `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ser="${escXml(serviceNs)}">` +
+    `<soapenv:Header/>` +
+    `<soapenv:Body>` +
+    `<ser:consultEfact>` +
+    `<login>${escXml(cfg.login)}</login>` +
+    `<password>${escXml(cfg.password)}</password>` +
+    `<matricule>${escXml(cfg.matricule)}</matricule>` +
+    `<uuidEfact>${escXml(uuid)}</uuidEfact>` +
+    `</ser:consultEfact>` +
+    `</soapenv:Body>` +
+    `</soapenv:Envelope>`
+  );
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...init, signal: ctrl.signal, cache: "no-store" });
+    const text = await res.text();
+    return { ok: res.ok, status: res.status, text };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+export async function ttnSaveEfact(cfg: TTNWebserviceConfig, xmlB64: string) {
   const envelope = buildSaveEfactEnvelope(cfg, xmlB64);
-
-  const res = await fetch(cfg.endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/xml; charset=utf-8",
-      SOAPAction: cfg.soapAction || "saveEfact",
+  return fetchWithTimeout(
+    cfg.endpoint,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/xml; charset=utf-8",
+        SOAPAction: cfg.soapAction || "saveEfact",
+      },
+      body: envelope,
     },
-    body: envelope,
-    cache: "no-store",
-  });
+    cfg.timeoutMs || 45000
+  );
+}
 
-  const text = await res.text();
-  return { ok: res.ok, status: res.status, text };
+export async function ttnConsultEfact(cfg: TTNWebserviceConfig, uuid: string) {
+  const envelope = buildConsultEfactEnvelope(cfg, uuid);
+  return fetchWithTimeout(
+    cfg.endpoint,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/xml; charset=utf-8",
+        SOAPAction: cfg.soapAction || "consultEfact",
+      },
+      body: envelope,
+    },
+    cfg.timeoutMs || 45000
+  );
+}
+
+export async function saveEfactSOAP(cfg: TTNWebserviceConfig, xmlB64: string) {
+  return ttnSaveEfact(cfg, xmlB64);
+}
+
+export async function consultEfactSOAP(cfg: TTNWebserviceConfig, uuid: string) {
+  return ttnConsultEfact(cfg, uuid);
 }
