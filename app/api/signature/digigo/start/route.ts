@@ -1,279 +1,136 @@
 import { NextResponse } from "next/server";
-import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { canCompanyAction } from "@/lib/permissions/companyPerms";
-import { buildCompactTeifXml, validateTeifMinimum, enforceMaxSize } from "@/lib/ttn/teif";
-import { digigoCall, digigoAspId, digigoAspIp } from "@/lib/signature/digigoClient";
+import { buildTeifInvoiceXml, enforceMaxSize, validateTeifMinimum } from "@/lib/ttn/teifXml";
+import { digigoAspId, digigoAspIp, digigoCall, digigoStartSession } from "@/lib/digigo/client";
+import { sha256Base64Utf8 } from "@/lib/crypto/sha256";
 
-export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function maybeAllowInsecureTls() {
-  if (process.env.NODE_ENV === "production") return; // Audit protection: enforce strict TLS in prod
-  if (String(process.env.DIGIGO_ALLOW_INSECURE || "").toLowerCase() === "true") {
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-  }
-}
-
-function sha256Base64Utf8(input: string) {
-  return crypto.createHash("sha256").update(input, "utf8").digest("base64");
-}
-
 export async function POST(req: Request) {
   const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
-  maybeAllowInsecureTls();
-
-  if (!auth?.user) {
-    return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
-  }
-
-  const body = await req.json().catch(() => ({}));
-  const invoice_id = s(body.invoice_id);
-  const pin = s(body.pin);
-  const identity = body.identity ?? null;
-
-  if (!invoice_id) {
-    return NextResponse.json({ ok: false, error: "invoice_id required" }, { status: 400 });
-  }
-
-  const { data: inv } = await supabase
-    .from("invoices")
-    .select("id,company_id,ttn_status")
-    .eq("id", invoice_id)
-    .maybeSingle();
-
-  const company_id = s((inv as any)?.company_id);
-  if (!company_id) {
-    return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
-  }
-
-  const ttnStatus = s((inv as any)?.ttn_status || "not_sent");
-  if (ttnStatus !== "not_sent" && ttnStatus !== "pending_signature") {
-    return NextResponse.json({ ok: false, error: "INVOICE_LOCKED_TTN" }, { status: 409 });
-  }
-
-  const allowed = await canCompanyAction(supabase, auth.user.id, company_id, "submit_ttn");
-  if (!allowed) {
-    return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
-  }
-
-  const { data: viewRow } = await supabase
-    .from("invoice_signature_views")
-    .select("id")
-    .eq("invoice_id", invoice_id)
-    .eq("viewed_by", auth.user.id)
-    .maybeSingle();
-
-  if (!viewRow) {
-    return NextResponse.json({ ok: false, error: "MUST_VIEW_INVOICE" }, { status: 409 });
-  }
-
   const service = createServiceClient();
 
-  let { data: idRow } = await supabase
-    .from("user_digigo_identities")
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+
+  const body = await req.json().catch(() => ({}));
+  const invoice_id = s((body as any).invoice_id);
+
+  if (!invoice_id) return NextResponse.json({ ok: false, error: "MISSING_INVOICE_ID" }, { status: 400 });
+
+  const { data: invoice, error: eInv } = await supabase.from("invoices").select("*").eq("id", invoice_id).single();
+  if (eInv || !invoice) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
+
+  const company_id = s((invoice as any).company_id);
+  if (!company_id) return NextResponse.json({ ok: false, error: "MISSING_COMPANY" }, { status: 400 });
+
+  const { data: items, error: eItems } = await supabase
+    .from("invoice_items")
     .select("*")
+    .eq("invoice_id", invoice_id)
+    .order("line_no", { ascending: true });
+
+  if (eItems) return NextResponse.json({ ok: false, error: "ITEMS_READ_FAILED" }, { status: 500 });
+
+  const { data: company, error: eC } = await supabase.from("companies").select("*").eq("id", company_id).single();
+  if (eC || !company) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
+
+  const { data: cred } = await supabase
+    .from("ttn_credentials")
+    .select("*")
+    .eq("company_id", company_id)
+    .eq("environment", "production")
+    .maybeSingle();
+
+  if (!cred) return NextResponse.json({ ok: false, error: "TTN_NOT_CONFIGURED" }, { status: 400 });
+
+  const { data: idRow } = await supabase
+    .from("user_digigo_identities")
+    .select("phone,email,national_id")
     .eq("user_id", auth.user.id)
     .maybeSingle();
 
-  if (!idRow && identity) {
-    const phone = s(identity.phone);
-    const email = s(identity.email);
-    const national_id = s(identity.national_id);
+  const bodyPhone = s((body as any).phone);
+  const bodyEmail = s((body as any).email);
+  const bodyCin = s((body as any).national_id);
 
-    if (!phone && !email) {
-      return NextResponse.json({ ok: false, error: "identity.phone or identity.email required" }, { status: 400 });
-    }
+  const signerPhone = bodyPhone || s((idRow as any)?.phone);
+  const signerEmail = bodyEmail || s((idRow as any)?.email);
+  const signerCin = bodyCin || s((idRow as any)?.national_id);
 
-    const { error } = await supabase
-      .from("user_digigo_identities")
-      .upsert(
-        {
-          user_id: auth.user.id,
-          phone: phone || null,
-          email: email || null,
-          national_id: national_id || null,
-        },
-        { onConflict: "user_id" }
-      );
+  const fallbackEmail = s(auth.user.email);
+  const finalEmail = signerEmail || fallbackEmail;
+  const finalPhone = signerPhone;
 
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-    }
-
-    const { data: fresh } = await supabase
-      .from("user_digigo_identities")
-      .select("*")
-      .eq("user_id", auth.user.id)
-      .maybeSingle();
-
-    idRow = fresh as any;
+  if (!finalEmail && !finalPhone) {
+    return NextResponse.json({ ok: false, error: "IDENTITY_MISSING", need_identity: true }, { status: 400 });
   }
 
-  if (!idRow) {
-    return NextResponse.json({ ok: true, need_identity: true });
-  }
-
-  const signerPhone = s((idRow as any).phone);
-  const signerEmail = s((idRow as any).email);
-  const signerNationalId = s((idRow as any).national_id);
-
-  const { data: sig } = await service
-    .from("invoice_signatures")
-    .select("meta, provider_tx_id, session_id, otp_id, state")
-    .eq("invoice_id", invoice_id)
-    .maybeSingle();
-
-  const meta = (sig as any)?.meta ?? {};
-  const provider_tx_id = s((sig as any)?.provider_tx_id) || s(meta.transaction_id) || `digigo_${crypto.randomUUID()}`;
-  const session_id = s((sig as any)?.session_id) || s(meta.session_id);
-  const otp_id_existing = s((sig as any)?.otp_id) || s(meta.otp_id);
-  const state = s((sig as any)?.state) || s(meta.state);
-
-  if (!session_id) {
-    const payload = {
-      aspId: digigoAspId(),
-      aspIp: digigoAspIp(),
-      phone: signerPhone || null,
-      email: signerEmail || null,
-      nationalId: signerNationalId || null,
-    };
-
-    const r = await digigoCall("getOtptAuth", payload);
-    if (!r.ok) {
-      return NextResponse.json({ ok: false, error: r.error || "DIGIGO_AUTH_START_FAILED" }, { status: 502 });
-    }
-
-    const newSessionId = s((r.data as any)?.sessionId || (r.data as any)?.session_id || "");
-    if (!newSessionId) {
-      return NextResponse.json({ ok: false, error: "DIGIGO_NO_SESSION_ID" }, { status: 502 });
-    }
-
-    await service.from("invoice_signatures").upsert(
+  if (!idRow && (finalEmail || finalPhone)) {
+    await service.from("user_digigo_identities").upsert(
       {
-        invoice_id,
-        company_id,
-        environment: "production",
-        provider: "digigo",
-        signed_xml: (sig as any)?.signed_xml ?? "",
-        provider_tx_id,
-        session_id: newSessionId,
-        otp_id: otp_id_existing || null,
-        signer_user_id: auth.user.id,
-        state: "pin_sent",
-        meta: {
-          ...meta,
-          transaction_id: provider_tx_id,
-          session_id: newSessionId,
-          state: "pin_sent",
-          signer_user_id: auth.user.id,
-        },
+        user_id: auth.user.id,
+        phone: finalPhone || null,
+        email: finalEmail || null,
+        national_id: signerCin || null,
       },
-      { onConflict: "invoice_id" }
+      { onConflict: "user_id" }
     );
-
-    await service.from("invoices").update({ ttn_status: "pending_signature" }).eq("id", invoice_id);
-
-    return NextResponse.json({ ok: true, need_pin: true });
   }
 
-  if (!pin) {
-    return NextResponse.json({ ok: true, need_pin: true });
-  }
+  const session_id = await digigoStartSession();
+  if (!session_id) return NextResponse.json({ ok: false, error: "DIGIGO_SESSION_FAILED" }, { status: 502 });
 
-  let a = await digigoCall("setOtpAuth", {
-    aspId: digigoAspId(),
-    aspIp: digigoAspIp(),
-    sessionId: session_id,
-    otpvalue: pin,
-    pin,
-  });
+  const provider_tx_id = `digigo_${invoice_id}_${Date.now()}`;
 
-  if (!a.ok) {
-    a = await digigoCall(`set-otp-auth/${session_id}`, {
-      aspId: digigoAspId(),
-      aspIp: digigoAspIp(),
-      otpvalue: pin,
-    });
-  }
+  const meta: any = {
+    provider: "digigo",
+    company_id,
+    invoice_id,
+    user_id: auth.user.id,
+    signer: { phone: finalPhone || null, email: finalEmail || null, cin: signerCin || null },
+  };
 
-  if (!a.ok) {
-    await service.from("invoice_signatures").upsert(
-      {
-        invoice_id,
-        company_id,
-        environment: "production",
-        provider: "digigo",
-        signed_xml: (sig as any)?.signed_xml ?? "",
-        provider_tx_id,
-        session_id,
-        otp_id: otp_id_existing || null,
-        signer_user_id: auth.user.id,
-        state: "pin_failed",
-        meta: {
-          ...meta,
-          transaction_id: provider_tx_id,
-          session_id,
-          state: "pin_failed",
-          signer_user_id: auth.user.id,
-        },
-      },
-      { onConflict: "invoice_id" }
-    );
-
-    return NextResponse.json({ ok: false, error: "DIGIGO_PIN_FAILED" }, { status: 502 });
-  }
-
-  const [{ data: items }, { data: invoice }, { data: company }] = await Promise.all([
-    service.from("invoice_items").select("*").eq("invoice_id", invoice_id).order("line_no", { ascending: true }),
-    service.from("invoices").select("*").eq("id", invoice_id).single(),
-    service.from("companies").select("*").eq("id", company_id).single(),
-  ]);
-
-  const teifXml = buildCompactTeifXml({
-    invoiceId: s(invoice.id),
-    companyId: s(company.id),
-    documentType: s(invoice.document_type ?? "facture"),
-    invoiceNumber: s(invoice.invoice_number ?? ""),
-    issueDate: s(invoice.issue_date ?? invoice.created_at ?? ""),
-    dueDate: s(invoice.due_date ?? ""),
-    currency: s(invoice.currency ?? "TND"),
-    supplier: {
-      name: s(company.company_name ?? ""),
-      taxId: s(company.tax_id ?? ""),
-      address: s(company.address ?? ""),
-      city: s(company.city ?? ""),
-      postalCode: s(company.postal_code ?? ""),
-      country: s(company.country ?? "TN"),
+  const teifXml = buildTeifInvoiceXml({
+    company: {
+      name: s((company as any)?.company_name ?? ""),
+      taxId: s((company as any)?.tax_id ?? (company as any)?.taxId ?? ""),
+      address: s((company as any)?.address ?? ""),
+      city: s((company as any)?.city ?? ""),
+      postalCode: s((company as any)?.postal_code ?? (company as any)?.zip ?? ""),
+      country: s((company as any)?.country ?? "TN"),
     },
-    customer: {
-      name: s(invoice.customer_name ?? ""),
-      taxId: (invoice.customer_tax_id ?? null) as string | null,
-      address: s(invoice.customer_address ?? ""),
-      city: s(invoice.customer_city ?? ""),
-      postalCode: s(invoice.customer_postal_code ?? ""),
-      country: s(invoice.customer_country ?? "TN"),
+    invoice: {
+      documentType: s((invoice as any)?.document_type ?? "facture"),
+      number: s((invoice as any)?.invoice_number ?? ""),
+      issueDate: s((invoice as any)?.issue_date ?? ""),
+      currency: s((invoice as any)?.currency ?? "TND"),
+      customerName: s((invoice as any)?.customer_name ?? ""),
+      customerTaxId: s((invoice as any)?.customer_tax_id ?? ""),
+      customerEmail: s((invoice as any)?.customer_email ?? ""),
+      customerPhone: s((invoice as any)?.customer_phone ?? ""),
+      customerAddress: s((invoice as any)?.customer_address ?? ""),
+      notes: s((invoice as any)?.notes ?? ""),
     },
     totals: {
-      ht: Number(invoice.total_ht ?? 0),
-      tva: Number(invoice.total_tva ?? 0),
-      ttc: Number(invoice.total_ttc ?? 0),
-      stampEnabled: Boolean(invoice.stamp_enabled ?? false),
-      stampAmount: Number(invoice.stamp_amount ?? 0),
+      ht: Number((invoice as any)?.subtotal_ht ?? 0),
+      tva: Number((invoice as any)?.total_vat ?? (invoice as any)?.total_tva ?? 0),
+      ttc: Number((invoice as any)?.total_ttc ?? 0),
+      stampEnabled: true,
+      stampAmount: Number((invoice as any)?.stamp_amount ?? (invoice as any)?.stamp_duty ?? 0),
     },
-    notes: s(invoice.notes ?? ""),
     items: (items ?? []).map((it: any) => ({
       description: s(it.description ?? ""),
-      qty: Number(it.qty ?? 1),
-      price: Number(it.price ?? 0),
-      vat: Number(it.vat ?? 0),
-      discount: Number(it.discount ?? 0),
+      qty: Number(it.quantity ?? 1),
+      price: Number(it.unit_price_ht ?? 0),
+      vat: Number(it.vat_pct ?? 0),
+      discount: Number(it.discount_pct ?? 0),
     })),
   });
 
@@ -287,7 +144,7 @@ export async function POST(req: Request) {
   const unsignedHash = sha256Base64Utf8(unsignedXml);
   const bytesB64 = Buffer.from(unsignedXml, "utf8").toString("base64");
 
-  const signerAlias = signerEmail || signerPhone || auth.user.email || "signer";
+  const signerAlias = finalEmail || finalPhone || "signer";
 
   const toBeSignedWithParameters = {
     sessionId: session_id,
@@ -313,9 +170,7 @@ export async function POST(req: Request) {
   };
 
   let r = await digigoCall("requestSignDocumentWithOtp", reqPayload);
-  if (!r.ok) {
-    r = await digigoCall("requestSignWithOtp", reqPayload);
-  }
+  if (!r.ok) r = await digigoCall("requestSignWithOtp", reqPayload);
 
   if (!r.ok) {
     await service.from("invoice_signatures").upsert(
@@ -324,31 +179,21 @@ export async function POST(req: Request) {
         company_id,
         environment: "production",
         provider: "digigo",
-        signed_xml: (sig as any)?.signed_xml ?? "",
         provider_tx_id,
         session_id,
         signer_user_id: auth.user.id,
         state: "otp_request_failed",
         unsigned_xml: unsignedXml,
         unsigned_hash: unsignedHash,
-        meta: {
-          ...meta,
-          transaction_id: provider_tx_id,
-          session_id,
-          state: "otp_request_failed",
-          signer_user_id: auth.user.id,
-        },
+        meta: { ...meta, state: "otp_request_failed" },
       },
       { onConflict: "invoice_id" }
     );
-
     return NextResponse.json({ ok: false, error: "DIGIGO_REQUEST_SIGN_FAILED" }, { status: 502 });
   }
 
   const otp_id = s((r.data as any)?.otpId || (r.data as any)?.OTPID || "");
-  if (!otp_id) {
-    return NextResponse.json({ ok: false, error: "DIGIGO_NO_OTP_ID" }, { status: 502 });
-  }
+  if (!otp_id) return NextResponse.json({ ok: false, error: "DIGIGO_NO_OTP_ID" }, { status: 502 });
 
   await service.from("invoice_signatures").upsert(
     {
@@ -356,7 +201,6 @@ export async function POST(req: Request) {
       company_id,
       environment: "production",
       provider: "digigo",
-      signed_xml: (sig as any)?.signed_xml ?? "",
       provider_tx_id,
       session_id,
       otp_id,
@@ -364,20 +208,12 @@ export async function POST(req: Request) {
       state: "otp_sent",
       unsigned_xml: unsignedXml,
       unsigned_hash: unsignedHash,
-      meta: {
-        ...meta,
-        transaction_id: provider_tx_id,
-        session_id,
-        otp_id,
-        state: "otp_sent",
-        signer_user_id: auth.user.id,
-        digigo_ctx: { toBeSignedWithParameters },
-      },
+      meta: { ...meta, otp_id, state: "otp_sent", digigo_ctx: { toBeSignedWithParameters } },
     },
     { onConflict: "invoice_id" }
   );
 
-  await service.from("invoices").update({ ttn_status: "pending_signature" }).eq("id", invoice_id);
+  await service.from("invoices").update({ signature_status: "not_signed" }).eq("id", invoice_id);
 
   return NextResponse.json({ ok: true, otp_required: true, otp_id });
 }
