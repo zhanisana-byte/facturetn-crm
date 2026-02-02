@@ -195,7 +195,6 @@ export default function NewInvoiceClient({
           issue_date: issueDate,
           invoice_number: invoiceNumber.trim() || null,
 
-          customer_type: customerType,
           customer_name: customerName.trim(),
           customer_tax_id: customerTaxId.trim() || null,
           customer_email: customerEmail.trim() || null,
