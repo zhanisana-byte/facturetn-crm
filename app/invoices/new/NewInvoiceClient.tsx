@@ -195,6 +195,7 @@ export default function NewInvoiceClient({
           issue_date: issueDate,
           invoice_number: invoiceNumber.trim() || null,
 
+          customer_type: customerType,
           customer_name: customerName.trim(),
           customer_tax_id: customerTaxId.trim() || null,
           customer_email: customerEmail.trim() || null,
@@ -212,8 +213,6 @@ export default function NewInvoiceClient({
           net_to_pay: totals.net_to_pay,
 
           signature_provider: "digigo",
-          signature_required: true,
-          signature_status: "not_signed",
 
           send_mode: "manual",
           ttn_status: "not_sent",
