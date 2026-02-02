@@ -1,4 +1,3 @@
-
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
@@ -7,6 +6,12 @@ import { createClient } from "@/lib/supabase/server";
 import type { ReactNode } from "react";
 
 type SubStatus = "trialing" | "active" | "inactive" | "past_due" | "canceled";
+
+type PlatformSubStatus = "trial" | "active" | "paused" | "overdue" | "free" | "canceled";
+
+function platformCovers(status: PlatformSubStatus | null | undefined) {
+  return status === "active" || status === "free" || status === "trial";
+}
 
 function addMonths(d: Date, months: number) {
   const x = new Date(d.getTime());
@@ -58,6 +63,45 @@ function Pill({
   );
 }
 
+async function getGroupCoverage(opts: { supabase: any; companyId: string }) {
+  const { data: links } = await opts.supabase
+    .from("group_companies")
+    .select("group_id, groups(id, group_name)")
+    .eq("company_id", opts.companyId)
+    .limit(10);
+
+  const items = (links ?? [])
+    .map((l: any) => ({
+      groupId: String(l.group_id || ""),
+      groupName: String(l.groups?.group_name || "Groupe"),
+    }))
+    .filter((x: any) => !!x.groupId);
+
+  if (items.length === 0) return null;
+
+  const withStatus: Array<{ groupId: string; groupName: string; status: PlatformSubStatus | null }> = [];
+
+  for (const it of items) {
+    const { data: sub } = await opts.supabase
+      .from("platform_subscriptions")
+      .select("status")
+      .eq("scope_type", "group")
+      .eq("scope_id", it.groupId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    withStatus.push({
+      groupId: it.groupId,
+      groupName: it.groupName,
+      status: (sub?.status ? String(sub.status) : null) as PlatformSubStatus | null,
+    });
+  }
+
+  const active = withStatus.find((x) => platformCovers(x.status));
+  return active ?? withStatus[0];
+}
+
 export default async function CompanySubscriptionPage(props: { params?: Promise<{ id: string }> }) {
   const params = (await props.params) ?? ({} as any);
   const { id: companyId } = params as any;
@@ -85,6 +129,8 @@ export default async function CompanySubscriptionPage(props: { params?: Promise<
     myMembership?.is_active && (myMembership.role === "owner" || myMembership.role === "admin")
   );
 
+  const coverage = await getGroupCoverage({ supabase, companyId });
+
   const createdAt = auth.user.created_at ? new Date(auth.user.created_at) : new Date();
   const trialEndsAt = addMonths(createdAt, 1);
   const now = new Date();
@@ -92,6 +138,7 @@ export default async function CompanySubscriptionPage(props: { params?: Promise<
   const daysLeft = diffCalendarDays(now, trialEndsAt);
 
   let subscriptionStatus: SubStatus = trialActive ? "trialing" : "inactive";
+
   try {
     const { data: sub } = await supabase
       .from("company_subscriptions")
@@ -101,8 +148,9 @@ export default async function CompanySubscriptionPage(props: { params?: Promise<
 
     if (sub?.status) subscriptionStatus = String(sub.status) as SubStatus;
   } catch {
-    
   }
+
+  const coveredByGroup = platformCovers(coverage?.status);
 
   const pricePerMonth = 50;
 
@@ -118,25 +166,62 @@ export default async function CompanySubscriptionPage(props: { params?: Promise<
             </div>
           </div>
 
-          {subscriptionStatus === "active" ? (
-            <Pill tone="success"> Actif</Pill>
+          {coveredByGroup ? (
+            <Pill tone="success">Couvert par groupe</Pill>
+          ) : subscriptionStatus === "active" ? (
+            <Pill tone="success">Actif</Pill>
           ) : subscriptionStatus === "trialing" ? (
-            <Pill tone="gold"> Essai</Pill>
+            <Pill tone="gold">Essai</Pill>
           ) : subscriptionStatus === "past_due" ? (
-            <Pill tone="warning"> Paiement en retard</Pill>
+            <Pill tone="warning">Paiement en retard</Pill>
           ) : subscriptionStatus === "canceled" ? (
-            <Pill tone="warning"> Annulé</Pill>
+            <Pill tone="warning">Annulé</Pill>
           ) : (
             <Pill>Inactif</Pill>
           )}
         </div>
 
+        {coverage ? (
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            <div className="font-semibold text-slate-900">Lien Groupe</div>
+            <div className="mt-1">
+              Cette société est liée au groupe <b>{coverage.groupName}</b>.
+            </div>
+            <div className="mt-1 text-xs text-slate-600">
+              Statut abonnement groupe : <b>{coverage.status ?? "—"}</b>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                href={`/groups/${encodeURIComponent(coverage.groupId)}/subscription`}
+                className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold border border-slate-200 bg-white text-slate-900 hover:bg-slate-100"
+              >
+                Voir abonnement groupe
+              </Link>
+              <Link
+                href={`/groups/${encodeURIComponent(coverage.groupId)}/companies`}
+                className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold border border-slate-200 bg-white text-slate-900 hover:bg-slate-100"
+              >
+                Voir sociétés du groupe
+              </Link>
+            </div>
+            {!coveredByGroup ? (
+              <div className="mt-3 text-xs text-amber-800">
+                Le groupe n’est pas actif. Vous pouvez activer l’abonnement Société (50 DT) ou demander au groupe d’activer.
+              </div>
+            ) : (
+              <div className="mt-3 text-xs text-slate-600">
+                Le paiement et l’accès sont gérés via l’abonnement du groupe.
+              </div>
+            )}
+          </div>
+        ) : null}
+
         <div className="mt-4 text-sm text-slate-700">
           <div>
-            <b>Offre démarrage :</b> <b>1 mois gratuit</b>, puis <b>{pricePerMonth} DT / mois</b>.
+            <b>Offre société :</b> <b>1 mois gratuit</b>, puis <b>{pricePerMonth} DT / mois</b>.
           </div>
           <div className="mt-1 text-slate-600">
-            Paiement mensuel recommandé pour réduire le risque (accès coupé en cas d’impayé).
+            Cet abonnement est requis uniquement si la société n’est pas couverte par un abonnement Groupe.
           </div>
         </div>
       </div>
@@ -169,14 +254,16 @@ export default async function CompanySubscriptionPage(props: { params?: Promise<
 
           <div className="flex flex-wrap gap-2">
             {isManager ? (
-              <Link
-                href={`/subscription/activate?plan=company_monthly_50&company=${encodeURIComponent(
-                  companyId
-                )}`}
-                className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold bg-black text-white hover:opacity-90"
-              >
-                Activer / Régler
-              </Link>
+              coveredByGroup ? (
+                <div className="text-xs text-slate-600">Abonnement Société désactivé (couvert par groupe).</div>
+              ) : (
+                <Link
+                  href={`/subscription/activate?plan=company_monthly_50&company=${encodeURIComponent(companyId)}`}
+                  className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold bg-black text-white hover:opacity-90"
+                >
+                  Activer / Régler
+                </Link>
+              )
             ) : (
               <div className="text-xs text-slate-600">Owner/Admin requis pour gérer l’abonnement.</div>
             )}
