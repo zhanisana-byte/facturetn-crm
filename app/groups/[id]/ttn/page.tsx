@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import GroupTTNListClient from "./GroupTTNListClient";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,10 +15,20 @@ function ttnComplete(cred: any | null | undefined) {
   if (!cred) return false;
   const connection = String(cred.connection_type ?? "webservice");
   if (connection === "webservice") {
-    return !isBlank(cred.environment) && !isBlank(cred.ws_url) && !isBlank(cred.ws_login) && !isBlank(cred.ws_password) && !isBlank(cred.ws_matricule);
+    return (
+      !isBlank(cred.environment) &&
+      !isBlank(cred.ws_url) &&
+      !isBlank(cred.ws_login) &&
+      !isBlank(cred.ws_password) &&
+      !isBlank(cred.ws_matricule)
+    );
   }
-  
   return !isBlank(cred.environment);
+}
+
+function pill(ok: boolean) {
+  const cls = ok ? "ftn-pill ftn-pill-ok" : "ftn-pill ftn-pill-warn";
+  return <span className={cls}>{ok ? "Complet" : "Incomplet"}</span>;
 }
 
 export default async function GroupTTNListPage({ params }: Props) {
@@ -60,16 +69,21 @@ export default async function GroupTTNListPage({ params }: Props) {
     .eq("group_id", groupId);
 
   const companyIds = (links ?? []).map((l: any) => l.company_id).filter(Boolean);
+
   if (companyIds.length === 0) {
     return (
       <div className="p-6 space-y-3">
-        <h1 className="text-xl font-semibold">Paramètres TTN</h1>
+        <h1 className="text-xl font-semibold">TTN (lecture)</h1>
         <p className="text-sm text-slate-600">
-          Aucune société n’est encore liée à ce groupe. Ajoutez une société gérée ou acceptez une invitation d’une société gérée.
+          Aucune société n’est encore liée à ce groupe.
         </p>
         <div className="flex gap-2">
-          <Link className="btn" href={`/groups/${groupId}/clients`}>Voir mes sociétés</Link>
-          <Link className="btn btn-ghost" href={`/groups/${groupId}`}>Retour dashboard</Link>
+          <Link className="btn" href={`/groups/${groupId}/clients`}>
+            Voir mes sociétés
+          </Link>
+          <Link className="btn btn-ghost" href={`/groups/${groupId}`}>
+            Retour dashboard
+          </Link>
         </div>
       </div>
     );
@@ -93,31 +107,79 @@ export default async function GroupTTNListPage({ params }: Props) {
     if (!credByCompany.has(cid)) credByCompany.set(cid, c);
   }
 
-  const typeByCompany = new Map<string, "managed">();
+  const typeByCompany = new Map<string, "external" | "managed">();
   for (const l of links ?? []) {
-    typeByCompany.set(String((l as any).company_id), "managed");
+    const cid = String((l as any).company_id ?? "");
+    const lt = String((l as any).link_type ?? "external");
+    typeByCompany.set(cid, lt === "managed" ? "managed" : "external");
   }
 
-  const rows = (companies ?? []).map((c: any) => {
-    const cred = credByCompany.get(String(c.id)) ?? null;
-    const ok = ttnComplete(cred);
-    const t = typeByCompany.get(String(c.id)) ?? "managed";
-    return { company: c, linkType: t, ok };
-  }).sort((a, b) => a.company.company_name.localeCompare(b.company.company_name));
+  const rows = (companies ?? [])
+    .map((c: any) => {
+      const cred = credByCompany.get(String(c.id)) ?? null;
+      const ok = ttnComplete(cred);
+      const linkType = typeByCompany.get(String(c.id)) ?? "external";
+      return {
+        id: String(c.id),
+        name: String(c.company_name ?? "Société"),
+        taxId: c.tax_id ? String(c.tax_id) : "—",
+        ok,
+        linkType,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Paramètres TTN</h1>
+          <h1 className="text-xl font-semibold">TTN (lecture)</h1>
           <p className="text-sm text-slate-600">
-            Vous restez dans l’espace Groupe. Sélectionnez une société pour compléter ou modifier ses paramètres TTN (Test TTN / Test API inclus).
+            Dans l’espace Groupe, vous pouvez seulement consulter l’état des paramètres TTN.  
+            Pour modifier, ouvrez la société.
           </p>
         </div>
-        <Link className="btn btn-ghost" href={`/groups/${groupId}`}>Retour</Link>
+        <Link className="btn btn-ghost" href={`/groups/${groupId}`}>
+          Retour
+        </Link>
       </div>
 
-      <GroupTTNListClient groupId={groupId} rows={rows as any} />
+      <div className="overflow-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-slate-500 border-b">
+              <th className="py-2 px-2">Société</th>
+              <th className="py-2 px-2">MF</th>
+              <th className="py-2 px-2">Type</th>
+              <th className="py-2 px-2">TTN</th>
+              <th className="py-2 px-2 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className="border-b last:border-0">
+                <td className="py-2 px-2 font-semibold">{r.name}</td>
+                <td className="py-2 px-2 text-slate-600">{r.taxId}</td>
+                <td className="py-2 px-2">
+                  <span className="ftn-pill">
+                    {r.linkType === "managed" ? "Gérée" : "Externe"}
+                  </span>
+                </td>
+                <td className="py-2 px-2">{pill(r.ok)}</td>
+                <td className="py-2 px-2 text-right">
+                  <Link className="btn" href={`/companies/${encodeURIComponent(r.id)}/ttn`}>
+                    Ouvrir TTN (Société)
+                  </Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="text-xs text-slate-500">
+        Rappel : le paramétrage TTN se fait uniquement dans la société.
+      </div>
     </div>
   );
 }
