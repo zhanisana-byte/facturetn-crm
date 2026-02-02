@@ -14,6 +14,7 @@ function s(v: any) {
 }
 
 function maybeAllowInsecureTls() {
+  if (process.env.NODE_ENV === "production") return; // Audit protection: enforce strict TLS in prod
   if (String(process.env.DIGIGO_ALLOW_INSECURE || "").toLowerCase() === "true") {
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
   }

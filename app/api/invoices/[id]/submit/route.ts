@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const { id  } = await ctx.params;
+  const { id } = await ctx.params;
   const supabase = await createClient();
 
   const { data: auth } = await supabase.auth.getUser();
@@ -14,7 +14,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 
   const { data: invoice, error: invErr } = await supabase
     .from("invoices")
-    .select("id,company_id,status,require_accountant_validation")
+    .select("id,company_id,status,require_accountant_validation,signed_at,signature_status,ttn_status")
     .eq("id", id)
     .maybeSingle();
 
@@ -23,6 +23,15 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   }
   if (!invoice) {
     return NextResponse.json({ ok: false, error: "Facture introuvable ou accès refusé." }, { status: 404 });
+  }
+
+  // Security checks
+  const isSigned = !!(invoice as any).signed_at || (invoice as any).signature_status === "signed";
+  const ttnStatus = (invoice as any).ttn_status || "draft";
+  const isLocked = !["draft", "not_sent", "error", "failed"].includes(ttnStatus);
+
+  if (isSigned || isLocked) {
+    return NextResponse.json({ ok: false, error: "Invoice is locked/signed and cannot be modified." }, { status: 409 });
   }
 
   const { data: membership, error: mErr } = await supabase
@@ -44,7 +53,6 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   if (!(invoice as any).require_accountant_validation) {
-    
     return NextResponse.json({ ok: true, skipped: true, message: "Validation non requise pour cette facture." });
   }
 

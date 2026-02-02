@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const { id  } = await ctx.params;
+  const { id } = await ctx.params;
   const supabase = await createClient();
 
   const { data: auth } = await supabase.auth.getUser();
@@ -15,7 +15,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   const { data: invoice, error: invErr } = await supabase
     .from("invoices")
     .select(
-      "id,company_id,invoice_number,issue_date,total_ttc,qr_payload,status,require_accountant_validation,accountant_validated_at,accountant_validated_by,seller_snapshot_at,seller_name,seller_tax_id,seller_street,seller_city,seller_zip"
+      "id,company_id,invoice_number,issue_date,total_ttc,qr_payload,status,require_accountant_validation,accountant_validated_at,accountant_validated_by,seller_snapshot_at,seller_name,seller_tax_id,seller_street,seller_city,seller_zip,signed_at,signature_status,ttn_status"
     )
     .eq("id", id)
     .maybeSingle();
@@ -25,6 +25,15 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   }
   if (!invoice) {
     return NextResponse.json({ ok: false, error: "Facture introuvable ou accès refusé." }, { status: 404 });
+  }
+
+  // Security checks
+  const isSigned = !!(invoice as any).signed_at || (invoice as any).signature_status === "signed";
+  const ttnStatus = (invoice as any).ttn_status || "draft";
+  const isLocked = !["draft", "not_sent", "error", "failed"].includes(ttnStatus);
+
+  if (isSigned || isLocked) {
+    return NextResponse.json({ ok: false, error: "Invoice is locked/signed and cannot be modified." }, { status: 409 });
   }
 
   const { data: membership, error: mErr } = await supabase
@@ -44,7 +53,6 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   if ((invoice as any).accountant_validated_at) {
-    
     return NextResponse.json({ ok: true, already: true });
   }
 
@@ -81,11 +89,11 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   const qr_payload = existingQr
     ? existingQr
     : JSON.stringify({
-        seller_tax_id,
-        invoice_number: (invoice as any).invoice_number ?? null,
-        issue_date: (invoice as any).issue_date ?? null,
-        total_ttc: (invoice as any).total_ttc ?? null,
-      });
+      seller_tax_id,
+      invoice_number: (invoice as any).invoice_number ?? null,
+      issue_date: (invoice as any).issue_date ?? null,
+      total_ttc: (invoice as any).total_ttc ?? null,
+    });
 
   const { error: upErr } = await supabase
     .from("invoices")

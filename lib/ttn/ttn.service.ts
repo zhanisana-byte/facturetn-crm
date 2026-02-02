@@ -1,23 +1,23 @@
 export type TTNTestResult =
   | {
-      ok: true;
-      mode: "mock" | "real";
-      code: "OK";
-      message: string;
-      payload: {
-        ttn_request_id: string;
-        server_time: string;
-        environment: "TEST" | "PROD";
-        latency_ms: number;
-      };
-    }
-  | {
-      ok: false;
-      mode: "mock" | "real";
-      code: "AUTH_FAILED" | "TIMEOUT" | "BAD_REQUEST" | "SERVER_ERROR" | "NOT_ENABLED";
-      message: string;
-      details?: any;
+    ok: true;
+    mode: "mock" | "real";
+    code: "OK";
+    message: string;
+    payload: {
+      ttn_request_id: string;
+      server_time: string;
+      environment: "TEST" | "PROD";
+      latency_ms: number;
     };
+  }
+  | {
+    ok: false;
+    mode: "mock" | "real";
+    code: "AUTH_FAILED" | "TIMEOUT" | "BAD_REQUEST" | "SERVER_ERROR" | "NOT_ENABLED" | "PROD_BLOCK";
+    message: string;
+    details?: any;
+  };
 
 function nowIso() {
   return new Date().toISOString();
@@ -32,17 +32,41 @@ function sleep(ms: number) {
 }
 
 export function isTTNEnabled() {
-  
   return process.env.NEXT_PUBLIC_TTN_ENABLED === "1";
 }
 
 export function getTTNMode(): "mock" | "real" {
+  if (process.env.NODE_ENV === "production") {
+    // In production, we NEVER default to mock.
+    const m = String(process.env.TTN_MODE || "").toLowerCase();
+    if (m === "real") return "real";
+    // If not explicitly real, we consider it invalid or default to real but block if missing?
+    // User asked: "Si TTN_MODE === 'mock' -> refuser (throw) en prod."
+    // So if it's set to "mock" (or anything else/empty that would fall back to mock), we must handle it.
+    // For now, let's return "real" if set, otherwise throw error if logic demands it.
+    // However, this function returns a string. The checking logic needs to be in the usage side OR here.
+    // Let's make this return "real" strictly, or error out if we can't.
+    // Actually, following the spec strictly: "En production (NODE_ENV === "production"), interdire le mode mock"
+    if (m === "mock") {
+      throw new Error("TTN_MODE cannot be 'mock' in production!");
+    }
+    // If empty, user said "throw error / refuser".
+    if (!m) {
+      throw new Error("TTN_MODE is required in production (must be 'real').");
+    }
+    return "real";
+  }
+
   const m = String(process.env.TTN_MODE || "mock").toLowerCase();
   return m === "real" ? "real" : "mock";
 }
 
 async function mockTTNTest(environment: "test" | "production"): Promise<TTNTestResult> {
-  
+  // DOUBLE CHECK: This should never be called in prod due to safeguards, but just in case.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Mock TTN execution prevented in production.");
+  }
+
   const latency = 250 + Math.floor(Math.random() * 700);
   await sleep(latency);
 
@@ -84,7 +108,7 @@ async function mockTTNTest(environment: "test" | "production"): Promise<TTNTestR
 export async function testTTNApi(opts: {
   environment: "test" | "production";
   missing?: string[];
-  
+
   wsUrl?: string;
   wsLogin?: string;
   wsPassword?: string;
@@ -94,7 +118,7 @@ export async function testTTNApi(opts: {
   if (!isTTNEnabled()) {
     return {
       ok: false,
-      mode: getTTNMode(),
+      mode: process.env.NODE_ENV === "production" ? "real" : getTTNMode(),
       code: "NOT_ENABLED",
       message: "TTN en attente d’activation (flag global OFF).",
     };
@@ -103,15 +127,35 @@ export async function testTTNApi(opts: {
   if (opts.missing?.length) {
     return {
       ok: false,
-      mode: getTTNMode(),
+      mode: process.env.NODE_ENV === "production" ? "real" : getTTNMode(),
       code: "BAD_REQUEST",
       message: `Paramètres manquants: ${opts.missing.join(", ")}`,
       details: { missing: opts.missing },
     };
   }
 
-  const mode = getTTNMode();
+  let mode: "mock" | "real";
+  try {
+    mode = getTTNMode();
+  } catch (e: any) {
+    return {
+      ok: false,
+      mode: "real",
+      code: "PROD_BLOCK",
+      message: e.message || "TTN misconfiguration in production",
+    };
+  }
+
   if (mode === "mock") {
+    // Audit protection
+    if (process.env.NODE_ENV === "production") {
+      return {
+        ok: false,
+        mode: "real",
+        code: "PROD_BLOCK",
+        message: "Mock mode is strictly disabled in production.",
+      };
+    }
     return mockTTNTest(opts.environment);
   }
 

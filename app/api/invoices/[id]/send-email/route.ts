@@ -85,9 +85,9 @@ export async function POST(req: Request, ctx: Ctx) {
   const supplier = {
     name: String(
       (sellerCompany as any)?.company_name ??
-        (sellerCompany as any)?.legal_name ??
-        (sellerCompany as any)?.name ??
-        ""
+      (sellerCompany as any)?.legal_name ??
+      (sellerCompany as any)?.name ??
+      ""
     ),
     taxId: String((sellerCompany as any)?.tax_id ?? (sellerCompany as any)?.vat_number ?? ""),
     address: String((sellerCompany as any)?.address ?? (sellerCompany as any)?.address_line ?? ""),
@@ -106,6 +106,9 @@ export async function POST(req: Request, ctx: Ctx) {
     !!process.env.SMTP_PASS;
 
   if (!smtpConfigured) {
+    if (process.env.NODE_ENV === "production") {
+      return NextResponse.json({ ok: false, error: "Email service not configured." }, { status: 404 });
+    }
     return NextResponse.json(
       {
         ok: false,
@@ -121,6 +124,12 @@ export async function POST(req: Request, ctx: Ctx) {
       },
       { status: 503 }
     );
+  }
+
+  // If SMTP is present but we still return 501 below, it means the logic isn't there.
+  // In production, we should just say disabled.
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ ok: false, error: "Email feature disabled." }, { status: 403 });
   }
 
   return NextResponse.json(
