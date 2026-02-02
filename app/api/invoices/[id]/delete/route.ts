@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { canCompanyAction } from "@/lib/permissions/companyPerms";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-function isInvoiceSigned(inv: Record<string, any> | null | undefined): boolean {
+function isInvoiceSignedLegacy(inv: Record<string, any> | null | undefined): boolean {
   if (!inv) return false;
 
   if (inv.signed_at) return true;
@@ -53,6 +54,16 @@ function isTtnLocked(inv: Record<string, any> | null | undefined): boolean {
   return !allowedToDelete.has(st);
 }
 
+function isSignatureBlocking(sig: any | null | undefined): boolean {
+  if (!sig) return false;
+  const state = typeof sig.state === "string" ? sig.state.toLowerCase() : "";
+  if (state === "signed") return true;
+  const signedXml = typeof sig.signed_xml === "string" ? sig.signed_xml.trim() : "";
+  if (signedXml.length > 0) return true;
+  if (sig.signed_at) return true;
+  return false;
+}
+
 export async function POST(_req: Request, ctx: Ctx) {
   const { id } = await ctx.params;
   const supabase = await createClient();
@@ -76,7 +87,27 @@ export async function POST(_req: Request, ctx: Ctx) {
     return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   }
 
-  if (isInvoiceSigned(invoice)) {
+  const companyId = String((invoice as any).company_id || "");
+  if (!companyId) {
+    return NextResponse.json({ ok: false, error: "Invoice has no company" }, { status: 400 });
+  }
+
+  const allowed = await canCompanyAction(supabase, auth.user.id, companyId, "create_invoices");
+  if (!allowed) {
+    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  }
+
+  const { data: sig, error: sigErr } = await supabase
+    .from("invoice_signatures")
+    .select("state,signed_xml,signed_at")
+    .eq("invoice_id", id)
+    .maybeSingle();
+
+  if (sigErr) {
+    return NextResponse.json({ ok: false, error: sigErr.message }, { status: 400 });
+  }
+
+  if (isSignatureBlocking(sig) || isInvoiceSignedLegacy(invoice)) {
     return NextResponse.json(
       { ok: false, error: "Invoice is signed and cannot be deleted." },
       { status: 409 }
@@ -90,10 +121,7 @@ export async function POST(_req: Request, ctx: Ctx) {
     );
   }
 
-  const { error: delItemsErr } = await supabase
-    .from("invoice_items")
-    .delete()
-    .eq("invoice_id", id);
+  const { error: delItemsErr } = await supabase.from("invoice_items").delete().eq("invoice_id", id);
 
   if (delItemsErr) {
     return NextResponse.json({ ok: false, error: delItemsErr.message }, { status: 400 });
