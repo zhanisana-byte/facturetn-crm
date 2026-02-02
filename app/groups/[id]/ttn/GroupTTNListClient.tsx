@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 
 type Row = {
   company: { id: string; company_name: string; tax_id: string | null };
-  linkType: "internal" | "external";
+  linkType: "managed";
   ok: boolean;
 };
 
@@ -17,7 +17,7 @@ export default function GroupTTNListClient({
   rows: Row[];
 }) {
   const [status, setStatus] = useState<"all" | "incomplete" | "complete">("all");
-  const [type, setType] = useState<"all" | "internal" | "external">("all");
+  const [type, setType] = useState<"all">("all");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -53,7 +53,6 @@ export default function GroupTTNListClient({
 
   return (
     <div className="space-y-3">
-      {}
       <div className="rounded-xl border bg-white p-3">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-wrap gap-2">
@@ -95,10 +94,7 @@ export default function GroupTTNListClient({
                 setPage(1);
               }}
             >
-              <option value="all">Tous types</option>
-              <option value="internal">Interne</option>
-              <option value="external">Externe</option>
-            </select>
+              <option value="all">Tous types</option>            </select>
 
             <input
               className="h-10 w-full md:w-[280px] rounded-lg border border-slate-200 bg-white px-3 text-sm"
@@ -117,7 +113,6 @@ export default function GroupTTNListClient({
         </div>
       </div>
 
-      {}
       <div className="rounded-xl border bg-white overflow-hidden">
         <div className="overflow-auto">
           <table className="min-w-[720px] w-full text-sm">
@@ -139,12 +134,12 @@ export default function GroupTTNListClient({
                   <td className="px-4 py-3">
                     <span
                       className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${
-                        r.linkType === "internal"
+                        r.linkType === "managed"
                           ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                           : "border-slate-200 bg-white text-slate-700"
                       }`}
                     >
-                      {r.linkType === "internal" ? "Interne" : "Externe"}
+                      {r.linkType === "managed" ? "Gérée" : "Gérée"}
                     </span>
                   </td>
                   <td className="px-4 py-3">
@@ -175,7 +170,6 @@ export default function GroupTTNListClient({
         </div>
       </div>
 
-      {}
       <div className="flex items-center justify-between">
         <div className="text-xs text-slate-500">Page {safePage}/{totalPages}</div>
         <div className="flex gap-2">

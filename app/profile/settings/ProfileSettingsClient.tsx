@@ -144,7 +144,7 @@ export default function ProfileSettingsClient() {
       <div className="ftn-card-lux ftn-reveal">
         <div className="ftn-card-head">
           <div className="ftn-card-titleRow">
-            <div className="ftn-ic">⚙️</div>
+            <div className="ftn-ic">️</div>
             <div>
               <div className="ftn-card-title">Paramètres du profil</div>
               <div className="ftn-card-sub">Modifiez vos informations et votre mot de passe</div>

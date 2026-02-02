@@ -17,7 +17,7 @@ type Row = {
   id: string;
   name: string;
   taxId: string;
-  linkType: "internal" | "external";
+  linkType: "managed";
   companyComplete: boolean;
   ttnExists: boolean;
   ttnComplete: boolean;
@@ -35,7 +35,7 @@ export default function GroupClientsClient({
   removeAction: (formData: FormData) => void;
 }) {
   const [q, setQ] = useState("");
-  const [type, setType] = useState<"all" | "internal" | "external">("all");
+  const [type, setType] = useState<"all">("all");
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
@@ -43,8 +43,7 @@ export default function GroupClientsClient({
     const qq = q.trim().toLowerCase();
     let base = rows;
 
-    if (type !== "all") base = base.filter((r) => r.linkType === type);
-
+    
     if (!qq) return base;
 
     return base.filter((r) => {
@@ -68,8 +67,8 @@ export default function GroupClientsClient({
   if (!rows || rows.length === 0) {
     return (
       <div className="ftn-muted">
-        Aucune société liée à ce groupe. Vous pouvez <b>créer une société interne</b>, ou{" "}
-        <b>accepter</b> des sociétés externes via <b>Invitations reçues</b>.
+        Aucune société liée à ce groupe. Vous pouvez <b>créer une société gérée</b>, ou{" "}
+        <b>accepter</b> des sociétés gérées via <b>Invitations reçues</b>.
       </div>
     );
   }
@@ -96,10 +95,7 @@ export default function GroupClientsClient({
           }}
           style={{ maxWidth: 220 }}
         >
-          <option value="all">Tous</option>
-          <option value="internal">Internes</option>
-          <option value="external">Externes</option>
-        </select>
+          <option value="all">Tous</option>        </select>
 
         <span className="ftn-badge">{filtered.length}</span>
       </div>
@@ -126,13 +122,13 @@ export default function GroupClientsClient({
               <td>
                 <div className="font-semibold">{c.name}</div>
                 <div className="text-xs opacity-70">MF : {c.taxId}</div>
-                {c.linkType === "external" && c.subscriptionEndsAt ? (
+                {c.linkType === "managed" && c.subscriptionEndsAt ? (
                   <div className="text-xs opacity-70">Fin : {new Date(c.subscriptionEndsAt).toLocaleDateString()}</div>
                 ) : null}
               </td>
 
               <td>
-                <span className="ftn-badge">{c.linkType === "external" ? "Externe" : "Interne"}</span>
+                <span className="ftn-badge">{c.linkType === "managed" ? "Gérée" : "Gérée"}</span>
               </td>
 
               <td>

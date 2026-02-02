@@ -294,7 +294,6 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
         <div className="text-sm text-slate-600">Chargement...</div>
       ) : (
         <div className="space-y-5">
-          {}
           <div className="space-y-2">
             <div className="text-sm font-semibold">Identité société</div>
             <div className="grid gap-3 md:grid-cols-2">
@@ -340,7 +339,6 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
             </div>
           </div>
 
-          {}
           <div className="space-y-2">
             <div className="text-sm font-semibold">Adresse</div>
             <div className="grid gap-3 md:grid-cols-2">
@@ -376,7 +374,6 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
             </div>
           </div>
 
-          {}
           <div className="space-y-2">
             <div className="text-sm font-semibold">Contact + TVA</div>
             <div className="grid gap-3 md:grid-cols-2">
@@ -397,7 +394,6 @@ export default function EditCompanyClient({ companyId }: { companyId: string }) 
             </div>
           </div>
 
-          {}
           <div className="space-y-2">
             <div className="text-sm font-semibold">Paramètres facture (auto, sans répétition)</div>
             <div className="grid gap-3 md:grid-cols-3">

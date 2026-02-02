@@ -397,7 +397,6 @@ async function cancelSchedule(invoiceId: string) {
           </div>
         </div>
 
-        {}
         <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-2">
           <input
             className="ftn-input"
@@ -433,7 +432,6 @@ async function cancelSchedule(invoiceId: string) {
           </select>
         </div>
 
-        {}
         <div className="mt-2 hidden md:grid grid-cols-4 gap-2">
           <select
             className="ftn-input"
@@ -478,7 +476,6 @@ async function cancelSchedule(invoiceId: string) {
           </button>
         </div>
 
-        {}
         {showFilters ? (
           <div className="fixed inset-0 z-50 bg-black/40 flex items-end md:hidden">
             <div className="w-full rounded-t-2xl bg-white p-4 space-y-3">
@@ -655,7 +652,6 @@ async function cancelSchedule(invoiceId: string) {
           </table>
         </div>
 
-        {}
         {manualOpen ? (
           <div className="fixed inset-0 z-50 bg-black/40 flex items-end md:items-center justify-center">
             <div className="w-full md:max-w-lg rounded-t-2xl md:rounded-2xl bg-white p-4 md:p-6 space-y-4">

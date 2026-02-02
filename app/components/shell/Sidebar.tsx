@@ -203,7 +203,6 @@ export default function Sidebar({
 
   return (
     <>
-      {}
       {mobileOpen ? (
         <button className="ftn-overlay" aria-label="Fermer le menu" onClick={onCloseMobile} />
       ) : null}
@@ -217,7 +216,6 @@ export default function Sidebar({
           </div>
         </div>
 
-        {}
         <nav className="ftn-nav">
           {items.map((it) => {
             if (it.kind === "divider") return <div key={it.key} className="my-3 h-px bg-white/10" />;
@@ -254,7 +252,7 @@ export default function Sidebar({
           <div className="mb-2">
             <SidebarSignOut onAfter={onCloseMobile} />
           </div>
-          <div className="text-xs text-white/60">© FactureTN</div>
+          <div className="text-xs text-white/60"> FactureTN</div>
         </div>
       </aside>
     </>

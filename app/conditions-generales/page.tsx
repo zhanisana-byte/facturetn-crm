@@ -87,7 +87,7 @@ export default async function ConditionsGeneralesPage() {
 
         <Section id="api" title="5) Services tiers & API" spanAll>
           <p className="ftn-legal-p">
-            Certaines fonctionnalités reposent sur des services tiers ou interfaces API externes. FactureTN
+            Certaines fonctionnalités reposent sur des services tiers ou interfaces API gérées. FactureTN
             ne garantit ni leur disponibilité, ni leur fonctionnement, ni les résultats obtenus.
           </p>
         </Section>
@@ -108,7 +108,7 @@ export default async function ConditionsGeneralesPage() {
       </div>
 
       <footer className="ftn-legal-footer">
-        <div>© {year} FactureTN — Tous droits réservés.</div>
+        <div> {year} FactureTN — Tous droits réservés.</div>
       </footer>
     </main>
   );

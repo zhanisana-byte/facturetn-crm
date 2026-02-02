@@ -143,15 +143,6 @@ export default function CreateCompanyClient(props: CreateCompanyClientProps) {
         );
       if (csErr) throw csErr;
 
-      if (groupId) {
-        const { error: linkErr } = await supabase.from("group_companies").insert({
-          group_id: groupId,
-          company_id: companyId,
-          link_type: "internal",
-        });
-        if (linkErr) throw linkErr;
-      }
-
       router.push(successRedirectTo ?? `/companies/success?id=${companyId}`);
       router.refresh();
     } catch (e: any) {

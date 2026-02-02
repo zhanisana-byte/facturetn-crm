@@ -10,7 +10,7 @@ type Row = {
   id: string;
   name: string;
   taxId: string;
-  linkType: "internal" | "external";
+  linkType: "managed";
   endsAt?: string | null;
   daysLeft?: number | null;
   managedBy: string[];
@@ -54,7 +54,7 @@ export default async function AccountantClientsPage() {
       id: String(x?.companies?.id ?? x?.company_id),
       name: String(x?.companies?.company_name ?? "Société"),
       taxId: String(x?.companies?.tax_id ?? "—"),
-      linkType: x?.link_type === "external" ? "external" : "internal",
+      linkType: "managed",
       endsAt: null,
       daysLeft: null,
       managedBy: [],
@@ -124,7 +124,7 @@ export default async function AccountantClientsPage() {
     const companyId = String(formData.get("company_id") ?? "");
     const linkType = String(formData.get("link_type") ?? "");
 
-    if (!companyId || linkType !== "external") {
+    if (!companyId) {
       redirect("/accountant/clients");
     }
 
@@ -200,7 +200,7 @@ export default async function AccountantClientsPage() {
                     <div>
                       <div className="font-semibold">{r.name}</div>
                       <div className="text-xs opacity-70">
-                        MF: {r.taxId} • Type: {r.linkType === "external" ? "Cliente (externe)" : "Interne"} • Fin abo:{" "}
+                        MF: {r.taxId} • Type: {"Société gérée"} • Fin abo:{" "}
                         <b>{r.endsAt ? new Date(r.endsAt).toLocaleDateString() : "—"}</b>
                         {r.daysLeft !== null ? ` • ${r.daysLeft} j` : ""}
                       </div>
@@ -214,7 +214,7 @@ export default async function AccountantClientsPage() {
                       <Link className="ftn-btn" href={`/companies/${r.id}`} prefetch={false}>Ouvrir</Link>
                       <Link className="ftn-btn" href={`/companies/${r.id}/ttn`} prefetch={false}>TTN</Link>
 
-                      {canManage && r.linkType === "external" ? (
+                      {canManage && r.linkType === "managed" ? (
                         <form action={revoke}>
                           <input type="hidden" name="company_id" value={r.id} />
                           <input type="hidden" name="link_type" value={r.linkType} />

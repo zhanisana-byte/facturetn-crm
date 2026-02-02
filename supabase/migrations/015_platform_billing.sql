@@ -11,7 +11,7 @@ ALTER TABLE IF EXISTS public.app_users
 -- scope_type:
 --   company (societe 50)
 --   group (29 * internal + 50 * external)
---   external_company (societe externe invitee)
+--   external_company (societe gérée invitee)
 --   cabinet_workspace (gratuit)
 CREATE TABLE IF NOT EXISTS public.platform_subscriptions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

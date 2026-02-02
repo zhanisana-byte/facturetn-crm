@@ -273,7 +273,6 @@ export default async function AccountantCabinetPage({
 
   return (
     <div className="space-y-6">
-      {}
       <div className="ftn-card">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
@@ -300,7 +299,6 @@ export default async function AccountantCabinetPage({
         </div>
       </div>
 
-      {}
       <CabinetClientsTable
         rows={filtered}
         page={page}

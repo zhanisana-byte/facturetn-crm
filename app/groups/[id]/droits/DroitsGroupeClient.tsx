@@ -17,7 +17,7 @@ export type GroupCompany = {
   id: string;
   name: string;
   taxId: string;
-  linkType: "internal" | "external";
+  linkType: "managed";
 };
 
 const PAGE_PERMS = [
@@ -67,7 +67,7 @@ export default function DroitsGroupeClient({
   const [selectedId, setSelectedId] = useState<string>(() => rows?.[0]?.id ?? "");
   const [qMembers, setQMembers] = useState("");
   const [qCompanies, setQCompanies] = useState("");
-  const [filterType, setFilterType] = useState<"all" | "internal" | "external">("all");
+  const [filterType, setFilterType] = useState<"all">("all");
   const [savingId, setSavingId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -102,17 +102,16 @@ export default function DroitsGroupeClient({
     const p = safeObj(m.permissions);
     const comps = safeObj(p.companies);
 
-    let internal = 0;
-    let external = 0;
+    let managed = 0;
 
     for (const c of companies ?? []) {
       const cp = safeObj(comps[c.id]);
       const hasAny = COMPANY_PERMS.some((k) => Boolean(cp[k.key]));
       if (!hasAny) continue;
-      if (c.linkType === "external") external += 1;
-      else internal += 1;
+      if (c.linkType === "managed") managed += 1;
+      else managed += 1;
     }
-    return { internal, external };
+    return { managed };
   }
 
   function patchMember(memberId: string, patch: Partial<MemberRow>) {
@@ -212,12 +211,11 @@ export default function DroitsGroupeClient({
 
   return (
     <div className="space-y-6">
-      {}
       {createdCompanyId ? (
         <div className="ftn-card-lux p-4 border border-emerald-200 bg-emerald-50">
           <div className="text-base font-semibold text-emerald-900">Création réussie </div>
           <div className="mt-1 text-sm text-emerald-900/80">
-            La société interne a été créée. Vous pouvez maintenant gérer votre équipe et les accès par société.
+            La société gérée a été créée. Vous pouvez maintenant gérer votre équipe et les accès par société.
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <Link className="ftn-btn-primary" href={`/companies/${createdCompanyId}`} prefetch={false}>
@@ -233,7 +231,6 @@ export default function DroitsGroupeClient({
         </div>
       ) : null}
 
-      {}
       <div className="ftn-card-lux p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -263,9 +260,7 @@ export default function DroitsGroupeClient({
         <div className="ftn-card p-3 border border-rose-200 bg-rose-50 text-rose-800 text-sm">{err}</div>
       ) : null}
 
-      {}
       <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
-        {}
         <div className="ftn-card p-4">
           <div className="flex items-center justify-between gap-2">
             <div className="text-sm font-semibold">Votre équipe</div>
@@ -306,8 +301,8 @@ export default function DroitsGroupeClient({
                   </div>
 
                   <div className="mt-2 text-xs text-slate-600">
-                    Sociétés gérées : <span className="font-semibold">internes {c.internal}</span> ·{" "}
-                    <span className="font-semibold">externes {c.external}</span>
+                    Sociétés gérées : <span className="font-semibold">gérées {c.managed}</span> ·{" "}
+                    <span className="font-semibold">gérées {c.managed}</span>
                   </div>
 
                   {m.is_active === false ? (
@@ -323,7 +318,6 @@ export default function DroitsGroupeClient({
           </div>
         </div>
 
-        {}
         <div className="ftn-card p-4">
           {!selected ? (
             <div className="text-sm text-slate-500">Veuillez sélectionner un membre.</div>
@@ -358,7 +352,6 @@ export default function DroitsGroupeClient({
                 </div>
               </div>
 
-              {}
               <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
                 <div className="text-sm font-semibold">Accès à la page</div>
                 <div className="mt-3 flex flex-wrap gap-4">
@@ -385,7 +378,6 @@ export default function DroitsGroupeClient({
                 ) : null}
               </div>
 
-              {}
               <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
@@ -399,10 +391,7 @@ export default function DroitsGroupeClient({
                       value={filterType}
                       onChange={(e) => setFilterType(e.target.value as any)}
                     >
-                      <option value="all">Toutes</option>
-                      <option value="internal">Internes</option>
-                      <option value="external">Externes</option>
-                    </select>
+                      <option value="all">Toutes</option>                    </select>
 
                     <input
                       className="ftn-input w-64"
@@ -445,7 +434,7 @@ export default function DroitsGroupeClient({
                               <td className="py-3 px-2 text-slate-600">{c.taxId}</td>
                               <td className="py-3 px-2">
                                 <span className="text-xs text-slate-600">
-                                  {c.linkType === "external" ? "Externe" : "Interne"}
+                                  {c.linkType === "managed" ? "Gérée" : "Gérée"}
                                 </span>
                               </td>
                               <td className="py-3 px-2">

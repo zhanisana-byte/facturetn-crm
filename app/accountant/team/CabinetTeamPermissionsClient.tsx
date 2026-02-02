@@ -173,7 +173,6 @@ export default function CabinetTeamPermissionsClient({
 
   return (
     <div className="space-y-6">
-      {}
       <div className="ftn-card-lux p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -181,7 +180,6 @@ export default function CabinetTeamPermissionsClient({
             <div className="text-sm opacity-80">Cabinet : {cabinetName}</div>
           </div>
 
-          {}
           <div className="min-w-[320px]">
             <div className="text-xs text-slate-500 mb-1">ID du cabinet</div>
             <div className="flex gap-2">
@@ -197,9 +195,7 @@ export default function CabinetTeamPermissionsClient({
         </div>
       </div>
 
-      {}
       <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
-        {}
         <div className="ftn-card p-4">
           <div className="flex items-center justify-between gap-2">
             <div className="text-sm font-semibold">Votre équipe</div>
@@ -257,7 +253,6 @@ export default function CabinetTeamPermissionsClient({
           </div>
         </div>
 
-        {}
         <div className="ftn-card p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>

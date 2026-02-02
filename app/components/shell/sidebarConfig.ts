@@ -138,8 +138,6 @@ export function getSidebarItems({
       { kind: "link", key: "g_profile", label: "Profil du groupe", href: `${base}/profile`, icon: "settings" },
 
       { kind: "link", key: "g_companies", label: "Mes sociétés", href: `${base}/clients`, icon: "companies" },
-      { kind: "link", key: "g_create_company", label: "Ajouter société interne", href: `${base}/companies/new`, icon: "create" },
-
       { kind: "link", key: "g_ttn", label: "Paramètres TTN", href: `${base}/ttn`, icon: "ttn" },
 
       { kind: "link", key: "g_inv_team", label: "Inviter l’équipe", href: `${base}/invitations`, icon: "invitations" },

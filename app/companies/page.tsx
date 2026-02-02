@@ -44,7 +44,6 @@ export default async function CompaniesPage() {
       subtitle="Gérez vos sociétés, vos factures et travaillez facilement avec votre comptable."
     >
       <div className="max-w-5xl">
-        {}
         <div className="ftn-card">
           <h3 className="ftn-h3" style={{ marginTop: 0 }}>
             Avantages de la page Société
@@ -67,7 +66,6 @@ export default async function CompaniesPage() {
           </div>
         </div>
 
-        {}
         <div className="ftn-card" style={{ marginTop: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
             <h3 className="ftn-h3" style={{ marginTop: 0 }}>
@@ -99,7 +97,6 @@ export default async function CompaniesPage() {
 
                 return (
                   <div key={c.id} className="ftn-card" style={{ padding: 14 }}>
-                    {}
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                       <div>
                         <div className="ftn-h3" style={{ margin: 0 }}>
@@ -116,15 +113,14 @@ export default async function CompaniesPage() {
                       </div>
                     </div>
 
-                    {}
                     <div className="ftn-muted" style={{ marginTop: 10 }}>
                       {c.address ? (
                         <div> {c.address}</div>
                       ) : (
                         <div> Adresse : —</div>
                       )}
-                      <div>✉️ {c.email || "—"}</div>
-                      <div>☎️ {c.phone || "—"}</div>
+                      <div>️ {c.email || "—"}</div>
+                      <div>️ {c.phone || "—"}</div>
                     </div>
                   </div>
                 );

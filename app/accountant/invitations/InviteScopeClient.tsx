@@ -52,7 +52,6 @@ export default function InviteScopeClient({
         </div>
       </div>
 
-      {}
       <CompanyPermissionsPicker companies={companies as any} scope={scope} />
     </div>
   );

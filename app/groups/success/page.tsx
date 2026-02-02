@@ -19,8 +19,8 @@ export default async function GroupSuccessPage(props: { searchParams?: Promise<S
             <div>
               <div className="ftn-card-title">Succès</div>
               <div className="ftn-card-sub">
-                Votre groupe a été créé avec succès. Vous pouvez maintenant gérer vos sociétés internes et recevoir des
-                invitations de sociétés externes.
+                Votre groupe a été créé avec succès. Vous pouvez maintenant gérer vos sociétés gérées et recevoir des
+                invitations de sociétés gérées.
               </div>
             </div>
           </div>

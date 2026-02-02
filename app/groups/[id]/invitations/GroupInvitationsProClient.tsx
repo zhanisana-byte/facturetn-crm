@@ -7,7 +7,7 @@ type CompanyRow = {
   id: string;
   company_name: string | null;
   tax_id: string | null;
-  link_type: "internal" | "external";
+  link_type: "external";
 };
 
 type MemberRow = {
@@ -90,7 +90,7 @@ export default function GroupInvitationsProClient({
   const [note, setNote] = useState("");
 
   const [q, setQ] = useState("");
-  const [typeFilter, setTypeFilter] = useState<"all" | "internal" | "external">("all");
+  const [typeFilter, setTypeFilter] = useState<"all">("all");
   const [page, setPage] = useState(1);
   const pageSize = 8;
 
@@ -120,7 +120,7 @@ export default function GroupInvitationsProClient({
         id: String(x?.companies?.id ?? x?.company_id),
         company_name: x?.companies?.company_name ?? null,
         tax_id: x?.companies?.tax_id ?? null,
-        link_type: (x?.link_type ?? "internal") as "internal" | "external",
+        link_type: "external",
       })) ?? [];
 
     setCompanies(cc);
@@ -343,10 +343,7 @@ export default function GroupInvitationsProClient({
                         onChange={(e) => setQ(e.target.value)}
                       />
                       <select className="ftn-input" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as any)}>
-                        <option value="all">Tous types</option>
-                        <option value="internal">Interne</option>
-                        <option value="external">Externe</option>
-                      </select>
+                        <option value="all">Tous types</option>                      </select>
                       <div className="text-xs text-slate-500 flex items-center">{filteredCompanies.length} société(s)</div>
                     </div>
 
@@ -374,7 +371,7 @@ export default function GroupInvitationsProClient({
                                 <td className="py-2 px-2 font-semibold">{c.company_name ?? "Société"}</td>
                                 <td className="py-2 px-2 text-slate-600">{c.tax_id ?? "—"}</td>
                                 <td className="py-2 px-2">
-                                  {c.link_type === "internal" ? pill("Interne") : pill("Externe", "warn")}
+                                  {c.link_type === "managed" ? pill("Gérée") : pill("Gérée", "warn")}
                                 </td>
                                 <td className="py-2 px-2 text-xs text-slate-600">
                                   {managers.length ? (
@@ -458,7 +455,7 @@ export default function GroupInvitationsProClient({
                     </div>
                   </>
                 ) : (
-                  <div className="mt-3 text-xs text-slate-600">Toutes les sociétés seront incluses (interne + externe).</div>
+                  <div className="mt-3 text-xs text-slate-600">Toutes les sociétés seront incluses (toutes les sociétés).</div>
                 )}
               </div>
             ) : null}

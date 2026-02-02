@@ -51,7 +51,7 @@ export default async function CompanyTTNSettingsHome({ params }: PageProps) {
       ? "Envoi direct TTN (configuré)"
       : "Envoi direct TTN (à configurer)";
 
-  const sendBadge = sendMode === "manual" ? "" : apiReady ? "" : "⚠️";
+  const sendBadge = sendMode === "manual" ? "" : apiReady ? "" : "️";
 
   const signatureLabel =
     signatureProvider === "digigo"
@@ -71,7 +71,6 @@ export default async function CompanyTTNSettingsHome({ params }: PageProps) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {}
         <a href={`/companies/${companyId}/ttn/mode-envoi`} className="rounded-2xl border p-5 hover:bg-slate-50 transition">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -86,7 +85,6 @@ export default async function CompanyTTNSettingsHome({ params }: PageProps) {
           </div>
         </a>
 
-        {}
         <a href={`/companies/${companyId}/ttn/signature`} className="rounded-2xl border p-5 hover:bg-slate-50 transition">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -97,7 +95,7 @@ export default async function CompanyTTNSettingsHome({ params }: PageProps) {
                 <span className="opacity-80">{signatureLabel}</span>
               </div>
             </div>
-            <div className="text-xl">➡️</div>
+            <div className="text-xl">️</div>
           </div>
         </a>
       </div>

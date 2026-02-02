@@ -92,7 +92,6 @@ export default function ProfileClient({
       {ok ? <div className="ftn-alert tone-ok">{ok}</div> : null}
       {err ? <div className="ftn-alert tone-bad">{err}</div> : null}
 
-      {}
       <div className="ftn-card">
         <div className="ftn-card-title">Profil</div>
 
@@ -134,7 +133,6 @@ export default function ProfileClient({
         </div>
       </div>
 
-      {}
       {activeMode === "multi_societe" && group ? (
         <div className="ftn-card">
           <div className="ftn-card-title">Profil Groupe</div>

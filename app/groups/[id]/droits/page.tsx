@@ -87,7 +87,7 @@ export default async function GroupeDroitsPage(props: {
       id: String(c?.id ?? l?.company_id ?? ""),
       name: String(c?.company_name ?? "Société"),
       taxId: String(c?.tax_id ?? "—"),
-      linkType: String(l?.link_type ?? "internal") === "external" ? "external" : "internal",
+      "managed",
     };
   });
 

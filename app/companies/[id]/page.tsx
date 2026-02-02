@@ -34,7 +34,6 @@ export default async function CompanyPage({ params }: PageProps) {
         </div>
       </div>
 
-      {}
       <div className="grid grid-cols-1 gap-4">
         <a
           href={`/companies/${companyId}/ttn`}

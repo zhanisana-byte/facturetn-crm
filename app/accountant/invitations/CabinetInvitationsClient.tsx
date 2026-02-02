@@ -196,7 +196,6 @@ export default function CabinetInvitationsClient({ cabinetGroupId }: { cabinetGr
 
   return (
     <div className="space-y-4">
-      {}
       {showTokenBox ? (
         <div className="ftn-card p-4">
           <div className="font-semibold mb-2">Invitation (via lien email)</div>
@@ -221,7 +220,7 @@ export default function CabinetInvitationsClient({ cabinetGroupId }: { cabinetGr
 
               {myEmail && myEmail !== String(tokenInv.invited_email || "").toLowerCase() ? (
                 <div className="mt-2 text-sm text-amber-900">
-                  ⚠️ Ce lien est destiné à <b>{tokenInv.invited_email}</b> (vous êtes connecté en tant que <b>{myEmail}</b>).
+                  ️ Ce lien est destiné à <b>{tokenInv.invited_email}</b> (vous êtes connecté en tant que <b>{myEmail}</b>).
                 </div>
               ) : null}
 
@@ -240,7 +239,6 @@ export default function CabinetInvitationsClient({ cabinetGroupId }: { cabinetGr
         </div>
       ) : null}
 
-      {}
       <div className="ftn-card p-4">
         <div className="font-semibold mb-2">Inviter un profil</div>
         <div className="text-xs opacity-70 mb-3">
@@ -250,7 +248,6 @@ export default function CabinetInvitationsClient({ cabinetGroupId }: { cabinetGr
         <CreateCabinetInvitationForm cabinetGroupId={cabinetGroupId} onCreated={loadSentForThisCabinet} />
       </div>
 
-      {}
       <div className="ftn-card p-4">
         <div className="font-semibold mb-2">Invitations envoyées — en attente ({pendingSent.length})</div>
         {loading ? (
@@ -277,7 +274,6 @@ export default function CabinetInvitationsClient({ cabinetGroupId }: { cabinetGr
         )}
       </div>
 
-      {}
       <div className="ftn-card p-4">
         <div className="font-semibold mb-2">Invitations envoyées — acceptées ({acceptedSent.length})</div>
         {loading ? (
@@ -298,7 +294,6 @@ export default function CabinetInvitationsClient({ cabinetGroupId }: { cabinetGr
         )}
       </div>
 
-      {}
       <div className="ftn-card p-4">
         <div className="font-semibold mb-2">Invitations reçues ({received.length})</div>
 

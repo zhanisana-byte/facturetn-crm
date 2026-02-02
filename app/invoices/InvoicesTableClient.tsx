@@ -191,7 +191,6 @@ export default function InvoicesTableClient({
 
   return (
     <div className="ftn-card">
-      {}
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -220,10 +219,8 @@ export default function InvoicesTableClient({
         ) : null}
         {err ? <div className="ftn-alert">{err}</div> : null}
 
-        {}
         <div className="rounded-xl border bg-white/60 p-3">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-            {}
             <div className="md:col-span-3">
               <div className="text-xs text-slate-600 mb-1">Société</div>
               <select
@@ -240,7 +237,6 @@ export default function InvoicesTableClient({
               </select>
             </div>
 
-            {}
             <div className="md:col-span-3">
               <div className="text-xs text-slate-600 mb-1">Type de facture</div>
               <select
@@ -255,7 +251,6 @@ export default function InvoicesTableClient({
               </select>
             </div>
 
-            {}
             <div className="md:col-span-3">
               <div className="text-xs text-slate-600 mb-1">Créée par</div>
               <select
@@ -264,7 +259,6 @@ export default function InvoicesTableClient({
                 onChange={(e) => setCreatedBy(e.target.value)}
               >
                 <option value="all">Tous</option>
-                {}
                 {Array.from(usersMap.values())
                   .sort((a, b) => displayUser(a).localeCompare(displayUser(b)))
                   .map((u) => (
@@ -275,7 +269,6 @@ export default function InvoicesTableClient({
               </select>
             </div>
 
-            {}
             <div className="md:col-span-3">
               <div className="text-xs text-slate-600 mb-1">Recherche</div>
               <input
@@ -289,7 +282,6 @@ export default function InvoicesTableClient({
               />
             </div>
 
-            {}
             <div className="md:col-span-12 flex flex-wrap gap-2 justify-end">
               <button className="ftn-btn ftn-btn-ghost" type="button" onClick={() => load()}>
                 Appliquer
@@ -313,7 +305,6 @@ export default function InvoicesTableClient({
         </div>
       </div>
 
-      {}
       <div className="mt-4">
         {loading ? (
           <div className="ftn-muted">Chargement...</div>

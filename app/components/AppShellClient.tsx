@@ -112,7 +112,6 @@ export default function AppShellClient({
         </main>
       </div>
 
-      {}
       {mobileOpen ? (
         <button
           className="ftn-overlay"

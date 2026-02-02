@@ -81,7 +81,7 @@ export default async function MentionsLegalesPage() {
           <ul className="ftn-legal-list">
             <li><b>Hébergement :</b> Vercel (cloud)</li>
             <li><b>Base de données & Authentification :</b> Supabase</li>
-            <li><b>Services tiers :</b> emailing, sécurité, APIs externes</li>
+            <li><b>Services tiers :</b> emailing, sécurité, APIs gérées</li>
           </ul>
           <p className="ftn-legal-note">
             Ces prestataires peuvent entraîner des interruptions temporaires indépendantes de la volonté de FactureTN.
@@ -132,7 +132,7 @@ export default async function MentionsLegalesPage() {
       </div>
 
       <footer className="ftn-legal-footer">
-        <div>© {year} FactureTN — Tous droits réservés.</div>
+        <div> {year} FactureTN — Tous droits réservés.</div>
       </footer>
     </main>
   );

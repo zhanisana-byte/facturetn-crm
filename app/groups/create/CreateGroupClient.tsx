@@ -86,7 +86,7 @@ export default function CreateGroupClient() {
         </div>
 
         <div className="ftn-muted mt-4">
-          ⚠️ Si vous vois une erreur “relation groups does not exist”, ajoute d&apos;abord la table SQL.
+          ️ Si vous vois une erreur “relation groups does not exist”, ajoute d&apos;abord la table SQL.
         </div>
       </div>
     </Card>

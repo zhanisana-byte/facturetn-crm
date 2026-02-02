@@ -272,7 +272,7 @@ export default async function SubscriptionPage() {
        Essai en cours — {daysLeft} jour{daysLeft > 1 ? "s" : ""} restant{daysLeft > 1 ? "s" : ""}
     </Pill>
   ) : (
-    <Pill tone="warning">⚠️ Abonnement non actif</Pill>
+    <Pill tone="warning">️ Abonnement non actif</Pill>
   );
 
   const statusMessage = isActive
@@ -301,7 +301,6 @@ export default async function SubscriptionPage() {
   return (
     <AppShell title="Abonnement & Offres" accountType={accountType as any}>
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-6">
-        {}
         <div className="rounded-3xl border border-slate-200 bg-white shadow-sm p-6 md:p-8">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
@@ -322,7 +321,6 @@ export default async function SubscriptionPage() {
           </div>
         </div>
 
-        {}
         <div className="mt-6">
           <Card title="Votre statut" subtitle="Période gratuite et statut d’activation" badge={statusPill}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -351,7 +349,6 @@ export default async function SubscriptionPage() {
               </div>
             </div>
 
-            {}
             <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
               <div className="text-xs text-slate-500">Paiement</div>
               <div className="text-sm text-slate-900 mt-1">
@@ -369,7 +366,6 @@ export default async function SubscriptionPage() {
               </div>
             ) : null}
 
-            {}
             {process.env.NODE_ENV !== "production" ? (
               <div className="mt-3 text-xs text-slate-500">
                 Note : la partie paiement sera branchée ensuite (Stripe / paiement local). Pour
@@ -379,7 +375,6 @@ export default async function SubscriptionPage() {
           </Card>
         </div>
 
-        {}
         <div className="mt-6">
           <div className="flex items-end justify-between gap-3">
             <h2 className="text-lg font-semibold text-slate-900">Choisir votre formule</h2>
@@ -387,7 +382,6 @@ export default async function SubscriptionPage() {
           </div>
 
           <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-            {}
             <Card
               title="Société"
               subtitle="Pour facturer, gérer vos clients, et paramétrer TTN."
@@ -411,7 +405,6 @@ export default async function SubscriptionPage() {
               </div>
             </Card>
 
-            {}
             <Card
               title="Cabinet comptable"
               subtitle="Votre cabinet est gratuit : ce sont vos clients (sociétés) qui paient leur abonnement."
@@ -432,7 +425,6 @@ export default async function SubscriptionPage() {
               </div>
             </Card>
 
-            {}
             <Card
               title="Multi-Société (Groupe)"
               subtitle="Gérez plusieurs sociétés + facturez librement vos honoraires."
@@ -463,7 +455,6 @@ export default async function SubscriptionPage() {
             </Card>
           </div>
 
-          {}
           <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-700">
             <div className="font-semibold text-slate-900">Inscription gratuite</div>
             <div className="mt-1">
@@ -473,7 +464,6 @@ export default async function SubscriptionPage() {
           </div>
         </div>
 
-        {}
         {process.env.NODE_ENV !== "production" ? (
           <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
             <div className="text-sm font-semibold text-slate-900">Badges (affichage)</div>
@@ -482,7 +472,7 @@ export default async function SubscriptionPage() {
               <Pill tone="gold"> Essai en cours — X jours restants</Pill>
               <Pill tone="warning"> Essai terminé</Pill>
               <Pill tone="success"> Abonnement actif</Pill>
-              <Pill tone="warning">⚠️ Abonnement non actif</Pill>
+              <Pill tone="warning">️ Abonnement non actif</Pill>
               <Pill>50 DT / mois</Pill>
               <Pill tone="success">Gratuit</Pill>
               <Pill>50 DT / société / mois</Pill>

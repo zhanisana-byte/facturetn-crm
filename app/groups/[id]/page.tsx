@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 
 type Search = {
   q?: string;
-  type?: "all" | "internal" | "external";
+  type?: "all";
   page?: string;
 };
 
@@ -78,15 +78,13 @@ export default async function GroupDetailPage({
     .eq("group_id", groupId);
 
   const all = allLinks ?? [];
-  const internalCount = all.filter((l: any) => (l.link_type ?? "internal") !== "external").length;
-  const externalCount = all.filter((l: any) => (l.link_type ?? "internal") === "external").length;
-
+    
   const now = Date.now();
   const soonMs = 30 * 24 * 60 * 60 * 1000;
 
   const expiringSoonIds = new Set(
     all
-      .filter((l: any) => (l.link_type ?? "internal") === "external" && l.subscription_ends_at)
+      .filter((l: any) => true && l.subscription_ends_at)
       .filter((l: any) => {
         const t = new Date(l.subscription_ends_at).getTime();
         return Number.isFinite(t) && t - now <= soonMs;
@@ -98,8 +96,7 @@ export default async function GroupDetailPage({
     .from("group_companies")
     .select("company_id, link_type, subscription_ends_at, companies(id,company_name,tax_id)")
     .eq("group_id", groupId)
-    .eq("link_type", "external")
-    .order("subscription_ends_at", { ascending: true, nullsFirst: false })
+        .order("subscription_ends_at", { ascending: true, nullsFirst: false })
     .limit(200);
 
   const externalRows = (externalLinks ?? []).map((l: any) => {
@@ -132,7 +129,7 @@ export default async function GroupDetailPage({
       id: cid,
       name: String(l.companies?.company_name ?? "Société"),
       taxId: String(l.companies?.tax_id ?? "—"),
-      linkType: (l.link_type ?? "internal") === "external" ? "external" : "internal",
+      linkType: "managed",
       subscriptionEndsAt: l.subscription_ends_at as string | null,
       expiringSoon: expiringSoonIds.has(String(l.company_id)),
     };
@@ -168,13 +165,6 @@ export default async function GroupDetailPage({
             <Link className="ftn-btn" href={`/groups/${groupId}/clients`} prefetch={false}>
               Mes sociétés
             </Link>
-
-            <Link className="ftn-btn" href={`/groups/${groupId}/companies/new`} prefetch={false}>
-              + Créer société interne
-            </Link>
-
-            {}
-            {}
             <Link className="ftn-btn" href={`/groups/${groupId}/invitations-received`} prefetch={false}>
               Invitations reçues (sociétés)
             </Link>
@@ -185,23 +175,21 @@ export default async function GroupDetailPage({
           </div>
         </div>
       </div>
-
-      {}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="ftn-card p-4">
-          <div className="text-xs opacity-70">Sociétés internes</div>
-          <div className="text-2xl font-semibold mt-1">{internalCount}</div>
+          <div className="text-xs opacity-70">Sociétés gérées</div>
+          <div className="text-2xl font-semibold mt-1">{all.length}</div>
           <div className="text-xs opacity-70 mt-1">Facturées dans le pack</div>
         </div>
         <div className="ftn-card p-4">
-          <div className="text-xs opacity-70">Sociétés externes</div>
-          <div className="text-2xl font-semibold mt-1">{externalCount}</div>
+          <div className="text-xs opacity-70">Sociétés gérées</div>
+          <div className="text-2xl font-semibold mt-1">{all.length}</div>
           <div className="text-xs opacity-70 mt-1">Acceptées via invitations</div>
         </div>
         <div className="ftn-card p-4">
           <div className="text-xs opacity-70">Expirent bientôt</div>
           <div className="text-2xl font-semibold mt-1">{expiringSoonIds.size}</div>
-          <div className="text-xs opacity-70 mt-1">Externes uniquement (≤ 30 jours)</div>
+          <div className="text-xs opacity-70 mt-1">Sociétés gérées uniquement (≤ 30 jours)</div>
         </div>
       </div>
 
@@ -218,10 +206,7 @@ export default async function GroupDetailPage({
             <input type="hidden" name="page" value="1" />
             <input name="q" defaultValue={q} className="ftn-input" placeholder="Rechercher (nom / MF)" />
             <select name="type" defaultValue={type ?? "all"} className="ftn-input" style={{ maxWidth: 200 }}>
-              <option value="all">Tous types</option>
-              <option value="internal">Interne</option>
-              <option value="external">Externe</option>
-            </select>
+              <option value="all">Tous types</option>            </select>
             <button className="ftn-btn" type="submit">
               Filtrer
             </button>
@@ -245,8 +230,8 @@ export default async function GroupDetailPage({
                   <div>
                     <div className="font-semibold">{c.name}</div>
                     <div className="text-xs opacity-70">
-                      MF: {c.taxId} • Type: {c.linkType === "external" ? "Externe" : "Interne"}
-                      {c.linkType === "external" ? (
+                      MF: {c.taxId} • Type: {c.linkType === "managed" ? "Gérée" : "Gérée"}
+                      {c.linkType === "managed" ? (
                         <>
                           {" "}
                           • Expire: <b>{fmtDate(c.subscriptionEndsAt)}</b>
@@ -270,8 +255,6 @@ export default async function GroupDetailPage({
                 </div>
               </div>
             ))}
-
-            {}
             <div className="flex items-center justify-between pt-2">
               <div className="text-xs opacity-70">
                 Affichage {from + 1}–{Math.min(to + 1, total)} / {total}
@@ -296,20 +279,16 @@ export default async function GroupDetailPage({
           </div>
         )}
       </div>
-
-      {}
       <div className="ftn-card p-4">
         <div className="flex items-center justify-between">
           <div>
-            <div className="font-semibold">Sociétés externes — abonnements</div>
+            <div className="font-semibold">Sociétés gérées — abonnements</div>
             <div className="text-xs opacity-70">Date fin • “Bientôt” = ≤ 30 jours</div>
           </div>
-
-          {}
         </div>
 
         {externalRows.length === 0 ? (
-          <div className="ftn-muted mt-2">Aucune société externe liée pour le moment.</div>
+          <div className="ftn-muted mt-2">Aucune société gérée liée pour le moment.</div>
         ) : (
           <div className="overflow-auto mt-3">
             <table className="w-full text-sm">

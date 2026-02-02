@@ -78,7 +78,7 @@ export default async function GroupCompanyViewPage({ params }: Props) {
         </div>
 
         <div className="mt-3 text-sm opacity-80">
-          ⚠️ Ici on reste en “mode Groupe”. On ne switch pas vers la société.
+          ️ Ici on reste en “mode Groupe”. On ne switch pas vers la société.
         </div>
       </div>
     </div>

@@ -147,7 +147,6 @@ export default async function AccountantSubscriptionPage({
 
   return (
     <div className="space-y-6">
-      {}
       <div className="ftn-card">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -165,7 +164,6 @@ export default async function AccountantSubscriptionPage({
         </div>
       </div>
 
-      {}
       <div className="ftn-card">
         <div className="ftn-h3">Demande : société gratuite</div>
         <div className="ftn-muted mt-1">

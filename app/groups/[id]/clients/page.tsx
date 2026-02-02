@@ -120,7 +120,7 @@ export default async function GroupClientsPage({ params }: PageProps) {
 
   const raw = (links ?? []).map((l: any) => ({
     companyId: String(l?.companies?.id ?? l?.company_id),
-    linkType: (l?.link_type ?? "internal") === "external" ? "external" : "internal",
+    "managed",
     subscriptionEndsAt: l?.subscription_ends_at ?? null,
     company: l?.companies ?? null,
   }));
@@ -174,7 +174,7 @@ export default async function GroupClientsPage({ params }: PageProps) {
       id: cid,
       name: String(c.company_name ?? "Société"),
       taxId: String(c.tax_id ?? "—"),
-      linkType: r.linkType as "internal" | "external",
+      linkType: "managed",
       companyComplete: isCompanyComplete(c),
       ttnComplete: ttn.exists ? ttn.complete : false,
       ttnExists: ttn.exists,
@@ -196,12 +196,6 @@ export default async function GroupClientsPage({ params }: PageProps) {
             <Link className="ftn-btn" href={`/groups/${groupId}`} prefetch={false}>
               Dashboard
             </Link>
-
-            <Link className="ftn-btn" href={`/groups/${groupId}/companies/new`} prefetch={false}>
-              + Créer société interne
-            </Link>
-
-            {}
             <Link className="ftn-btn ftn-btn-ghost" href={`/groups/${groupId}/invitations-received`} prefetch={false}>
               Invitations reçues
             </Link>

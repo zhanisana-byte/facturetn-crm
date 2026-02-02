@@ -51,7 +51,7 @@ function Field({
   );
 }
 
-function Pill({ ok, okText = " Complet", koText = "⚠️ À configurer" }: { ok: boolean; okText?: string; koText?: string }) {
+function Pill({ ok, okText = " Complet", koText = "️ À configurer" }: { ok: boolean; okText?: string; koText?: string }) {
   return (
     <span
       className={cn(
@@ -136,7 +136,7 @@ function ChoiceCard({
           <div className="font-semibold">{title}</div>
           <div className="text-sm opacity-70 mt-1">{description}</div>
         </div>
-        <Pill ok={ok} okText=" Prêt" koText="⚠️ À compléter" />
+        <Pill ok={ok} okText=" Prêt" koText="️ À compléter" />
       </div>
     </button>
   );
@@ -350,7 +350,6 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
 
   return (
     <div className="space-y-8">
-      {}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-2xl font-semibold">{company?.company_name || "Société"}</div>
@@ -383,14 +382,13 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
         </div>
       </div>
 
-      {}
       <BigFrame
         title="Méthode d’envoi"
         subtitle="Choisissez comment vos factures seront transmises à la plateforme TTN."
         activeSummary={methodSummary}
         isOpen={openMethod}
         onToggle={() => setOpenMethod((v) => !v)}
-        right={<Pill ok={sendMode === "manual" ? manualReady : apiReady} okText=" Prêt" koText="⚠️ À configurer" />}
+        right={<Pill ok={sendMode === "manual" ? manualReady : apiReady} okText=" Prêt" koText="️ À configurer" />}
       />
 
       {openMethod ? (
@@ -537,14 +535,13 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
         </div>
       ) : null}
 
-      {}
       <BigFrame
         title="Signature électronique"
         subtitle="Choisissez comment vos documents TEIF seront signés."
         activeSummary={signatureSummary}
         isOpen={openSignature}
         onToggle={() => setOpenSignature((v) => !v)}
-        right={<Pill ok={signatureMode !== "none"} okText=" Sélectionnée" koText="ℹ️ Aucune" />}
+        right={<Pill ok={signatureMode !== "none"} okText=" Sélectionnée" koText="️ Aucune" />}
       />
 
       {openSignature ? (
@@ -577,7 +574,6 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
             />
           </div>
 
-          {}
           {signatureMode === "digigo" ? (
             <div className="rounded-2xl border bg-slate-50 p-4 space-y-3">
               <div className="flex items-center justify-between gap-2">
@@ -611,7 +607,6 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
             </div>
           ) : null}
 
-          {}
           {signatureMode === "usb_agent" ? (
             <div className="rounded-2xl border bg-slate-50 p-4 space-y-3">
               <div className="flex items-center justify-between gap-2">
@@ -633,7 +628,6 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
-                {}
                 <a className="ftn-btn-ghost" href="/downloads/agent" target="_blank" rel="noreferrer">
                   Télécharger l’agent Windows
                 </a>
@@ -667,7 +661,6 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
             </div>
           ) : null}
 
-          {}
           {lockOtherSignature ? (
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex items-center justify-between gap-2">
@@ -682,7 +675,6 @@ export default function TTNSettingsPanel({ company, initial, initialLogs, contex
         </div>
       ) : null}
 
-      {}
       <div className="rounded-2xl border p-5 space-y-3">
         {saveMsg ? (
           <div

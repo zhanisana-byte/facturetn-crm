@@ -14,7 +14,7 @@ function isUuid(v: string) {
 type LinkRow = {
   groupId: string;
   groupName: string;
-  linkType: "internal" | "external";
+  linkType: "managed";
   linkedAt?: string | null;
 };
 
@@ -65,7 +65,7 @@ export default async function CompanyLinksPage({ params }: PageProps) {
   const rows: LinkRow[] = (links ?? []).map((l: any) => ({
     groupId: String(l?.group_id ?? ""),
     groupName: String(l?.groups?.group_name ?? "Groupe"),
-    linkType: (l?.link_type ?? "internal") === "external" ? "external" : "internal",
+    linkType: "managed",
     linkedAt: (l?.created_at ?? null) as any,
   }));
 
@@ -79,7 +79,7 @@ export default async function CompanyLinksPage({ params }: PageProps) {
       <LinksCompanyClient companyId={id} rows={rows} />
 
       <div className="ftn-help mt-4">
-        Astuce : si vous retirez un lien, les permissions groupe↔société ne s'appliquent plus.
+        Astuce : si vous retirez un lien, les permissions groupesociété ne s'appliquent plus.
       </div>
     </Card>
   );

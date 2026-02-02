@@ -65,7 +65,7 @@ export default async function GroupTTNListPage({ params }: Props) {
       <div className="p-6 space-y-3">
         <h1 className="text-xl font-semibold">Paramètres TTN</h1>
         <p className="text-sm text-slate-600">
-          Aucune société n’est encore liée à ce groupe. Ajoutez une société interne ou acceptez une invitation d’une société externe.
+          Aucune société n’est encore liée à ce groupe. Ajoutez une société gérée ou acceptez une invitation d’une société gérée.
         </p>
         <div className="flex gap-2">
           <Link className="btn" href={`/groups/${groupId}/clients`}>Voir mes sociétés</Link>
@@ -93,15 +93,15 @@ export default async function GroupTTNListPage({ params }: Props) {
     if (!credByCompany.has(cid)) credByCompany.set(cid, c);
   }
 
-  const typeByCompany = new Map<string, "internal" | "external">();
+  const typeByCompany = new Map<string, "managed">();
   for (const l of links ?? []) {
-    typeByCompany.set(String((l as any).company_id), (String((l as any).link_type) === "internal" ? "internal" : "external"));
+    typeByCompany.set(String((l as any).company_id), "managed");
   }
 
   const rows = (companies ?? []).map((c: any) => {
     const cred = credByCompany.get(String(c.id)) ?? null;
     const ok = ttnComplete(cred);
-    const t = typeByCompany.get(String(c.id)) ?? "external";
+    const t = typeByCompany.get(String(c.id)) ?? "managed";
     return { company: c, linkType: t, ok };
   }).sort((a, b) => a.company.company_name.localeCompare(b.company.company_name));
 

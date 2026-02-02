@@ -292,9 +292,7 @@ async function respondGroupInvite(invitationId: string, action: "accept" | "decl
 
       {err ? <div className="ftn-alert tone-bad">{err}</div> : null}
 
-      {}
       <div className="grid gap-4 md:grid-cols-2">
-        {}
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           <div className="p-4 border-b border-slate-100">
             <div className="flex items-center justify-between">
@@ -361,7 +359,6 @@ async function respondGroupInvite(invitationId: string, action: "accept" | "decl
           </form>
         </div>
 
-        {}
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           <div className="p-4 border-b border-slate-100">
             <div className="flex items-center justify-between">
@@ -470,7 +467,6 @@ async function respondGroupInvite(invitationId: string, action: "accept" | "decl
         </div>
       ) : null}
 
-{}
 <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
   <div className="p-4 border-b border-slate-100">
     <div className="flex items-center justify-between gap-3">
@@ -560,7 +556,6 @@ async function respondGroupInvite(invitationId: string, action: "accept" | "decl
       </div>
     </div>
 
-    {}
     <div className="rounded-xl border border-slate-200 overflow-hidden">
       <div className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-50 border-b border-slate-200">
         Invitations Groupe/Cabinet
@@ -619,7 +614,6 @@ async function respondGroupInvite(invitationId: string, action: "accept" | "decl
   </div>
 </div>
 
-      {}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-100 flex items-center justify-between">
           <div>

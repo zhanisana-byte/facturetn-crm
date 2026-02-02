@@ -28,7 +28,7 @@ const BANK_INFO = {
   beneficiary_name: "ZHANI SANA DEALINK",
 };
 
-async function countActiveInternalCompaniesForGroup(opts: {
+async function countActiveManagedCompaniesForGroup(opts: {
   supabase: any;
   groupId: string;
 }) {
@@ -37,17 +37,14 @@ async function countActiveInternalCompaniesForGroup(opts: {
     .from("group_companies")
     .select("id, companies!inner(id)", { count: "exact", head: true })
     .eq("group_id", opts.groupId)
-    .eq("link_type", "internal")
-    .eq("companies.is_active", true);
+        .eq("companies.is_active", true);
 
   if (error) {
-    
-    const { count: c2 } = await opts.supabase
+const { count: c2 } = await opts.supabase
       .from("group_companies")
       .select("id", { count: "exact", head: true })
       .eq("group_id", opts.groupId)
-      .eq("link_type", "internal");
-
+      ;
     return Math.max(0, Number(c2 ?? 0));
   }
 
@@ -62,7 +59,7 @@ async function computePriceHt(opts: {
 
   if (opts.scopeType === "company") return 50;
 
-  const nbActives = await countActiveInternalCompaniesForGroup({
+  const nbActives = await countActiveManagedCompaniesForGroup({
     supabase: opts.supabase,
     groupId: opts.scopeId,
   });
@@ -153,7 +150,7 @@ export default async function SubscriptionActivatePage({
   const noteText =
     scopeType === "company"
       ? "Activation manuelle Société (virement)."
-      : "Activation manuelle Groupe (29 DT / société interne active).";
+      : "Activation manuelle Groupe (29 DT / société gérée active).";
 
   if (upsertedSub?.id) {
     const { data: updated, error: updErr } = await supabase
@@ -214,7 +211,7 @@ export default async function SubscriptionActivatePage({
   const priceLabel =
     scopeType === "company"
       ? "50 DT / mois (HT)"
-      : `${Number(priceHt).toFixed(0)} DT / mois (HT) — 29 DT × sociétés internes actives`;
+      : `${Number(priceHt).toFixed(0)} DT / mois (HT) — 29 DT × sociétés gérées actives`;
 
   return (
     <AppShell

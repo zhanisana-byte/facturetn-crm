@@ -52,7 +52,6 @@ export default async function PdgGroupsPage({
       accountType="profil"
     >
       <div className="ftn-grid">
-        {}
         <Card title="Recherche" subtitle="Chercher un groupe par nom">
           <form className="flex gap-2" action="/pdg/groups" method="get">
             <input
@@ -72,7 +71,6 @@ export default async function PdgGroupsPage({
           </div>
         </Card>
 
-        {}
         <Card title="Liste des groupes" subtitle="Accès détails / équipe / archives">
           {error ? <div className="ftn-alert">{error.message}</div> : null}
 

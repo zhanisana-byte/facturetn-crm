@@ -149,7 +149,6 @@ export default function GroupInvitationsClient({ groupId, isOwner }: { groupId: 
         )}
       </div>
 
-      {}
       <div className="ftn-card p-4">
         <div className="font-semibold mb-2">Invitations reçues ({received.length})</div>
         {received.length === 0 ? (

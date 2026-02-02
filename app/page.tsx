@@ -7,13 +7,11 @@ export default async function Page() {
       title="Bienvenue sur FactureTN"
       subtitle="CRM & facturation électronique (Tunisie) — prêt pour TTN"
     >
-      {}
       <p className="ftn-muted">
         Authentification sécurisée · Multi-sociétés · Rôles comptables ·
         Facturation · Exports PDF / fichiers TTN · Préparation TTN
       </p>
 
-      {}
       <div className="mt-6 grid gap-3">
         <Link href="/login" className="ftn-btn w-full text-center">
           Connexion

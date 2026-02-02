@@ -9,7 +9,7 @@ export default function PermissionBadge({ ok, label }: { ok: boolean; label: str
       ].join(" ")}
       title={ok ? "Autorisé" : "Non autorisé"}
     >
-      {ok ? "✔" : "✖"} {label}
+      {ok ? "" : ""} {label}
     </span>
   );
 }

@@ -172,7 +172,6 @@ const subtotal = (invoice as any).subtotal_ht ?? 0;
 
   return (
     <div className="p-6 max-w-5xl space-y-5">
-      {}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold">Facture {invoiceNumber ? `• ${invoiceNumber}` : ""}</h1>
@@ -207,7 +206,6 @@ const subtotal = (invoice as any).subtotal_ht ?? 0;
         </Link>
       </div>
 
-      {}
       <div className="rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold">Lignes</h2>
@@ -279,7 +277,6 @@ const subtotal = (invoice as any).subtotal_ht ?? 0;
         </div>
       </div>
 
-      {}
       <InvoiceActions
         invoiceId={String((invoice as any).id)}
         companyId={companyId} 

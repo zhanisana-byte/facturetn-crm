@@ -191,9 +191,9 @@ export default function AccessClient({ companyId, canInvite }: Props) {
 
   return (
     <div className="grid gap-5">
-      <Card title="Accès (Comptable externe & Équipe)">
+      <Card title="Accès (Comptable gérée & Équipe)">
         <div className="text-sm text-slate-600">
-          Ici, la société peut donner accès à un comptable externe, ou ajouter son équipe interne.
+          Ici, la société peut donner accès à un comptable gérée, ou ajouter son équipe gérée.
         </div>
 
         {err ? <div className="mt-3 text-sm text-red-600">{err}</div> : null}

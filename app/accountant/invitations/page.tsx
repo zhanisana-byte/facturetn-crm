@@ -56,7 +56,6 @@ export default async function AccountantInvitationsPage({
         <div className="text-sm opacity-80">Cabinet : {cabinetName}</div>
       </div>
 
-      {}
       <CabinetInvitationsClient cabinetGroupId={cabinetGroupId} />
     </div>
   );

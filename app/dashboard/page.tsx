@@ -501,7 +501,7 @@ export default async function DashboardPage() {
                    En vérification
                 </Pill>
               }
-              icon={<span>🛡️</span>}
+              icon={<span>️</span>}
               delay={80}
             >
               <StatRow label="Statut actuel" value={<span>En vérification</span>} />
@@ -679,7 +679,7 @@ export default async function DashboardPage() {
             </div>
           </LuxCard>
 
-          <LuxCard title={spaceTitle} subtitle={spaceSubtitle} icon={<span>🏷️</span>} delay={140}>
+          <LuxCard title={spaceTitle} subtitle={spaceSubtitle} icon={<span>️</span>} delay={140}>
             <div className="ftn-kv">
               <div>
                 Action recommandée : <b>Créer / compléter</b> votre espace pour éviter les pages vides.

@@ -16,7 +16,6 @@ export default function AuthShell({
     <div className="min-h-screen w-full bg-[radial-gradient(1200px_circle_at_20%_0%,rgba(186,134,52,.14),transparent_55%),radial-gradient(900px_circle_at_80%_20%,rgba(56,189,248,.10),transparent_55%),linear-gradient(to_bottom,#f7f8fb,#eef2f7)]">
       <div className="mx-auto flex min-h-screen w-full max-w-6xl items-stretch px-4 py-10">
         <div className="grid w-full grid-cols-1 gap-6 lg:grid-cols-2">
-          {}
           <div className="relative hidden overflow-hidden rounded-3xl border border-[rgba(148,163,184,.22)] bg-white/55 p-8 shadow-[0_20px_60px_rgba(15,23,42,.10)] backdrop-blur lg:flex lg:flex-col">
             <div className="flex items-center gap-3">
               <div className="grid h-11 w-11 place-items-center rounded-2xl bg-slate-900 text-white shadow-sm">
@@ -58,7 +57,7 @@ export default function AuthShell({
                   Multi-sociétés
                 </div>
                 <div className="mt-1 text-sm text-slate-600">
-                  Interne / externe, groupes, et navigation adaptée à votre type
+                  Sociétés, accès et navigation adaptée à votre type
                   de compte.
                 </div>
               </div>
@@ -79,10 +78,8 @@ export default function AuthShell({
             />
           </div>
 
-          {}
           <div className="flex w-full items-center justify-center">
             <div className="w-full max-w-md">
-              {}
               <div className="mb-6 flex items-center justify-between lg:hidden">
                 <div className="flex items-center gap-3">
                   <div className="grid h-10 w-10 place-items-center rounded-2xl bg-slate-900 text-white">
@@ -119,7 +116,7 @@ export default function AuthShell({
                     Accueil
                   </Link>
                   <div className="opacity-80">
-                    © {new Date().getFullYear()} FactureTN
+                     {new Date().getFullYear()} FactureTN
                   </div>
                 </div>
               </div>

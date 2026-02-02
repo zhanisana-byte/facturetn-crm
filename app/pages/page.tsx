@@ -253,7 +253,6 @@ export default async function PagesIndex(props: { searchParams?: Promise<SearchP
         </div>
       </div>
 
-      {}
       <form className="rounded-2xl border border-slate-200 bg-white p-4 flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="flex-1">
           <label className="text-xs font-medium text-slate-600">Recherche société</label>
@@ -293,7 +292,6 @@ export default async function PagesIndex(props: { searchParams?: Promise<SearchP
         </Link>
       </form>
 
-      {}
       <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
         <div className="px-4 py-3 border-b flex items-center justify-between">
           <div className="text-sm font-semibold">Sociétés</div>
@@ -395,7 +393,6 @@ export default async function PagesIndex(props: { searchParams?: Promise<SearchP
           </table>
         </div>
 
-        {}
         <div className="px-4 py-3 border-t flex items-center justify-between">
           <div className="text-xs text-slate-500">
             Affichage {total === 0 ? 0 : from + 1}–{to} / {total}

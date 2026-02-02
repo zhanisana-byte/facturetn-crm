@@ -64,7 +64,6 @@ export default function RecapClient({
 
   return (
     <div className="space-y-6">
-      {}
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="font-semibold mb-2">Mes pages</div>
 
@@ -83,7 +82,6 @@ export default function RecapClient({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {}
                   <Link className="ftn-btn-ghost" href={`/companies/${p.id}`}>
                     Ouvrir
                   </Link>
@@ -96,7 +94,6 @@ export default function RecapClient({
         )}
       </div>
 
-      {}
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="flex items-center justify-between gap-2 mb-3">
           <div>

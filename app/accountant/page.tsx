@@ -97,7 +97,7 @@ export default async function AccountantDashboardPage() {
         id,
         name: String(c?.company_name ?? "Société"),
         taxId: String(c?.tax_id ?? "—"),
-        linkType: x?.link_type === "external" ? "external" : "internal",
+        linkType: "managed",
         daysLeft: sub.daysLeft,
       };
     }) ?? [];
@@ -114,7 +114,6 @@ export default async function AccountantDashboardPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl p-6 space-y-4">
-      {}
       <div className="rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div>
@@ -151,7 +150,6 @@ export default async function AccountantDashboardPage() {
         </div>
       </div>
 
-      {}
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 md:col-span-2">
           <div className="text-sm font-semibold text-slate-900">Sociétés liées</div>

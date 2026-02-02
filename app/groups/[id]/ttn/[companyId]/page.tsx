@@ -52,7 +52,7 @@ export default async function GroupCompanyTTNHome({ params }: PageProps) {
       ? "Envoi direct TTN (configuré)"
       : "Envoi direct TTN (à configurer)";
 
-  const sendBadge = sendMode === "manual" ? "" : apiReady ? "" : "⚠️";
+  const sendBadge = sendMode === "manual" ? "" : apiReady ? "" : "️";
 
   const signatureLabel =
     signatureProvider === "digigo"
@@ -96,7 +96,7 @@ export default async function GroupCompanyTTNHome({ params }: PageProps) {
                 <span className="opacity-80">{signatureLabel}</span>
               </div>
             </div>
-            <div className="text-xl">➡️</div>
+            <div className="text-xl">️</div>
           </div>
         </a>
       </div>

@@ -86,7 +86,7 @@ export default async function PdgSubscriptionsPage() {
         <div className="ftn-card-head">
           <div>
             <div className="ftn-card-title">Créer un abonnement</div>
-            <div className="ftn-card-sub">Société: 50 | Groupe: 50×internes + 0×externes | Cabinet: 0</div>
+            <div className="ftn-card-sub">Société: 50 | Groupe: 50×gérées + 0×gérées | Cabinet: 0</div>
           </div>
         </div>
         <div className="ftn-card-body">
@@ -94,8 +94,8 @@ export default async function PdgSubscriptionsPage() {
             <input name="owner_user_id" className="ftn-input" placeholder="owner_user_id (uuid)" required />
             <select name="scope_type" className="ftn-input" defaultValue="company">
               <option value="company">company (50)</option>
-              <option value="group">group (50/interne)</option>
-              <option value="external_company">external_company (50)</option>
+              <option value="group">group (50/gérée)</option>
+              <option value="managed_company">managed_company (50)</option>
               <option value="cabinet_workspace">cabinet_workspace (0)</option>
             </select>
             <input name="scope_id" className="ftn-input" placeholder="scope_id (uuid) optionnel" />

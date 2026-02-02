@@ -6,7 +6,7 @@ import { Btn, BtnGhost, Table, Badge } from "@/components/ui";
 type LinkRow = {
   groupId: string;
   groupName: string;
-  linkType: "internal" | "external";
+  linkType: "managed";
   linkedAt?: string | null;
 };
 
@@ -68,7 +68,7 @@ export default function LinksCompanyClient({
                 <div className="text-xs opacity-70">ID: {r.groupId}</div>
               </td>
               <td>
-                <Badge>{r.linkType === "external" ? "Externe" : "Interne"}</Badge>
+                <Badge>{"Gérée"}</Badge>
               </td>
               <td className="whitespace-nowrap">
                 <BtnGhost

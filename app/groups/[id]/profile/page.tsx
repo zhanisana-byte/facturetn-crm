@@ -146,7 +146,7 @@ export default async function GroupProfilePage({ params, searchParams }: PagePro
             </div>
           </div>
           <div className="ftn-card-right">
-            <Badge>29 DT / société interne active</Badge>
+            <Badge>29 DT / société gérée active</Badge>
           </div>
         </div>
         <div className="ftn-card-body">

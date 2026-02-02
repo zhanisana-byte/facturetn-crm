@@ -41,7 +41,7 @@ export default async function GroupInvitationsReceivedPage({ params }: Props) {
       <div className="ftn-card-lux p-5">
         <div className="text-xl font-semibold">Invitations reçues — Sociétés</div>
         <div className="text-sm opacity-80">
-          Ici, vous recevez les invitations des sociétés externes pour être gérées dans votre groupe.
+          Ici, vous recevez les invitations des sociétés gérées pour être gérées dans votre groupe.
         </div>
       </div>
 

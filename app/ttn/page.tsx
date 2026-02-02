@@ -41,7 +41,7 @@ export default async function TTNPage() {
             <div>
               <h2 className="font-semibold">Envois programmés</h2>
               <p className="text-sm text-slate-600 mt-1">
-                Rappels internes (le cron/worker TTN sera branché après).
+                Rappels gérées (le cron/worker TTN sera branché après).
               </p>
             </div>
             <Link
