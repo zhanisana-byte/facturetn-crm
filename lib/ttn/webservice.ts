@@ -73,8 +73,9 @@ export function buildSaveEfactEnvelope(cfg: TTNWebserviceConfig, xmlB64: string)
   );
 }
 
-export function buildConsultEfactEnvelope(cfg: TTNWebserviceConfig, uuid: string) {
+export function buildConsultEfactEnvelope(cfg: TTNWebserviceConfig, uuidOrRef: string) {
   const serviceNs = normalizeServiceNs(cfg.serviceNs);
+  const val = String(uuidOrRef || "").trim();
   return (
     `<?xml version="1.0" encoding="utf-8"?>` +
     `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ser="${escXml(serviceNs)}">` +
@@ -84,7 +85,7 @@ export function buildConsultEfactEnvelope(cfg: TTNWebserviceConfig, uuid: string
     `<login>${escXml(cfg.login)}</login>` +
     `<password>${escXml(cfg.password)}</password>` +
     `<matricule>${escXml(cfg.matricule)}</matricule>` +
-    `<uuidEfact>${escXml(uuid)}</uuidEfact>` +
+    `<uuidEfact>${escXml(val)}</uuidEfact>` +
     `</ser:consultEfact>` +
     `</soapenv:Body>` +
     `</soapenv:Envelope>`
@@ -126,11 +127,11 @@ export async function ttnSaveEfact(cfg: TTNWebserviceConfig, xmlB64: string): Pr
   return { ...base, idSaveEfact };
 }
 
-export async function ttnConsultEfact(cfg: TTNWebserviceConfig, uuid: string): Promise<TTNWsResult> {
+export async function ttnConsultEfact(cfg: TTNWebserviceConfig, uuidOrRef: string): Promise<TTNWsResult> {
   const endpoint = normalizeEndpoint(cfg);
   if (!endpoint) return { ok: false, status: 0, text: "Missing TTN endpoint", uuidEfact: null };
 
-  const envelope = buildConsultEfactEnvelope(cfg, uuid);
+  const envelope = buildConsultEfactEnvelope(cfg, uuidOrRef);
 
   const base = await fetchWithTimeout(
     endpoint,
@@ -153,6 +154,18 @@ export async function saveEfactSOAP(cfg: TTNWebserviceConfig, xmlB64: string) {
   return ttnSaveEfact(cfg, xmlB64);
 }
 
-export async function consultEfactSOAP(cfg: TTNWebserviceConfig, uuid: string) {
-  return ttnConsultEfact(cfg, uuid);
+export async function consultEfactSOAP(
+  cfg: TTNWebserviceConfig,
+  arg: string | { idSaveEfact?: any; generatedRef?: any; documentNumber?: any }
+) {
+  if (typeof arg === "string") {
+    return ttnConsultEfact(cfg, arg);
+  }
+
+  const idSaveEfact = arg?.idSaveEfact != null ? String(arg.idSaveEfact).trim() : "";
+  const generatedRef = arg?.generatedRef != null ? String(arg.generatedRef).trim() : "";
+  const documentNumber = arg?.documentNumber != null ? String(arg.documentNumber).trim() : "";
+
+  const key = idSaveEfact || generatedRef || documentNumber;
+  return ttnConsultEfact(cfg, key);
 }
