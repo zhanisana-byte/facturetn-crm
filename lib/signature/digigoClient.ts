@@ -28,10 +28,7 @@ export function digigoInsecureAllowed() {
   return env("DIGIGO_ALLOW_INSECURE", "true").toLowerCase() === "true";
 }
 
-export async function digigoCall(
-  methodName: string,
-  payload: any
-): Promise<DigigoResponse> {
+export async function digigoCall(methodName: string, payload: any): Promise<DigigoResponse> {
   const base = digigoBaseUrl();
   if (!base) {
     return { ok: false, error: "DIGIGO_BASE_URL manquante" };
@@ -43,22 +40,21 @@ export async function digigoCall(
 
   const headers = { "Content-Type": "application/json" };
 
-  const attempts = [
-    
-    `${base}/${methodName}`,
-    
-    `${base}?method=${encodeURIComponent(methodName)}`,
-  ];
+  const attempts = [`${base}/${methodName}`, `${base}?method=${encodeURIComponent(methodName)}`];
 
   for (const url of attempts) {
     try {
-      const res = await fetch(url, {
+      const init: RequestInit = {
         method: "POST",
         headers,
         body: JSON.stringify(payload ?? {}),
-        
-        agent,
-      });
+      };
+
+      if (agent) {
+        (init as any).agent = agent;
+      }
+
+      const res = await fetch(url, init as any);
 
       const txt = await res.text();
       let data: any = txt;
@@ -75,12 +71,10 @@ export async function digigoCall(
       return {
         ok: false,
         status: res.status,
-        error:
-          (data && (data.error || data.message)) || `HTTP_${res.status}`,
+        error: (data && (data.error || data.message)) || `HTTP_${res.status}`,
         data,
       };
-    } catch (e: any) {
-      
+    } catch {
       continue;
     }
   }
