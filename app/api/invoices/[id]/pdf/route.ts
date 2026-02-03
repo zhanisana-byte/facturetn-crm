@@ -1,3 +1,4 @@
+// app/api/invoices/[id]/pdf/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { invoicePdf } from "@/lib/pdf/invoicePdf";
@@ -61,6 +62,7 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
 
   const pdfBytes = await invoicePdf(
     {
+      id: invoiceId,
       invoice_no: invNo || `INV-${invoiceId.slice(0, 8)}`,
       issue_date: issueDate || new Date().toISOString().slice(0, 10),
       due_date: s((invoice as any).due_date || ""),
