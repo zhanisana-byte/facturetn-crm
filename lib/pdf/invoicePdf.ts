@@ -122,7 +122,6 @@ export async function buildInvoicePdf(opts: { company: Company; invoice: Invoice
   const { company, invoice, items } = opts;
 
   const pdf = await PDFDocument.create();
-
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
@@ -199,20 +198,24 @@ export async function buildInvoicePdf(opts: { company: Company; invoice: Invoice
     page.drawText(`N°: ${invNo}`, { x: marginX, y: top - 22, size: 10.5, font });
     page.drawText(`Date: ${invDate}`, { x: marginX, y: top - 36, size: 10.5, font });
 
-    const qrSize = 110;
+    const qrSize = 104;
     const qrX = pageW - marginX - qrSize;
     const qrY = top - 18 - qrSize;
+
+    let qrBlockBottom = qrY;
 
     if (qrImg) {
       page.drawImage(qrImg, { x: qrX, y: qrY, width: qrSize, height: qrSize });
 
-      const refSafe = `Ref: ${ellipsize(ref, 20)}`;
-      page.drawText(refSafe, { x: qrX, y: qrY - 14, size: 7.6, font, color: rgb(0.15, 0.15, 0.17) });
+      const refSafe = `Ref: ${ellipsize(ref, 22)}`;
+      page.drawText(refSafe, { x: qrX, y: qrY - 13, size: 7.4, font, color: rgb(0.15, 0.15, 0.17) });
 
       const shaParts = splitHash(sha);
-      page.drawText(`SHA256: ${shaParts[0] || ""}`, { x: qrX, y: qrY - 26, size: 7.6, font, color: rgb(0.15, 0.15, 0.17) });
-      if (shaParts[1]) page.drawText(shaParts[1], { x: qrX, y: qrY - 36, size: 7.6, font, color: rgb(0.15, 0.15, 0.17) });
-      if (shaParts[2]) page.drawText(shaParts[2], { x: qrX, y: qrY - 46, size: 7.6, font, color: rgb(0.15, 0.15, 0.17) });
+      page.drawText(`SHA256: ${shaParts[0] || ""}`, { x: qrX, y: qrY - 24, size: 7.4, font, color: rgb(0.15, 0.15, 0.17) });
+      if (shaParts[1]) page.drawText(shaParts[1], { x: qrX, y: qrY - 34, size: 7.4, font, color: rgb(0.15, 0.15, 0.17) });
+      if (shaParts[2]) page.drawText(shaParts[2], { x: qrX, y: qrY - 44, size: 7.4, font, color: rgb(0.15, 0.15, 0.17) });
+
+      qrBlockBottom = qrY - 52;
     }
 
     const blockTop = top - 78;
@@ -250,7 +253,8 @@ export async function buildInvoicePdf(opts: { company: Company; invoice: Invoice
       ry -= 13;
     }
 
-    const tableTop = Math.min(ly, ry) - 44;
+    const baseTableTop = Math.min(ly, ry) - 44;
+    const tableTop = Math.min(baseTableTop, qrBlockBottom - 28);
 
     page.drawText("Description", { x: cols.desc, y: tableTop, size: 10.5, font: bold });
     page.drawText("Qté", { x: cols.qty, y: tableTop, size: 10.5, font: bold });
@@ -301,13 +305,8 @@ export async function buildInvoicePdf(opts: { company: Company; invoice: Invoice
   let idx = 0;
 
   while (idx < allItems.length || (allItems.length === 0 && idx === 0)) {
-    const remaining = allItems.length - idx;
-    const isLastPage = remaining <= 0 ? true : false;
-
     const page = pdf.addPage([pageW, pageH]);
     let y = drawHeader(page);
-
-    const bottomLimit = availableBottom(allItems.length === 0 ? true : false);
 
     if (allItems.length === 0) {
       page.drawText("Aucune ligne.", { x: marginX, y: y - 6, size: 10.2, font, color: rgb(0.35, 0.35, 0.4) });
