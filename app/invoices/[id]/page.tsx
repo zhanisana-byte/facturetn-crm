@@ -198,26 +198,37 @@ export default async function InvoicePage({ params }: { params: { id: string } }
                   <th>Description</th>
                   <th style={{ width: 110 }}>Qté</th>
                   <th style={{ width: 130 }}>PU HT</th>
+                  <th style={{ width: 120 }}>Remise</th>
                   <th style={{ width: 110 }}>TVA%</th>
                   <th style={{ width: 130 }}>Total HT</th>
                   <th style={{ width: 130 }}>Total TTC</th>
                 </tr>
               </thead>
               <tbody>
-                {(items || []).map((it: any, idx: number) => (
-                  <tr key={it.id || idx}>
-                    <td>{it.line_no ?? idx + 1}</td>
-                    <td>{s(it.description)}</td>
-                    <td>{fmt3(it.quantity)}</td>
-                    <td>{fmt3(it.unit_price_ht)}</td>
-                    <td>{fmt3(it.vat_pct)}</td>
-                    <td>{fmt3(it.line_total_ht)}</td>
-                    <td>{fmt3(it.line_total_ttc)}</td>
-                  </tr>
-                ))}
+                {(items || []).map((it: any, idx: number) => {
+                  const dp = Number(it.discount_pct ?? 0);
+                  const hasDiscount = Number.isFinite(dp) && dp > 0;
+                  return (
+                    <tr key={it.id || idx}>
+                      <td>{it.line_no ?? idx + 1}</td>
+                      <td>
+                        <div className="font-medium">{s(it.description) || "—"}</div>
+                        {hasDiscount ? (
+                          <div className="text-xs text-[var(--muted)] mt-0.5">Remise: -{fmt3(dp)}%</div>
+                        ) : null}
+                      </td>
+                      <td>{fmt3(it.quantity)}</td>
+                      <td>{fmt3(it.unit_price_ht)}</td>
+                      <td>{hasDiscount ? `-${fmt3(dp)}%` : "—"}</td>
+                      <td>{fmt3(it.vat_pct)}</td>
+                      <td>{fmt3(it.line_total_ht)}</td>
+                      <td>{fmt3(it.line_total_ttc)}</td>
+                    </tr>
+                  );
+                })}
                 {!items?.length ? (
                   <tr>
-                    <td colSpan={7} className="text-center text-sm text-[var(--muted)] py-6">
+                    <td colSpan={8} className="text-center text-sm text-[var(--muted)] py-6">
                       Aucune ligne.
                     </td>
                   </tr>
