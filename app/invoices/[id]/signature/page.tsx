@@ -23,8 +23,10 @@ export default async function InvoiceSignaturePage({
   const backUrl = typeof sp.back === "string" && sp.back.trim() ? sp.back : `/invoices/${id}`;
 
   return (
-    <AppShell title="Signature facture" subtitle="Signature DigiGo" accountType="entreprise">
-      <InvoiceSignatureClient invoiceId={id} backUrl={backUrl} />
+    <AppShell title="Signature facture" subtitle="Signature DigiGo" accountType="profil">
+      <div className="mx-auto w-full max-w-3xl p-6">
+        <InvoiceSignatureClient invoiceId={id} backUrl={backUrl} />
+      </div>
     </AppShell>
   );
 }
