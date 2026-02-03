@@ -37,6 +37,12 @@ export default async function InvoicePage({ params }: { params: { id: string } }
   const { data: invoice } = await supabase.from("invoices").select("*").eq("id", invoiceId).single();
   if (!invoice) notFound();
 
+  const { data: company } = await supabase
+    .from("companies")
+    .select("*")
+    .eq("id", (invoice as any).company_id)
+    .maybeSingle();
+
   const { data: items } = await supabase
     .from("invoice_items")
     .select("*")
@@ -46,15 +52,19 @@ export default async function InvoicePage({ params }: { params: { id: string } }
   const invoiceNo = s((invoice as any).invoice_number || "");
   const docType = s((invoice as any).document_type || "facture");
   const issueDate = s((invoice as any).issue_date || "");
+  const dueDate = s((invoice as any).due_date || "");
   const currency = s((invoice as any).currency || "TND");
+  const notes = s((invoice as any).notes || "");
 
   const signatureStatus = s((invoice as any).signature_status || "not_signed");
   const invoiceSigned = signatureStatus === "signed";
-
   const ttnStatus = s((invoice as any).ttn_status || "not_sent");
 
-  const headBadge =
-    invoiceSigned ? { label: "Signée", kind: "signed" as const } : ttnStatus === "pending_signature" ? { label: "En attente signature", kind: "pending" as const } : { label: "Brouillon", kind: "draft" as const };
+  const headBadge = invoiceSigned
+    ? { label: "Signée", kind: "signed" as const }
+    : ttnStatus === "pending_signature"
+    ? { label: "En attente signature", kind: "pending" as const }
+    : { label: "Brouillon", kind: "draft" as const };
 
   return (
     <AppShell title="Facture" subtitle="Résumé" accountType="profil">
@@ -69,7 +79,9 @@ export default async function InvoicePage({ params }: { params: { id: string } }
                 Date: {issueDate || "—"} • Devise: {currency}
               </div>
             </div>
-            <div className={`mt-1 inline-flex items-center rounded-full border px-3 py-1 text-xs ${badge(headBadge.kind)}`}>{headBadge.label}</div>
+            <div className={`mt-1 inline-flex items-center rounded-full border px-3 py-1 text-xs ${badge(headBadge.kind)}`}>
+              {headBadge.label}
+            </div>
           </div>
 
           <div className="flex gap-2">
@@ -133,12 +145,50 @@ export default async function InvoicePage({ params }: { params: { id: string } }
               </div>
             </div>
           </div>
+
+          <div className="ftn-card p-5 lg:col-span-2">
+            <div className="ftn-section-title">Vendeur</div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div>
+                <div className="text-xs text-[var(--muted)]">Société</div>
+                <div className="text-sm font-medium">{s((company as any)?.company_name) || "—"}</div>
+              </div>
+              <div>
+                <div className="text-xs text-[var(--muted)]">MF</div>
+                <div className="text-sm font-medium">{s((company as any)?.tax_id || (company as any)?.taxId) || "—"}</div>
+              </div>
+              <div className="sm:col-span-2">
+                <div className="text-xs text-[var(--muted)]">Adresse</div>
+                <div className="text-sm font-medium">{s((company as any)?.address) || "—"}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="ftn-card p-5">
+            <div className="ftn-section-title">Infos facture</div>
+            <div className="mt-3 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-[var(--muted)]">Type</span>
+                <span className="font-medium">{docType.toUpperCase()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[var(--muted)]">N°</span>
+                <span className="font-medium">{invoiceNo || "—"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[var(--muted)]">Échéance</span>
+                <span className="font-medium">{dueDate || "—"}</span>
+              </div>
+              <div className="pt-2 border-t border-[var(--border)]">
+                <div className="text-xs text-[var(--muted)]">Notes</div>
+                <div className="text-sm font-medium">{notes || "—"}</div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="ftn-card p-5 mt-4">
-          <div className="flex items-center justify-between">
-            <div className="ftn-section-title">Lignes</div>
-          </div>
+          <div className="ftn-section-title">Lignes</div>
 
           <div className="mt-4 overflow-x-auto">
             <table className="ftn-table">
