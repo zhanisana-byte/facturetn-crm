@@ -127,19 +127,13 @@ export function buildTeifXml(input: TeifBuildInput): string {
   const supplierCountry = nonEmpty(input.supplier?.country || "TN").toUpperCase() || "TN";
 
   const customerNameRaw = nonEmpty(input.customer?.name || "");
-  const customerName = requireStrict
-    ? requireNonEmpty("Le nom du client", customerNameRaw)
-    : nonEmpty(customerNameRaw || "Client");
+  const customerName = requireStrict ? requireNonEmpty("Le nom du client", customerNameRaw) : nonEmpty(customerNameRaw || "Client");
 
   const customerTaxRaw = nonEmpty(input.customer?.taxId || "");
-  const customerTax = requireStrict
-    ? requireNonEmpty("Le matricule fiscal (MF) du client", customerTaxRaw)
-    : nonEmpty(customerTaxRaw || "NA");
+  const customerTax = requireStrict ? requireNonEmpty("Le matricule fiscal (MF) du client", customerTaxRaw) : nonEmpty(customerTaxRaw || "NA");
 
   const customerAddrRaw = nonEmpty(input.customer?.address || "");
-  const customerAddr = requireStrict
-    ? requireNonEmpty("L’adresse du client", customerAddrRaw)
-    : customerAddrRaw;
+  const customerAddr = requireStrict ? requireNonEmpty("L’adresse du client", customerAddrRaw) : customerAddrRaw;
 
   const customerCity = nonEmpty(input.customer?.city || "");
   const customerPostal = nonEmpty(input.customer?.postalCode || "");
@@ -172,7 +166,8 @@ export function buildTeifXml(input: TeifBuildInput): string {
       const vat = toNum(it.vat);
 
       const discountPct = toNum((it as any).discount ?? 0);
-      const lineHt = qty * price * (1 - Math.min(Math.max(discountPct, 0), 100) / 100);
+      const disc = Math.min(Math.max(discountPct, 0), 100) / 100;
+      const lineHt = qty * price * (1 - disc);
 
       return `
       <Lin>
@@ -192,7 +187,12 @@ export function buildTeifXml(input: TeifBuildInput): string {
         </LinTax>
         <LinMoa>
           <MoaDetails>
-            <Moa amountTypeCode="I-176" currencyCodeList="ISO_4217">
+            <Moa amountTypeCode="I-183" currencyCodeList="ISO_4217">
+              <Amount currencyIdentifier="${escXml(currency)}">${escXml(fmtAmount(price))}</Amount>
+            </Moa>
+          </MoaDetails>
+          <MoaDetails>
+            <Moa amountTypeCode="I-171" currencyCodeList="ISO_4217">
               <Amount currencyIdentifier="${escXml(currency)}">${escXml(fmtAmount(lineHt))}</Amount>
             </Moa>
           </MoaDetails>
@@ -239,6 +239,11 @@ export function buildTeifXml(input: TeifBuildInput): string {
         </Moa>
       </AmountDetails>
       <AmountDetails>
+        <Moa amountTypeCode="I-182" currencyCodeList="ISO_4217">
+          <Amount currencyIdentifier="${escXml(currency)}">${escXml(fmtAmount(ht))}</Amount>
+        </Moa>
+      </AmountDetails>
+      <AmountDetails>
         <Moa amountTypeCode="I-181" currencyCodeList="ISO_4217">
           <Amount currencyIdentifier="${escXml(currency)}">${escXml(fmtAmount(tva))}</Amount>
         </Moa>
@@ -255,8 +260,9 @@ export function buildTeifXml(input: TeifBuildInput): string {
     const qty = toNum((it as any).qty);
     const price = toNum((it as any).price);
     const discountPct = toNum((it as any).discount ?? 0);
+    const disc = Math.min(Math.max(discountPct, 0), 100) / 100;
     const vatRate = toNum((it as any).vat);
-    const lineBase = qty * price * (1 - Math.min(Math.max(discountPct, 0), 100) / 100);
+    const lineBase = qty * price * (1 - disc);
     const lineTax = lineBase * (vatRate / 100);
     const key = Number.isFinite(vatRate) ? vatRate : 0;
     const prev = vatMap.get(key) ?? { base: 0, tax: 0 };
@@ -383,8 +389,7 @@ export function validateTeifMinimum(xml: string): string[] {
   if (!xml.includes("<InvoiceBody>")) problems.push("Missing <InvoiceBody>");
   if (!xml.includes("<Bgm>")) problems.push("Missing <Bgm>");
   if (!xml.includes("<DocumentIdentifier>")) problems.push("Missing DocumentIdentifier");
-  if (!xml.match(/<DocumentIdentifier>\s*[^<\s][^<]*<\/DocumentIdentifier>/))
-    problems.push("Empty DocumentIdentifier");
+  if (!xml.match(/<DocumentIdentifier>\s*[^<\s][^<]*<\/DocumentIdentifier>/)) problems.push("Empty DocumentIdentifier");
 
   if (!xml.includes("<Dtm>")) problems.push("Missing <Dtm>");
   const issueMatch = xml.match(/functionCode="I-31"[^>]*>([^<]+)</);
@@ -407,6 +412,13 @@ export function validateTeifMinimum(xml: string): string[] {
   if (!xml.includes("<InvoiceMoa>")) problems.push("Missing InvoiceMoa totals");
   if (!xml.includes("<InvoiceTax>")) problems.push("Missing InvoiceTax");
   if (!xml.includes('TaxTypeName code="I-1602"')) problems.push("Missing VAT tax block (I-1602)");
+
+  if (!xml.includes('amountTypeCode="I-171"')) problems.push("Missing line total HT (I-171)");
+  if (!xml.includes('amountTypeCode="I-183"')) problems.push("Missing unit HT price (I-183)");
+  if (!xml.includes('amountTypeCode="I-176"')) problems.push("Missing invoice total HT (I-176)");
+  if (!xml.includes('amountTypeCode="I-182"')) problems.push("Missing invoice total base taxe (I-182)");
+  if (!xml.includes('amountTypeCode="I-181"')) problems.push("Missing invoice total taxe (I-181)");
+  if (!xml.includes('amountTypeCode="I-180"')) problems.push("Missing invoice total TTC (I-180)");
 
   return problems;
 }
