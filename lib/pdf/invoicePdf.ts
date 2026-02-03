@@ -110,22 +110,28 @@ function computeLine(it: any) {
   return { qty, pu, vatPct, remise, ht, vat, ttc };
 }
 
-export async function buildInvoicePdf(opts: {
-  company: Company;
-  invoice: Invoice;
-  items: Item[];
-}): Promise<Uint8Array> {
+function splitHash(h: string) {
+  const x = s(h);
+  const a = x.slice(0, 24);
+  const b = x.slice(24, 48);
+  const c = x.slice(48, 72);
+  return [a, b, c].filter(Boolean);
+}
+
+export async function buildInvoicePdf(opts: { company: Company; invoice: Invoice; items: Item[] }): Promise<Uint8Array> {
   const { company, invoice, items } = opts;
 
   const pdf = await PDFDocument.create();
-  const page = pdf.addPage([595.28, 841.89]);
-  const { width, height } = page.getSize();
 
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
+  const pageW = 595.28;
+  const pageH = 841.89;
+
   const marginX = 54;
-  const top = height - 64;
+  const top = pageH - 64;
+  const bottom = 64;
 
   const docType = s(invoice.document_type || "FACTURE").toUpperCase();
   const invNo = s(invoice.invoice_no || invoice.id || "");
@@ -160,145 +166,207 @@ export async function buildInvoicePdf(opts: {
     }
   }
 
-  page.drawText(docType, { x: marginX, y: top, size: 22, font: bold, color: rgb(0, 0, 0) });
-  page.drawText(`N°: ${invNo}`, { x: marginX, y: top - 22, size: 10.5, font });
-  page.drawText(`Date: ${invDate}`, { x: marginX, y: top - 36, size: 10.5, font });
-
-  const qrSize = 110;
-  const qrX = width - marginX - qrSize;
-  const qrY = top - 18 - qrSize;
-
-  if (qrImg) {
-    page.drawImage(qrImg, { x: qrX, y: qrY, width: qrSize, height: qrSize });
-    page.drawText(`Ref: ${ellipsize(ref, 34)}`, { x: qrX, y: qrY - 14, size: 7.8, font, color: rgb(0.15, 0.15, 0.17) });
-    page.drawText(`SHA256: ${ellipsize(sha, 34)}`, { x: qrX, y: qrY - 26, size: 7.8, font, color: rgb(0.15, 0.15, 0.17) });
-  }
-
-  const leftX = marginX;
-  const blockTop = top - 78;
-
-  page.drawText(ellipsize(sellerName || "—", 40), { x: leftX, y: blockTop, size: 12, font: bold });
-  let ly = blockTop - 16;
-  if (sellerTax) {
-    page.drawText(`MF: ${ellipsize(sellerTax, 34)}`, { x: leftX, y: ly, size: 10.2, font });
-    ly -= 13;
-  }
-  if (sellerAddr1) {
-    page.drawText(ellipsize(sellerAddr1, 52), { x: leftX, y: ly, size: 10.2, font });
-    ly -= 13;
-  }
-  if (sellerAddr2) {
-    page.drawText(ellipsize(sellerAddr2, 52), { x: leftX, y: ly, size: 10.2, font });
-    ly -= 13;
-  }
-
-  const rightX = width - marginX - 250;
-  page.drawText("Client", { x: rightX, y: blockTop, size: 12, font: bold });
-  let ry = blockTop - 16;
-  page.drawText(ellipsize(custName || "—", 40), { x: rightX, y: ry, size: 10.2, font });
-  ry -= 13;
-  if (custTax) {
-    page.drawText(`MF: ${ellipsize(custTax, 34)}`, { x: rightX, y: ry, size: 10.2, font });
-    ry -= 13;
-  }
-  if (custTel) {
-    page.drawText(`Tél: ${ellipsize(custTel, 34)}`, { x: rightX, y: ry, size: 10.2, font });
-    ry -= 13;
-  }
-  if (custAddr) {
-    page.drawText(ellipsize(custAddr, 52), { x: rightX, y: ry, size: 10.2, font });
-    ry -= 13;
-  }
-
-  const tableTop = Math.min(ly, ry) - 44;
-
-  const cols = {
-    desc: marginX,
-    qty: width - marginX - 280,
-    pu: width - marginX - 210,
-    tva: width - marginX - 135,
-    ttc: width - marginX - 60,
-  };
-
-  const headerY = tableTop;
-  page.drawText("Description", { x: cols.desc, y: headerY, size: 10.5, font: bold });
-  page.drawText("Qté", { x: cols.qty, y: headerY, size: 10.5, font: bold });
-  page.drawText("PU HT", { x: cols.pu, y: headerY, size: 10.5, font: bold });
-  page.drawText("TVA%", { x: cols.tva, y: headerY, size: 10.5, font: bold });
-  page.drawText("TTC", { x: cols.ttc, y: headerY, size: 10.5, font: bold });
-
-  const lineY = headerY - 10;
-  page.drawLine({ start: { x: marginX, y: lineY }, end: { x: width - marginX, y: lineY }, thickness: 1, color: rgb(0.82, 0.84, 0.86) });
-
-  let y = headerY - 26;
-
-  const maxLines = 14;
-  const sliced = (items || []).slice(0, maxLines);
-
   let totalHt = 0;
   let totalVat = 0;
 
-  for (const it of sliced) {
-    const { qty, pu, vatPct, remise, ht, vat, ttc } = computeLine(it);
-
+  for (const it of items || []) {
+    const { ht, vat } = computeLine(it);
     totalHt += ht;
     totalVat += vat;
-
-    const desc = s(it.description || "");
-    const hasDiscount = remise > 0;
-
-    page.drawText(ellipsize(desc || "—", 52), { x: cols.desc, y, size: 10.2, font });
-    page.drawText(f3(qty), { x: cols.qty, y, size: 10.2, font });
-    page.drawText(f3(pu), { x: cols.pu, y, size: 10.2, font });
-    page.drawText(f3(vatPct), { x: cols.tva, y, size: 10.2, font });
-    page.drawText(money(ttc), { x: cols.ttc, y, size: 10.2, font });
-
-    y -= 14;
-
-    if (hasDiscount) {
-      const { pct, amt } = pickDiscount(it as any);
-      const label =
-        amt > 0 ? `Remise: -${money(amt)}` : pct > 0 ? `Remise: -${f3(pct)}%` : `Remise: -${money(remise)}`;
-      page.drawText(label, { x: cols.desc + 10, y, size: 9.2, font, color: rgb(0.35, 0.35, 0.4) });
-      y -= 12;
-    }
-
-    page.drawLine({ start: { x: marginX, y: y + 4 }, end: { x: width - marginX, y: y + 4 }, thickness: 0.8, color: rgb(0.9, 0.91, 0.92) });
-    y -= 10;
   }
 
   const stamp = invoice.stamp_duty != null ? n(invoice.stamp_duty) : 1.0;
   const totalTtc = totalHt + totalVat + stamp;
 
-  const totalsX = width - marginX - 220;
-  let ty = y - 6;
+  const cols = {
+    desc: marginX,
+    qty: pageW - marginX - 340,
+    pu: pageW - marginX - 270,
+    rem: pageW - marginX - 195,
+    tva: pageW - marginX - 125,
+    ttc: pageW - marginX - 60,
+  };
 
-  const rows: Array<[string, string, boolean]> = [
-    ["Total HT", money(totalHt), false],
-    ["Total TVA", money(totalVat), false],
-    ["Timbre", money(stamp), false],
-    ["Total TTC", money(totalTtc), true],
-  ];
+  const rowH = 14;
+  const discountH = 12;
+  const separatorH = 10;
 
-  for (const [k, v, strong] of rows) {
-    page.drawText(k, { x: totalsX, y: ty, size: strong ? 11.5 : 10.2, font: strong ? bold : font });
-    page.drawText(v, { x: width - marginX - 80, y: ty, size: strong ? 11.5 : 10.2, font: strong ? bold : font });
-    ty -= strong ? 16 : 13;
+  const totalsBlockH = 72;
+  const totalsTopPadding = 10;
+
+  function drawHeader(page: any) {
+    page.drawText(docType, { x: marginX, y: top, size: 22, font: bold, color: rgb(0, 0, 0) });
+    page.drawText(`N°: ${invNo}`, { x: marginX, y: top - 22, size: 10.5, font });
+    page.drawText(`Date: ${invDate}`, { x: marginX, y: top - 36, size: 10.5, font });
+
+    const qrSize = 110;
+    const qrX = pageW - marginX - qrSize;
+    const qrY = top - 18 - qrSize;
+
+    if (qrImg) {
+      page.drawImage(qrImg, { x: qrX, y: qrY, width: qrSize, height: qrSize });
+
+      const refSafe = `Ref: ${ellipsize(ref, 20)}`;
+      page.drawText(refSafe, { x: qrX, y: qrY - 14, size: 7.6, font, color: rgb(0.15, 0.15, 0.17) });
+
+      const shaParts = splitHash(sha);
+      page.drawText(`SHA256: ${shaParts[0] || ""}`, { x: qrX, y: qrY - 26, size: 7.6, font, color: rgb(0.15, 0.15, 0.17) });
+      if (shaParts[1]) page.drawText(shaParts[1], { x: qrX, y: qrY - 36, size: 7.6, font, color: rgb(0.15, 0.15, 0.17) });
+      if (shaParts[2]) page.drawText(shaParts[2], { x: qrX, y: qrY - 46, size: 7.6, font, color: rgb(0.15, 0.15, 0.17) });
+    }
+
+    const blockTop = top - 78;
+
+    page.drawText(ellipsize(sellerName || "—", 40), { x: marginX, y: blockTop, size: 12, font: bold });
+    let ly = blockTop - 16;
+    if (sellerTax) {
+      page.drawText(`MF: ${ellipsize(sellerTax, 34)}`, { x: marginX, y: ly, size: 10.2, font });
+      ly -= 13;
+    }
+    if (sellerAddr1) {
+      page.drawText(ellipsize(sellerAddr1, 52), { x: marginX, y: ly, size: 10.2, font });
+      ly -= 13;
+    }
+    if (sellerAddr2) {
+      page.drawText(ellipsize(sellerAddr2, 52), { x: marginX, y: ly, size: 10.2, font });
+      ly -= 13;
+    }
+
+    const rightX = pageW - marginX - 250;
+    page.drawText("Client", { x: rightX, y: blockTop, size: 12, font: bold });
+    let ry = blockTop - 16;
+    page.drawText(ellipsize(custName || "—", 40), { x: rightX, y: ry, size: 10.2, font });
+    ry -= 13;
+    if (custTax) {
+      page.drawText(`MF: ${ellipsize(custTax, 34)}`, { x: rightX, y: ry, size: 10.2, font });
+      ry -= 13;
+    }
+    if (custTel) {
+      page.drawText(`Tél: ${ellipsize(custTel, 34)}`, { x: rightX, y: ry, size: 10.2, font });
+      ry -= 13;
+    }
+    if (custAddr) {
+      page.drawText(ellipsize(custAddr, 52), { x: rightX, y: ry, size: 10.2, font });
+      ry -= 13;
+    }
+
+    const tableTop = Math.min(ly, ry) - 44;
+
+    page.drawText("Description", { x: cols.desc, y: tableTop, size: 10.5, font: bold });
+    page.drawText("Qté", { x: cols.qty, y: tableTop, size: 10.5, font: bold });
+    page.drawText("PU HT", { x: cols.pu, y: tableTop, size: 10.5, font: bold });
+    page.drawText("Remise", { x: cols.rem, y: tableTop, size: 10.5, font: bold });
+    page.drawText("TVA%", { x: cols.tva, y: tableTop, size: 10.5, font: bold });
+    page.drawText("TTC", { x: cols.ttc, y: tableTop, size: 10.5, font: bold });
+
+    const lineY = tableTop - 10;
+    page.drawLine({ start: { x: marginX, y: lineY }, end: { x: pageW - marginX, y: lineY }, thickness: 1, color: rgb(0.82, 0.84, 0.86) });
+
+    return tableTop - 26;
   }
 
-  if (invoice.notes) {
-    const noteY = 70;
-    page.drawText("Note:", { x: marginX, y: noteY, size: 9.5, font: bold, color: rgb(0.25, 0.25, 0.28) });
-    page.drawText(ellipsize(s(invoice.notes), 110), { x: marginX + 34, y: noteY, size: 9.5, font, color: rgb(0.25, 0.25, 0.28) });
+  function drawTotals(page: any) {
+    const totalsX = pageW - marginX - 220;
+    const baseY = bottom + totalsBlockH;
+
+    page.drawLine({ start: { x: marginX, y: baseY + totalsTopPadding }, end: { x: pageW - marginX, y: baseY + totalsTopPadding }, thickness: 1, color: rgb(0.86, 0.87, 0.88) });
+
+    let ty = baseY - 8;
+
+    const rows: Array<[string, string, boolean]> = [
+      ["Total HT", money(totalHt), false],
+      ["Total TVA", money(totalVat), false],
+      ["Timbre", money(stamp), false],
+      ["Total TTC", money(totalTtc), true],
+    ];
+
+    for (const [k, v, strong] of rows) {
+      page.drawText(k, { x: totalsX, y: ty, size: strong ? 11.5 : 10.2, font: strong ? bold : font });
+      page.drawText(v, { x: pageW - marginX - 80, y: ty, size: strong ? 11.5 : 10.2, font: strong ? bold : font });
+      ty -= strong ? 16 : 13;
+    }
+
+    if (invoice.notes) {
+      const noteY = bottom;
+      page.drawText("Note:", { x: marginX, y: noteY + 10, size: 9.5, font: bold, color: rgb(0.25, 0.25, 0.28) });
+      page.drawText(ellipsize(s(invoice.notes), 110), { x: marginX + 34, y: noteY + 10, size: 9.5, font, color: rgb(0.25, 0.25, 0.28) });
+    }
+  }
+
+  function availableBottom(isLast: boolean) {
+    return isLast ? bottom + totalsBlockH + 18 : bottom;
+  }
+
+  const allItems = items || [];
+  let idx = 0;
+
+  while (idx < allItems.length || (allItems.length === 0 && idx === 0)) {
+    const remaining = allItems.length - idx;
+    const isLastPage = remaining <= 0 ? true : false;
+
+    const page = pdf.addPage([pageW, pageH]);
+    let y = drawHeader(page);
+
+    const bottomLimit = availableBottom(allItems.length === 0 ? true : false);
+
+    if (allItems.length === 0) {
+      page.drawText("Aucune ligne.", { x: marginX, y: y - 6, size: 10.2, font, color: rgb(0.35, 0.35, 0.4) });
+      drawTotals(page);
+      break;
+    }
+
+    while (idx < allItems.length) {
+      const it = allItems[idx];
+      const { qty, pu, vatPct, remise, ttc } = computeLine(it);
+      const hasDiscount = remise > 0;
+
+      const needed = rowH + (hasDiscount ? discountH : 0) + separatorH;
+      const willBeLastPage = idx === allItems.length - 1;
+      const lim = availableBottom(willBeLastPage);
+
+      if (y - needed < lim) break;
+
+      const desc = s(it.description || "");
+      page.drawText(ellipsize(desc || "—", 52), { x: cols.desc, y, size: 10.2, font });
+      page.drawText(f3(qty), { x: cols.qty, y, size: 10.2, font });
+      page.drawText(f3(pu), { x: cols.pu, y, size: 10.2, font });
+
+      if (hasDiscount) {
+        const { pct, amt } = pickDiscount(it as any);
+        const remTxt = amt > 0 ? `-${f3(amt)}` : pct > 0 ? `-${f3(pct)}%` : `-${f3(remise)}`;
+        page.drawText(remTxt, { x: cols.rem, y, size: 10.2, font });
+      } else {
+        page.drawText("—", { x: cols.rem, y, size: 10.2, font });
+      }
+
+      page.drawText(f3(vatPct), { x: cols.tva, y, size: 10.2, font });
+      page.drawText(money(ttc), { x: cols.ttc, y, size: 10.2, font });
+
+      y -= rowH;
+
+      if (hasDiscount) {
+        const { pct, amt } = pickDiscount(it as any);
+        const label = amt > 0 ? `Remise: -${money(amt)}` : pct > 0 ? `Remise: -${f3(pct)}%` : `Remise: -${money(remise)}`;
+        page.drawText(label, { x: cols.desc + 10, y, size: 9.2, font, color: rgb(0.35, 0.35, 0.4) });
+        y -= discountH;
+      }
+
+      page.drawLine({ start: { x: marginX, y: y + 4 }, end: { x: pageW - marginX, y: y + 4 }, thickness: 0.8, color: rgb(0.9, 0.91, 0.92) });
+      y -= separatorH;
+
+      idx++;
+    }
+
+    if (idx >= allItems.length) {
+      drawTotals(page);
+      break;
+    }
   }
 
   return await pdf.save();
 }
 
-export async function invoicePdf(
-  a: { company: Company; invoice: Invoice; items: Item[] } | any,
-  b?: any
-): Promise<Uint8Array> {
+export async function invoicePdf(a: { company: Company; invoice: Invoice; items: Item[] } | any, b?: any): Promise<Uint8Array> {
   if (a && typeof a === "object" && "company" in a && "invoice" in a && "items" in a && b == null) {
     return buildInvoicePdf(a as { company: Company; invoice: Invoice; items: Item[] });
   }
