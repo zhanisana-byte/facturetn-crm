@@ -45,7 +45,7 @@ function computeFromItems(items: any[]) {
   return { ht, tva };
 }
 
-export async function GET(_: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, { params }: { params: { id: string } }) {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
@@ -53,10 +53,13 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
   const invoiceId = s(params?.id);
   if (!invoiceId) return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
 
+  const url = new URL(req.url);
+  const purpose = (s(url.searchParams.get("purpose")) || "preview") as "preview" | "ttn";
+
   const { data: invoice, error: eInv } = await supabase.from("invoices").select("*").eq("id", invoiceId).single();
   if (eInv || !invoice) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
-  const companyId = s((invoice as any).company_id);
+  const companyId = s((invoice as any).company_id || "");
   const { data: company, error: eC } = await supabase.from("companies").select("*").eq("id", companyId).single();
   if (eC || !company) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
 
@@ -79,59 +82,64 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
   const tva = computed.tva;
   const ttc = ht + tva + stampAmount;
 
-  const teifXml = buildTeifInvoiceXml({
-    invoiceId,
-    company: {
-      name: s((company as any)?.company_name ?? ""),
-      taxId: s((company as any)?.tax_id ?? (company as any)?.taxId ?? ""),
-      address: s((company as any)?.address ?? ""),
-      city: s((company as any)?.city ?? ""),
-      postalCode: s((company as any)?.postal_code ?? (company as any)?.zip ?? ""),
-      country: s((company as any)?.country ?? "TN"),
-    },
-    invoice: {
-      documentType: s((invoice as any)?.document_type ?? "facture"),
-      number,
-      issueDate: s((invoice as any)?.issue_date ?? ""),
-      dueDate: s((invoice as any)?.due_date ?? ""),
-      currency: s((invoice as any)?.currency ?? "TND"),
-      customerName: s((invoice as any)?.customer_name ?? ""),
-      customerTaxId: s((invoice as any)?.customer_tax_id ?? ""),
-      customerEmail: s((invoice as any)?.customer_email ?? ""),
-      customerPhone: s((invoice as any)?.customer_phone ?? ""),
-      customerAddress: s((invoice as any)?.customer_address ?? ""),
-      notes: s((invoice as any)?.notes ?? ""),
-    },
-    totals: {
-      ht,
-      tva,
-      ttc,
-      stampEnabled: true,
-      stampAmount,
-    },
-    items: (items ?? []).map((it: any) => ({
-      description: s(it.description ?? ""),
-      qty: n(it.quantity ?? 1),
-      price: n(it.unit_price_ht ?? 0),
-      vat: n(it.vat_pct ?? 0),
-      discount: n(it.discount_pct ?? 0),
-    })),
-    purpose: "ttn",
-  });
+  try {
+    const teifXml = buildTeifInvoiceXml({
+      invoiceId,
+      company: {
+        name: s((company as any)?.company_name ?? ""),
+        taxId: s((company as any)?.tax_id ?? (company as any)?.taxId ?? ""),
+        address: s((company as any)?.address ?? ""),
+        city: s((company as any)?.city ?? ""),
+        postalCode: s((company as any)?.postal_code ?? (company as any)?.zip ?? ""),
+        country: s((company as any)?.country ?? "TN"),
+      },
+      invoice: {
+        documentType: s((invoice as any)?.document_type ?? "facture"),
+        number,
+        issueDate: s((invoice as any)?.issue_date ?? ""),
+        dueDate: s((invoice as any)?.due_date ?? ""),
+        currency: s((invoice as any)?.currency ?? "TND"),
+        customerName: s((invoice as any)?.customer_name ?? ""),
+        customerTaxId: s((invoice as any)?.customer_tax_id ?? ""),
+        customerEmail: s((invoice as any)?.customer_email ?? ""),
+        customerPhone: s((invoice as any)?.customer_phone ?? ""),
+        customerAddress: s((invoice as any)?.customer_address ?? ""),
+        notes: s((invoice as any)?.notes ?? ""),
+      },
+      totals: {
+        ht,
+        tva,
+        ttc,
+        stampEnabled: true,
+        stampAmount,
+      },
+      items: (items ?? []).map((it: any) => ({
+        description: s(it.description ?? ""),
+        qty: n(it.quantity ?? 1),
+        price: n(it.unit_price_ht ?? 0),
+        vat: n(it.vat_pct ?? 0),
+        discount: n(it.discount_pct ?? 0),
+      })),
+      purpose,
+    });
 
-  const problems = validateTeifMinimum(teifXml);
-  if (problems.length) return NextResponse.json({ ok: false, error: "TEIF_INVALID", details: problems }, { status: 400 });
+    const problems = validateTeifMinimum(teifXml);
+    if (problems.length) return NextResponse.json({ ok: false, error: "TEIF_INVALID", details: problems }, { status: 400 });
 
-  const sized = enforceMaxSize(teifXml);
-  const xml = sized.xml;
+    const sized = enforceMaxSize(teifXml);
+    const xml = sized.xml;
 
-  const filename = `invoice_${invoiceId}.xml`;
-  return new NextResponse(xml, {
-    status: 200,
-    headers: {
-      "content-type": "application/xml; charset=utf-8",
-      "content-disposition": `attachment; filename="${filename}"`,
-      "cache-control": "no-store",
-    },
-  });
+    const filename = `invoice_${invoiceId}.xml`;
+    return new NextResponse(xml, {
+      status: 200,
+      headers: {
+        "content-type": "application/xml; charset=utf-8",
+        "content-disposition": `attachment; filename="${filename}"`,
+        "cache-control": "no-store",
+      },
+    });
+  } catch (err: any) {
+    const msg = s(err?.message || "TEIF_BUILD_FAILED");
+    return NextResponse.json({ ok: false, error: "TEIF_BUILD_FAILED", details: [msg], purpose }, { status: 400 });
+  }
 }
