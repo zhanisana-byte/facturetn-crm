@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import crypto from "crypto";
 
 type Company = {
   company_name?: string | null;
@@ -7,6 +8,8 @@ type Company = {
   city?: string | null;
   postal_code?: string | null;
   country?: string | null;
+  phone?: string | null;
+  email?: string | null;
 };
 
 type Invoice = {
@@ -27,7 +30,7 @@ type Invoice = {
   subtotal_ht?: number | null;
   vat_amount?: number | null;
   stamp_duty?: number | null;
-  net_to_pay?: number | null;
+  total_ttc?: number | null;
 
   document_type?: string | null;
 };
@@ -37,28 +40,74 @@ type Item = {
   qty?: number | null;
   unit_price?: number | null;
   vat_pct?: number | null;
+  discount_pct?: number | null;
+  discount_amount?: number | null;
+
   line_total_ht?: number | null;
   line_total_ttc?: number | null;
 };
 
-function safe(v: any) {
+function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function n3(v: any) {
+function n(v: any) {
   const x = Number(v ?? 0);
-  const y = Number.isFinite(x) ? x : 0;
-  return (Math.round(y * 1000) / 1000).toFixed(3);
+  return Number.isFinite(x) ? x : 0;
 }
 
-function moneyDt(v: any) {
-  return `${n3(v)} DT`;
+function f3(v: any) {
+  const x = n(v);
+  return (Math.round(x * 1000) / 1000).toFixed(3);
 }
 
-function ellipsize(str: string, max: number) {
-  const t = safe(str);
-  if (t.length <= max) return t;
-  return `${t.slice(0, Math.max(0, max - 1))}…`;
+function money(v: any) {
+  return `${f3(v)} DT`;
+}
+
+function ellipsize(t: string, max: number) {
+  const x = s(t);
+  if (x.length <= max) return x;
+  return `${x.slice(0, Math.max(0, max - 1))}…`;
+}
+
+async function toPngDataUrlFromText(text: string): Promise<string | null> {
+  try {
+    const mod: any = await import("qrcode");
+    const fn = mod?.toDataURL || mod?.default?.toDataURL;
+    if (!fn) return null;
+    return await fn(text, { margin: 0, width: 180 });
+  } catch {
+    return null;
+  }
+}
+
+function dataUrlToBytes(dataUrl: string) {
+  const m = /^data:.*?;base64,(.*)$/.exec(dataUrl);
+  if (!m) return null;
+  return Buffer.from(m[1], "base64");
+}
+
+function pickDiscount(it: any) {
+  const pct = n(it.discount_pct ?? it.discountPct ?? it.remise_pct ?? it.remisePct ?? it.discount_percent ?? it.discountPercent);
+  const amt = n(it.discount_amount ?? it.discountAmount ?? it.remise_amount ?? it.remiseAmount ?? it.discount ?? it.remise);
+  return { pct, amt };
+}
+
+function computeLine(it: any) {
+  const qty = n(it.qty ?? it.quantity);
+  const pu = n(it.unit_price ?? it.unit_price_ht ?? it.unitPrice ?? it.unitPriceHt);
+  const vatPct = n(it.vat_pct ?? it.vatPct ?? it.tva_pct ?? it.tvaPct ?? it.vat);
+  const base = qty * pu;
+
+  const { pct, amt } = pickDiscount(it);
+  const remise = amt > 0 ? amt : pct > 0 ? (base * pct) / 100 : 0;
+
+  const ht = Math.max(0, base - remise);
+  const vat = (ht * vatPct) / 100;
+  const ttc = ht + vat;
+
+  return { qty, pu, vatPct, remise, ht, vat, ttc };
 }
 
 export async function buildInvoicePdf(opts: {
@@ -73,180 +122,175 @@ export async function buildInvoicePdf(opts: {
   const { width, height } = page.getSize();
 
   const font = await pdf.embedFont(StandardFonts.Helvetica);
-  const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-  const margin = 42;
-  let y = height - margin;
+  const marginX = 54;
+  const top = height - 64;
 
-  const sellerName = safe(company.company_name) || "Société";
-  const sellerTax = safe(company.tax_id);
-  const sellerAddr = safe(company.address);
-  const sellerCity = safe(company.city);
-  const sellerZip = safe(company.postal_code);
-  const sellerCountry = safe(company.country) || "TN";
+  const docType = s(invoice.document_type || "FACTURE").toUpperCase();
+  const invNo = s(invoice.invoice_no || invoice.id || "");
+  const invDate = s(invoice.issue_date).slice(0, 10) || new Date().toISOString().slice(0, 10);
 
-  const docType = safe(invoice.document_type || "FACTURE").toUpperCase();
-  const invNo = safe(invoice.invoice_no) || safe(invoice.id).slice(0, 8).toUpperCase();
-  const issueDate = safe(invoice.issue_date).slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const sellerName = s(company.company_name || "");
+  const sellerTax = s(company.tax_id || "");
+  const sellerAddr1 = s(company.address || "");
+  const sellerAddr2 = [s(company.postal_code || ""), s(company.city || ""), s(company.country || "TN")]
+    .filter(Boolean)
+    .join(" ");
 
-  page.drawText(sellerName, {
-    x: margin,
-    y,
-    size: 16,
-    font: fontBold,
-    color: rgb(0.1, 0.1, 0.12),
-  });
+  const custName = s(invoice.customer_name || "");
+  const custTax = s(invoice.customer_tax_id || "");
+  const custTel = s(invoice.customer_phone || "");
+  const custAddr = s(invoice.customer_address || "");
 
-  page.drawText(docType, {
-    x: width - margin - 200,
-    y,
-    size: 18,
-    font: fontBold,
-    color: rgb(0.1, 0.1, 0.12),
-  });
+  const ref = invoice.id;
+  const sha = crypto.createHash("sha256").update(`${ref}|${invNo}|${invDate}`, "utf8").digest("hex");
+  const qrText = JSON.stringify({ ref, sha256: sha });
 
-  y -= 20;
-
-  const sellerLines = [
-    sellerTax ? `MF: ${sellerTax}` : "",
-    sellerAddr,
-    [sellerZip, sellerCity].filter(Boolean).join(" "),
-    sellerCountry,
-  ].filter(Boolean);
-
-  sellerLines.forEach((line) => {
-    page.drawText(ellipsize(line, 60), {
-      x: margin,
-      y,
-      size: 10,
-      font,
-      color: rgb(0.2, 0.2, 0.25),
-    });
-    y -= 13;
-  });
-
-  const metaX = width - margin - 200;
-  let my = height - margin - 22;
-
-  const meta: [string, string][] = [
-    ["N°", invNo],
-    ["Date", issueDate],
-  ];
-
-  if (invoice.due_date) meta.push(["Échéance", safe(invoice.due_date).slice(0, 10)]);
-
-  meta.forEach(([k, v]) => {
-    page.drawText(`${k}:`, { x: metaX, y: my, size: 10, font: fontBold });
-    page.drawText(v, { x: metaX + 70, y: my, size: 10, font });
-    my -= 13;
-  });
-
-  y -= 6;
-
-  page.drawText("Client", { x: margin, y, size: 12, font: fontBold });
-  y -= 14;
-
-  const custLines = [
-    safe(invoice.customer_name),
-    safe(invoice.customer_tax_id) ? `MF: ${safe(invoice.customer_tax_id)}` : "",
-    safe(invoice.customer_address),
-    safe(invoice.customer_email),
-    safe(invoice.customer_phone),
-  ].filter(Boolean);
-
-  custLines.forEach((line) => {
-    page.drawText(ellipsize(line, 70), { x: margin, y, size: 10, font });
-    y -= 13;
-  });
-
-  if (invoice.notes) {
-    y -= 4;
-    page.drawText("Note", { x: margin, y, size: 10, font: fontBold });
-    y -= 12;
-    page.drawText(ellipsize(safe(invoice.notes), 95), { x: margin, y, size: 10, font });
-    y -= 12;
+  const qrDataUrl = await toPngDataUrlFromText(qrText);
+  let qrImg: any = null;
+  if (qrDataUrl) {
+    const bytes = dataUrlToBytes(qrDataUrl);
+    if (bytes) {
+      try {
+        qrImg = await pdf.embedPng(bytes);
+      } catch {
+        qrImg = null;
+      }
+    }
   }
 
-  y -= 6;
+  page.drawText(docType, { x: marginX, y: top, size: 22, font: bold, color: rgb(0, 0, 0) });
+  page.drawText(`N°: ${invNo}`, { x: marginX, y: top - 22, size: 10.5, font });
+  page.drawText(`Date: ${invDate}`, { x: marginX, y: top - 36, size: 10.5, font });
 
-  const col = {
-    desc: margin,
-    qty: width - margin - 270,
-    pu: width - margin - 210,
-    tva: width - margin - 150,
-    ht: width - margin - 90,
-    ttc: width - margin - 10,
+  const qrSize = 110;
+  const qrX = width - marginX - qrSize;
+  const qrY = top - 18 - qrSize;
+
+  if (qrImg) {
+    page.drawImage(qrImg, { x: qrX, y: qrY, width: qrSize, height: qrSize });
+    page.drawText(`Ref: ${ellipsize(ref, 34)}`, { x: qrX, y: qrY - 14, size: 7.8, font, color: rgb(0.15, 0.15, 0.17) });
+    page.drawText(`SHA256: ${ellipsize(sha, 34)}`, { x: qrX, y: qrY - 26, size: 7.8, font, color: rgb(0.15, 0.15, 0.17) });
+  }
+
+  const leftX = marginX;
+  const blockTop = top - 78;
+
+  page.drawText(ellipsize(sellerName || "—", 40), { x: leftX, y: blockTop, size: 12, font: bold });
+  let ly = blockTop - 16;
+  if (sellerTax) {
+    page.drawText(`MF: ${ellipsize(sellerTax, 34)}`, { x: leftX, y: ly, size: 10.2, font });
+    ly -= 13;
+  }
+  if (sellerAddr1) {
+    page.drawText(ellipsize(sellerAddr1, 52), { x: leftX, y: ly, size: 10.2, font });
+    ly -= 13;
+  }
+  if (sellerAddr2) {
+    page.drawText(ellipsize(sellerAddr2, 52), { x: leftX, y: ly, size: 10.2, font });
+    ly -= 13;
+  }
+
+  const rightX = width - marginX - 250;
+  page.drawText("Client", { x: rightX, y: blockTop, size: 12, font: bold });
+  let ry = blockTop - 16;
+  page.drawText(ellipsize(custName || "—", 40), { x: rightX, y: ry, size: 10.2, font });
+  ry -= 13;
+  if (custTax) {
+    page.drawText(`MF: ${ellipsize(custTax, 34)}`, { x: rightX, y: ry, size: 10.2, font });
+    ry -= 13;
+  }
+  if (custTel) {
+    page.drawText(`Tél: ${ellipsize(custTel, 34)}`, { x: rightX, y: ry, size: 10.2, font });
+    ry -= 13;
+  }
+  if (custAddr) {
+    page.drawText(ellipsize(custAddr, 52), { x: rightX, y: ry, size: 10.2, font });
+    ry -= 13;
+  }
+
+  const tableTop = Math.min(ly, ry) - 44;
+
+  const cols = {
+    desc: marginX,
+    qty: width - marginX - 280,
+    pu: width - marginX - 210,
+    tva: width - marginX - 135,
+    ttc: width - marginX - 60,
   };
 
-  const headerY = y;
-  page.drawText("Désignation", { x: col.desc, y: headerY, size: 10, font: fontBold });
-  page.drawText("Qté", { x: col.qty, y: headerY, size: 10, font: fontBold });
-  page.drawText("PU HT", { x: col.pu, y: headerY, size: 10, font: fontBold });
-  page.drawText("TVA%", { x: col.tva, y: headerY, size: 10, font: fontBold });
-  page.drawText("Total HT", { x: col.ht, y: headerY, size: 10, font: fontBold });
-  page.drawText("Total TTC", { x: col.ttc - 60, y: headerY, size: 10, font: fontBold });
+  const headerY = tableTop;
+  page.drawText("Description", { x: cols.desc, y: headerY, size: 10.5, font: bold });
+  page.drawText("Qté", { x: cols.qty, y: headerY, size: 10.5, font: bold });
+  page.drawText("PU HT", { x: cols.pu, y: headerY, size: 10.5, font: bold });
+  page.drawText("TVA%", { x: cols.tva, y: headerY, size: 10.5, font: bold });
+  page.drawText("TTC", { x: cols.ttc, y: headerY, size: 10.5, font: bold });
 
-  y -= 16;
+  const lineY = headerY - 10;
+  page.drawLine({ start: { x: marginX, y: lineY }, end: { x: width - marginX, y: lineY }, thickness: 1, color: rgb(0.82, 0.84, 0.86) });
 
-  const maxLines = 18;
+  let y = headerY - 26;
+
+  const maxLines = 14;
   const sliced = (items || []).slice(0, maxLines);
 
-  sliced.forEach((it) => {
-    const qty = Number(it.qty ?? 0);
-    const pu = Number(it.unit_price ?? 0);
-    const vatPct = Number(it.vat_pct ?? 0);
+  let totalHt = 0;
+  let totalVat = 0;
 
-    const totalHt =
-      it.line_total_ht != null ? Number(it.line_total_ht) : Number.isFinite(qty * pu) ? qty * pu : 0;
+  for (const it of sliced) {
+    const { qty, pu, vatPct, remise, ht, vat, ttc } = computeLine(it);
 
-    const totalTtc =
-      it.line_total_ttc != null
-        ? Number(it.line_total_ttc)
-        : Number.isFinite(totalHt * (1 + vatPct / 100))
-        ? totalHt * (1 + vatPct / 100)
-        : 0;
+    totalHt += ht;
+    totalVat += vat;
 
-    page.drawText(ellipsize(safe(it.description), 44), { x: col.desc, y, size: 10, font });
-    page.drawText(n3(qty), { x: col.qty, y, size: 10, font });
-    page.drawText(moneyDt(pu), { x: col.pu, y, size: 10, font });
-    page.drawText(n3(vatPct), { x: col.tva, y, size: 10, font });
-    page.drawText(moneyDt(totalHt), { x: col.ht, y, size: 10, font });
-    page.drawText(moneyDt(totalTtc), { x: col.ttc - 70, y, size: 10, font });
+    const desc = s(it.description || "");
+    const hasDiscount = remise > 0;
 
-    y -= 13;
-  });
+    page.drawText(ellipsize(desc || "—", 52), { x: cols.desc, y, size: 10.2, font });
+    page.drawText(f3(qty), { x: cols.qty, y, size: 10.2, font });
+    page.drawText(f3(pu), { x: cols.pu, y, size: 10.2, font });
+    page.drawText(f3(vatPct), { x: cols.tva, y, size: 10.2, font });
+    page.drawText(money(ttc), { x: cols.ttc, y, size: 10.2, font });
 
-  y -= 10;
+    y -= 14;
 
-  const subtotal = invoice.subtotal_ht != null ? Number(invoice.subtotal_ht) : sliced.reduce((sum, it) => sum + Number(it.line_total_ht ?? 0), 0);
-  const vat = invoice.vat_amount != null ? Number(invoice.vat_amount) : 0;
-  const stamp = invoice.stamp_duty != null ? Number(invoice.stamp_duty) : 0;
-  const net = invoice.net_to_pay != null ? Number(invoice.net_to_pay) : subtotal + vat + stamp;
+    if (hasDiscount) {
+      const { pct, amt } = pickDiscount(it as any);
+      const label =
+        amt > 0 ? `Remise: -${money(amt)}` : pct > 0 ? `Remise: -${f3(pct)}%` : `Remise: -${money(remise)}`;
+      page.drawText(label, { x: cols.desc + 10, y, size: 9.2, font, color: rgb(0.35, 0.35, 0.4) });
+      y -= 12;
+    }
 
-  const totals: [string, string][] = [
-    ["Sous-total", moneyDt(subtotal)],
-    ["TVA", moneyDt(vat)],
-    ["Timbre fiscal", moneyDt(stamp)],
-    ["Net à payer", moneyDt(net)],
+    page.drawLine({ start: { x: marginX, y: y + 4 }, end: { x: width - marginX, y: y + 4 }, thickness: 0.8, color: rgb(0.9, 0.91, 0.92) });
+    y -= 10;
+  }
+
+  const stamp = invoice.stamp_duty != null ? n(invoice.stamp_duty) : 1.0;
+  const totalTtc = totalHt + totalVat + stamp;
+
+  const totalsX = width - marginX - 220;
+  let ty = y - 6;
+
+  const rows: Array<[string, string, boolean]> = [
+    ["Total HT", money(totalHt), false],
+    ["Total TVA", money(totalVat), false],
+    ["Timbre", money(stamp), false],
+    ["Total TTC", money(totalTtc), true],
   ];
 
-  let ty = y;
-  const tx = width - margin - 220;
+  for (const [k, v, strong] of rows) {
+    page.drawText(k, { x: totalsX, y: ty, size: strong ? 11.5 : 10.2, font: strong ? bold : font });
+    page.drawText(v, { x: width - marginX - 80, y: ty, size: strong ? 11.5 : 10.2, font: strong ? bold : font });
+    ty -= strong ? 16 : 13;
+  }
 
-  totals.forEach(([k, v], i) => {
-    const isLast = i === totals.length - 1;
-    page.drawText(k, { x: tx, y: ty, size: isLast ? 12 : 10, font: isLast ? fontBold : font });
-    page.drawText(v, { x: width - margin - 90, y: ty, size: isLast ? 12 : 10, font: isLast ? fontBold : font });
-    ty -= isLast ? 16 : 13;
-  });
-
-  page.drawText("Généré par FactureTN", {
-    x: margin,
-    y: 24,
-    size: 9,
-    font,
-    color: rgb(0.45, 0.45, 0.5),
-  });
+  if (invoice.notes) {
+    const noteY = 70;
+    page.drawText("Note:", { x: marginX, y: noteY, size: 9.5, font: bold, color: rgb(0.25, 0.25, 0.28) });
+    page.drawText(ellipsize(s(invoice.notes), 110), { x: marginX + 34, y: noteY, size: 9.5, font, color: rgb(0.25, 0.25, 0.28) });
+  }
 
   return await pdf.save();
 }
@@ -263,44 +307,48 @@ export async function invoicePdf(
   const itemsRaw = Array.isArray(b) ? b : [];
 
   const company: Company = {
-    company_name: safe(inv.seller_name || inv.company_name || inv.company || ""),
-    tax_id: safe(inv.seller_tax_id || inv.tax_id || inv.taxId || ""),
-    address: safe(inv.seller_address || inv.address || ""),
-    city: safe(inv.seller_city || inv.city || ""),
-    postal_code: safe(inv.seller_postal_code || inv.postal_code || ""),
-    country: safe(inv.seller_country || inv.country || "TN"),
+    company_name: s(inv.seller_name || inv.company_name || inv.company || ""),
+    tax_id: s(inv.seller_tax_id || inv.tax_id || inv.taxId || ""),
+    address: s(inv.seller_address || inv.address || ""),
+    city: s(inv.seller_city || inv.city || ""),
+    postal_code: s(inv.seller_postal_code || inv.postal_code || ""),
+    country: s(inv.seller_country || inv.country || "TN"),
+    phone: s(inv.seller_phone || inv.phone || ""),
+    email: s(inv.seller_email || inv.email || ""),
   };
 
   const invoice: Invoice = {
-    id: safe(inv.id || inv.invoice_id || inv.invoiceId || ""),
-    invoice_no: safe(inv.invoice_no || inv.invoice_number || inv.number || ""),
-    issue_date: safe(inv.issue_date || inv.date || ""),
-    due_date: safe(inv.due_date || ""),
-    currency: safe(inv.currency || "TND"),
+    id: s(inv.id || inv.invoice_id || inv.invoiceId || ""),
+    invoice_no: s(inv.invoice_no || inv.invoice_number || inv.number || ""),
+    issue_date: s(inv.issue_date || inv.date || ""),
+    due_date: s(inv.due_date || ""),
+    currency: s(inv.currency || "TND"),
 
-    customer_name: safe(inv.customer_name || ""),
-    customer_tax_id: safe(inv.customer_tax_id || ""),
-    customer_address: safe(inv.customer_address || ""),
-    customer_email: safe(inv.customer_email || ""),
-    customer_phone: safe(inv.customer_phone || ""),
+    customer_name: s(inv.customer_name || ""),
+    customer_tax_id: s(inv.customer_tax_id || ""),
+    customer_address: s(inv.customer_address || ""),
+    customer_email: s(inv.customer_email || ""),
+    customer_phone: s(inv.customer_phone || ""),
 
-    notes: safe(inv.notes || ""),
+    notes: s(inv.notes || ""),
 
-    subtotal_ht: inv.subtotal_ht != null ? Number(inv.subtotal_ht) : 0,
-    vat_amount: inv.vat_amount != null ? Number(inv.vat_amount) : 0,
-    stamp_duty: inv.stamp_duty != null ? Number(inv.stamp_duty) : 0,
-    net_to_pay: inv.net_to_pay != null ? Number(inv.net_to_pay) : 0,
+    subtotal_ht: inv.subtotal_ht != null ? n(inv.subtotal_ht) : null,
+    vat_amount: inv.vat_amount != null ? n(inv.vat_amount) : null,
+    stamp_duty: inv.stamp_duty != null ? n(inv.stamp_duty) : inv.stamp_amount != null ? n(inv.stamp_amount) : null,
+    total_ttc: inv.total_ttc != null ? n(inv.total_ttc) : inv.net_to_pay != null ? n(inv.net_to_pay) : null,
 
-    document_type: safe(inv.document_type || inv.documentType || "FACTURE"),
+    document_type: s(inv.document_type || inv.documentType || "FACTURE"),
   };
 
   const items: Item[] = itemsRaw.map((it: any) => ({
-    description: safe(it.description || ""),
-    qty: Number(it.qty ?? it.quantity ?? 0),
-    unit_price: Number(it.unit_price ?? it.unit_price_ht ?? 0),
-    vat_pct: Number(it.vat_pct ?? 0),
-    line_total_ht: it.line_total_ht != null ? Number(it.line_total_ht) : undefined,
-    line_total_ttc: it.line_total_ttc != null ? Number(it.line_total_ttc) : undefined,
+    description: s(it.description || ""),
+    qty: n(it.qty ?? it.quantity ?? 0),
+    unit_price: n(it.unit_price ?? it.unit_price_ht ?? it.unitPrice ?? it.unitPriceHt ?? 0),
+    vat_pct: n(it.vat_pct ?? it.vatPct ?? it.tva_pct ?? it.tvaPct ?? it.vat ?? 0),
+    discount_pct: n(it.discount_pct ?? it.discountPct ?? it.remise_pct ?? it.remisePct ?? it.discount_percent ?? it.discountPercent ?? 0),
+    discount_amount: n(it.discount_amount ?? it.discountAmount ?? it.remise_amount ?? it.remiseAmount ?? it.discount ?? it.remise ?? 0),
+    line_total_ht: it.line_total_ht != null ? n(it.line_total_ht) : null,
+    line_total_ttc: it.line_total_ttc != null ? n(it.line_total_ttc) : null,
   }));
 
   return buildInvoicePdf({ company, invoice, items });
