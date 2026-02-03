@@ -1,6 +1,7 @@
 import { buildTeifXml, enforceMaxSize, validateTeifMinimum } from "@/lib/ttn/teif";
 
 type BuildTeifInvoiceXmlInput = {
+  invoiceId: string;
   company: {
     name: string;
     taxId: string;
@@ -49,7 +50,7 @@ export function buildTeifInvoiceXml(input: BuildTeifInvoiceXmlInput): string {
   const purpose = input.purpose ?? "preview";
 
   return buildTeifXml({
-    invoiceId: "",
+    invoiceId: s(input.invoiceId || ""),
     companyId: "",
     documentType: s(input.invoice?.documentType || "facture"),
     invoiceNumber: s(input.invoice?.number || ""),
@@ -62,6 +63,7 @@ export function buildTeifInvoiceXml(input: BuildTeifInvoiceXmlInput): string {
       name: s(input.company?.name || ""),
       taxId: s(input.company?.taxId || ""),
       address: s(input.company?.address || ""),
+      street: "",
       city: s(input.company?.city || ""),
       postalCode: s(input.company?.postalCode || ""),
       country: s(input.company?.country || "TN"),
@@ -70,6 +72,9 @@ export function buildTeifInvoiceXml(input: BuildTeifInvoiceXmlInput): string {
       name: s(input.invoice?.customerName || ""),
       taxId: s(input.invoice?.customerTaxId || ""),
       address: s(input.invoice?.customerAddress || ""),
+      city: "",
+      postalCode: "",
+      country: "TN",
     },
     totals: {
       ht: Number(input.totals?.ht ?? 0),
@@ -78,15 +83,7 @@ export function buildTeifInvoiceXml(input: BuildTeifInvoiceXmlInput): string {
       stampEnabled: Boolean(input.totals?.stampEnabled),
       stampAmount: Number(input.totals?.stampAmount ?? 0),
     },
-    items: Array.isArray(input.items)
-      ? input.items.map((it) => ({
-          description: s(it.description),
-          qty: Number(it.qty ?? 0),
-          price: Number(it.price ?? 0),
-          vat: Number(it.vat ?? 0),
-          discount: Number((it as any).discount ?? 0),
-        }))
-      : [],
+    items: Array.isArray(input.items) ? input.items : [],
   });
 }
 
