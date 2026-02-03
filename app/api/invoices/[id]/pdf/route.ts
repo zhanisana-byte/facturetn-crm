@@ -1,4 +1,3 @@
-// app/api/invoices/[id]/pdf/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { invoicePdf } from "@/lib/pdf/invoicePdf";
@@ -18,20 +17,10 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
   const invoiceId = s(params?.id);
   if (!invoiceId) return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
 
-  const { data: invoice, error: eInv } = await supabase
-    .from("invoices")
-    .select("*")
-    .eq("id", invoiceId)
-    .single();
-
+  const { data: invoice, error: eInv } = await supabase.from("invoices").select("*").eq("id", invoiceId).single();
   if (eInv || !invoice) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
-  const { data: company, error: eC } = await supabase
-    .from("companies")
-    .select("*")
-    .eq("id", (invoice as any).company_id)
-    .single();
-
+  const { data: company, error: eC } = await supabase.from("companies").select("*").eq("id", (invoice as any).company_id).single();
   if (eC || !company) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
 
   const { data: items, error: eItems } = await supabase
@@ -46,19 +35,15 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
   const docType = s((invoice as any).document_type || "facture");
   const issueDate = s((invoice as any).issue_date || "");
 
-  const stamp =
-    (invoice as any).stamp_amount != null
-      ? Number((invoice as any).stamp_amount)
-      : (invoice as any).stamp_duty != null
-      ? Number((invoice as any).stamp_duty)
-      : 0;
+  const stampRaw = (invoice as any).stamp_amount ?? (invoice as any).stamp_duty;
+  const stamp = stampRaw == null ? null : Number(stampRaw);
 
   const totalVat =
     (invoice as any).total_vat != null
       ? Number((invoice as any).total_vat)
       : (invoice as any).total_tva != null
       ? Number((invoice as any).total_tva)
-      : 0;
+      : null;
 
   const pdfBytes = await invoicePdf(
     {
@@ -73,11 +58,11 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
       customer_email: s((invoice as any).customer_email || ""),
       customer_phone: s((invoice as any).customer_phone || ""),
       notes: s((invoice as any).notes || ""),
-      subtotal_ht: Number((invoice as any).subtotal_ht || 0),
-      vat_amount: Number(totalVat || 0),
-      total_ttc: Number((invoice as any).total_ttc || 0),
-      net_to_pay: Number((invoice as any).net_to_pay || 0),
-      stamp_duty: Number(stamp || 0),
+      subtotal_ht: (invoice as any).subtotal_ht != null ? Number((invoice as any).subtotal_ht) : null,
+      vat_amount: totalVat != null ? Number(totalVat) : null,
+      total_ttc: (invoice as any).total_ttc != null ? Number((invoice as any).total_ttc) : null,
+      net_to_pay: (invoice as any).net_to_pay != null ? Number((invoice as any).net_to_pay) : null,
+      stamp_duty: stamp,
       document_type: docType,
       seller_name: s((company as any).company_name || ""),
       seller_tax_id: s((company as any).tax_id || (company as any).taxId || ""),
