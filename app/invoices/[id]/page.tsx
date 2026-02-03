@@ -11,10 +11,27 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function fmt3(n: any) {
-  const x = Number(n ?? 0);
-  const v = Number.isFinite(x) ? x : 0;
-  return (Math.round(v * 1000) / 1000).toFixed(3);
+function n(v: any) {
+  const x = Number(v ?? 0);
+  return Number.isFinite(x) ? x : 0;
+}
+
+function fmt3(v: any) {
+  const x = n(v);
+  return (Math.round(x * 1000) / 1000).toFixed(3);
+}
+
+function clampPct(x: number) {
+  if (!Number.isFinite(x)) return 0;
+  if (x < 0) return 0;
+  if (x > 100) return 100;
+  return x;
+}
+
+function pickDiscount(it: any) {
+  const pct = clampPct(n(it.discount_pct ?? it.discountPct ?? it.remise_pct ?? it.remisePct ?? it.discount_percent ?? it.discountPercent ?? 0));
+  const amt = n(it.discount_amount ?? it.discountAmount ?? it.remise_amount ?? it.remiseAmount ?? 0);
+  return { pct, amt };
 }
 
 function badge(kind: "draft" | "signed" | "pending" | "sent" | "err") {
@@ -37,11 +54,7 @@ export default async function InvoicePage({ params }: { params: { id: string } }
   const { data: invoice } = await supabase.from("invoices").select("*").eq("id", invoiceId).single();
   if (!invoice) notFound();
 
-  const { data: company } = await supabase
-    .from("companies")
-    .select("*")
-    .eq("id", (invoice as any).company_id)
-    .maybeSingle();
+  const { data: company } = await supabase.from("companies").select("*").eq("id", (invoice as any).company_id).maybeSingle();
 
   const { data: items } = await supabase
     .from("invoice_items")
@@ -66,6 +79,8 @@ export default async function InvoicePage({ params }: { params: { id: string } }
     ? { label: "En attente signature", kind: "pending" as const }
     : { label: "Brouillon", kind: "draft" as const };
 
+  const stamp = (invoice as any).stamp_amount ?? (invoice as any).stamp_duty ?? 1;
+
   return (
     <AppShell title="Facture" subtitle="Résumé" accountType="profil">
       <div className="ftn-page pb-10">
@@ -84,16 +99,31 @@ export default async function InvoicePage({ params }: { params: { id: string } }
             </div>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Link className="ftn-btn ftn-btn-ghost" href="/invoices">
               Retour
             </Link>
+
             <a className="ftn-btn ftn-btn-ghost" href={`/api/invoices/${invoiceId}/pdf`} target="_blank" rel="noreferrer">
-              PDF
+              Télécharger PDF
             </a>
+
             <a className="ftn-btn ftn-btn-ghost" href={`/api/invoices/${invoiceId}/xml`} target="_blank" rel="noreferrer">
-              XML
+              Télécharger XML (TEIF)
             </a>
+
+            <a
+              className={`ftn-btn ftn-btn-ghost ${invoiceSigned ? "" : "opacity-50 pointer-events-none"}`}
+              href={`/api/invoices/${invoiceId}/xml-signed`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Télécharger XML (signé)
+            </a>
+
+            <Link className="ftn-btn" href={`/invoices/${invoiceId}/signature?back=${encodeURIComponent(`/invoices/${invoiceId}`)}`}>
+              Voir facture pour signer
+            </Link>
           </div>
         </div>
 
@@ -125,30 +155,8 @@ export default async function InvoicePage({ params }: { params: { id: string } }
           </div>
 
           <div className="ftn-card p-5">
-            <div className="ftn-section-title">Totaux</div>
-            <div className="mt-3 space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-[var(--muted)]">Total HT</span>
-                <span className="font-medium">{fmt3((invoice as any).subtotal_ht)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[var(--muted)]">Total TVA</span>
-                <span className="font-medium">{fmt3((invoice as any).total_vat ?? (invoice as any).total_tva)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[var(--muted)]">Timbre</span>
-                <span className="font-medium">{fmt3((invoice as any).stamp_amount ?? (invoice as any).stamp_duty)}</span>
-              </div>
-              <div className="mt-2 pt-2 border-t border-[var(--border)] flex justify-between">
-                <span className="font-semibold">Net à payer</span>
-                <span className="font-semibold">{fmt3((invoice as any).net_to_pay)}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="ftn-card p-5 lg:col-span-2">
             <div className="ftn-section-title">Vendeur</div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="mt-3 space-y-2 text-sm">
               <div>
                 <div className="text-xs text-[var(--muted)]">Société</div>
                 <div className="text-sm font-medium">{s((company as any)?.company_name) || "—"}</div>
@@ -157,31 +165,9 @@ export default async function InvoicePage({ params }: { params: { id: string } }
                 <div className="text-xs text-[var(--muted)]">MF</div>
                 <div className="text-sm font-medium">{s((company as any)?.tax_id || (company as any)?.taxId) || "—"}</div>
               </div>
-              <div className="sm:col-span-2">
+              <div>
                 <div className="text-xs text-[var(--muted)]">Adresse</div>
                 <div className="text-sm font-medium">{s((company as any)?.address) || "—"}</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="ftn-card p-5">
-            <div className="ftn-section-title">Infos facture</div>
-            <div className="mt-3 space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-[var(--muted)]">Type</span>
-                <span className="font-medium">{docType.toUpperCase()}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[var(--muted)]">N°</span>
-                <span className="font-medium">{invoiceNo || "—"}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[var(--muted)]">Échéance</span>
-                <span className="font-medium">{dueDate || "—"}</span>
-              </div>
-              <div className="pt-2 border-t border-[var(--border)]">
-                <div className="text-xs text-[var(--muted)]">Notes</div>
-                <div className="text-sm font-medium">{notes || "—"}</div>
               </div>
             </div>
           </div>
@@ -206,26 +192,28 @@ export default async function InvoicePage({ params }: { params: { id: string } }
               </thead>
               <tbody>
                 {(items || []).map((it: any, idx: number) => {
-                  const dp = Number(it.discount_pct ?? 0);
-                  const hasDiscount = Number.isFinite(dp) && dp > 0;
+                  const d = pickDiscount(it);
+                  const hasPct = d.pct > 0;
+                  const hasAmt = d.amt > 0;
+                  const rem = hasAmt ? `-${fmt3(d.amt)}` : hasPct ? `-${fmt3(d.pct)}%` : "—";
+
                   return (
                     <tr key={it.id || idx}>
                       <td>{it.line_no ?? idx + 1}</td>
                       <td>
                         <div className="font-medium">{s(it.description) || "—"}</div>
-                        {hasDiscount ? (
-                          <div className="text-xs text-[var(--muted)] mt-0.5">Remise: -{fmt3(dp)}%</div>
-                        ) : null}
+                        {hasPct || hasAmt ? <div className="text-xs text-[var(--muted)] mt-0.5">Remise appliquée</div> : null}
                       </td>
                       <td>{fmt3(it.quantity)}</td>
                       <td>{fmt3(it.unit_price_ht)}</td>
-                      <td>{hasDiscount ? `-${fmt3(dp)}%` : "—"}</td>
+                      <td>{rem}</td>
                       <td>{fmt3(it.vat_pct)}</td>
                       <td>{fmt3(it.line_total_ht)}</td>
                       <td>{fmt3(it.line_total_ttc)}</td>
                     </tr>
                   );
                 })}
+
                 {!items?.length ? (
                   <tr>
                     <td colSpan={8} className="text-center text-sm text-[var(--muted)] py-6">
@@ -235,6 +223,39 @@ export default async function InvoicePage({ params }: { params: { id: string } }
                 ) : null}
               </tbody>
             </table>
+          </div>
+
+          <div className="mt-6 grid gap-4 lg:grid-cols-3">
+            <div className="lg:col-span-2" />
+
+            <div className="ftn-card p-5">
+              <div className="ftn-section-title">Totaux</div>
+              <div className="mt-3 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-[var(--muted)]">Total HT</span>
+                  <span className="font-medium">{fmt3((invoice as any).subtotal_ht)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--muted)]">Total TVA</span>
+                  <span className="font-medium">{fmt3((invoice as any).total_vat ?? (invoice as any).total_tva)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--muted)]">Timbre</span>
+                  <span className="font-medium">{fmt3(stamp)}</span>
+                </div>
+                <div className="mt-2 pt-2 border-t border-[var(--border)] flex justify-between">
+                  <span className="font-semibold">Net à payer</span>
+                  <span className="font-semibold">{fmt3((invoice as any).net_to_pay)}</span>
+                </div>
+              </div>
+
+              <div className="pt-4 mt-4 border-t border-[var(--border)]">
+                <div className="text-xs text-[var(--muted)]">Échéance</div>
+                <div className="text-sm font-medium">{dueDate || "—"}</div>
+                <div className="text-xs text-[var(--muted)] mt-3">Notes</div>
+                <div className="text-sm font-medium">{notes || "—"}</div>
+              </div>
+            </div>
           </div>
 
           <div className="mt-5">
