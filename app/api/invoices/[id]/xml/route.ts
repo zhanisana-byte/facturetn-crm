@@ -9,6 +9,42 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
+function n(v: any) {
+  const x = Number(v ?? 0);
+  return Number.isFinite(x) ? x : 0;
+}
+
+function clampPct(x: number) {
+  if (!Number.isFinite(x)) return 0;
+  if (x < 0) return 0;
+  if (x > 100) return 100;
+  return x;
+}
+
+function computeFromItems(items: any[]) {
+  let ht = 0;
+  let tva = 0;
+
+  for (const it of items) {
+    const qty = n(it.quantity ?? it.qty ?? 0);
+    const pu = n(it.unit_price_ht ?? it.unit_price ?? it.price ?? 0);
+    const vatPct = n(it.vat_pct ?? it.vatPct ?? it.tva_pct ?? it.tvaPct ?? it.vat ?? 0);
+
+    const discPct = clampPct(n(it.discount_pct ?? it.discountPct ?? it.remise_pct ?? it.remisePct ?? it.discount ?? 0));
+    const discAmt = n(it.discount_amount ?? it.discountAmount ?? it.remise_amount ?? it.remiseAmount ?? 0);
+
+    const base = qty * pu;
+    const remise = discAmt > 0 ? discAmt : discPct > 0 ? (base * discPct) / 100 : 0;
+    const lineHt = Math.max(0, base - remise);
+    const lineTva = (lineHt * vatPct) / 100;
+
+    ht += lineHt;
+    tva += lineTva;
+  }
+
+  return { ht, tva };
+}
+
 export async function GET(_: Request, { params }: { params: { id: string } }) {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
@@ -32,7 +68,19 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
 
   if (eItems) return NextResponse.json({ ok: false, error: "ITEMS_READ_FAILED" }, { status: 500 });
 
+  const invNo = s((invoice as any)?.invoice_number ?? (invoice as any)?.invoice_no ?? "");
+  const number = invNo || `INV-${invoiceId.slice(0, 8)}`;
+
+  const stampRaw = (invoice as any)?.stamp_amount ?? (invoice as any)?.stamp_duty;
+  const stampAmount = stampRaw == null ? 1 : n(stampRaw);
+
+  const computed = computeFromItems(items ?? []);
+  const ht = computed.ht;
+  const tva = computed.tva;
+  const ttc = ht + tva + stampAmount;
+
   const teifXml = buildTeifInvoiceXml({
+    invoiceId,
     company: {
       name: s((company as any)?.company_name ?? ""),
       taxId: s((company as any)?.tax_id ?? (company as any)?.taxId ?? ""),
@@ -43,8 +91,9 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
     },
     invoice: {
       documentType: s((invoice as any)?.document_type ?? "facture"),
-      number: s((invoice as any)?.invoice_number ?? ""),
+      number,
       issueDate: s((invoice as any)?.issue_date ?? ""),
+      dueDate: s((invoice as any)?.due_date ?? ""),
       currency: s((invoice as any)?.currency ?? "TND"),
       customerName: s((invoice as any)?.customer_name ?? ""),
       customerTaxId: s((invoice as any)?.customer_tax_id ?? ""),
@@ -54,19 +103,20 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
       notes: s((invoice as any)?.notes ?? ""),
     },
     totals: {
-      ht: Number((invoice as any)?.subtotal_ht ?? 0),
-      tva: Number((invoice as any)?.total_vat ?? (invoice as any)?.total_tva ?? 0),
-      ttc: Number((invoice as any)?.total_ttc ?? 0),
+      ht,
+      tva,
+      ttc,
       stampEnabled: true,
-      stampAmount: Number((invoice as any)?.stamp_amount ?? (invoice as any)?.stamp_duty ?? 0),
+      stampAmount,
     },
     items: (items ?? []).map((it: any) => ({
       description: s(it.description ?? ""),
-      qty: Number(it.quantity ?? 1),
-      price: Number(it.unit_price_ht ?? 0),
-      vat: Number(it.vat_pct ?? 0),
-      discount: Number(it.discount_pct ?? 0),
+      qty: n(it.quantity ?? 1),
+      price: n(it.unit_price_ht ?? 0),
+      vat: n(it.vat_pct ?? 0),
+      discount: n(it.discount_pct ?? 0),
     })),
+    purpose: "ttn",
   });
 
   const problems = validateTeifMinimum(teifXml);
