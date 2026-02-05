@@ -1,3 +1,6 @@
+import fetch from "node-fetch";
+import { HttpsProxyAgent } from "https-proxy-agent";
+
 export type TTNTestResult =
   | {
     ok: true;
@@ -9,6 +12,7 @@ export type TTNTestResult =
       server_time: string;
       environment: "TEST" | "PROD";
       latency_ms: number;
+      response_preview?: string;
     };
   }
   | {
@@ -159,11 +163,86 @@ export async function testTTNApi(opts: {
     return mockTTNTest(opts.environment);
   }
 
-  return {
-    ok: false,
-    mode: "real",
-    code: "NOT_ENABLED",
-    message:
-      "TTN_MODE=real est activé, mais le connecteur réel n’est pas encore configuré dans cet environnement.",
-  };
+  // IMPLEMENTATION RÉELLE VIA PROXY
+  const proxyUrl = process.env.TTN_PROXY_URL;
+  const targetUrl = opts.wsUrl || "";
+
+  if (!targetUrl) {
+    return {
+      ok: false,
+      mode: "real",
+      code: "BAD_REQUEST",
+      message: "URL du service TTN manquante (wsUrl).",
+    };
+  }
+
+  try {
+    const fetchOptions: any = {
+      method: "POST", // On suppose un POST pour l'API SOAP/REST généralement
+      headers: {
+        "Content-Type": "application/json", // Default, à ajuster si SOAP
+      },
+      timeout: 10000,
+    };
+
+    if (proxyUrl) {
+      console.log(`[TTN] 使用 Proxy: ${proxyUrl.replace(/:[^:@]+@/, ":***@")}`); // Log safe
+      fetchOptions.agent = new HttpsProxyAgent(proxyUrl);
+    }
+
+    // Tentative de connexion (Handshake simple)
+    // Note: Sans le payload SOAP/REST exact, on teste surtout la connectivité réseau (IP)
+    const t0 = Date.now();
+    const res = await fetch(targetUrl, fetchOptions);
+    const latency = Date.now() - t0;
+
+    const text = await res.text();
+    const isSuccess = res.ok; // 200-299
+
+    // Si on reçoit une réponse du serveur gouv (même 4xx/500), c'est que l'IP passe (souvent)
+    // Mais on veut idéalement un 200.
+
+    // Pour le test "Is IP Whitelisted?", si on a un 403 Forbidden du serveur distant, 
+    // ça peut vouloir dire IP refusée OU Auth refusée.
+
+    if (isSuccess) {
+      return {
+        ok: true,
+        mode: "real",
+        code: "OK",
+        message: "Connexion établie avec succès via Proxy.",
+        payload: {
+          ttn_request_id: randId("TTN_REAL"),
+          server_time: nowIso(),
+          environment: opts.environment === "production" ? "PROD" : "TEST",
+          latency_ms: latency,
+          response_preview: text.slice(0, 200),
+        },
+      };
+    }
+
+    return {
+      ok: false,
+      mode: "real",
+      code: "SERVER_ERROR",
+      message: `Le serveur a répondu: ${res.status} ${res.statusText}`,
+      details: {
+        status: res.status,
+        response_preview: text.slice(0, 200),
+      },
+    };
+
+  } catch (error: any) {
+    console.error("[TTN] Fetch Error:", error);
+    return {
+      ok: false,
+      mode: "real",
+      code: "TIMEOUT", // Ou NETWORK_ERROR
+      message: `Erreur de connexion: ${error.message}`,
+      details: {
+        proxy_used: !!proxyUrl,
+        cause: error.cause,
+      },
+    };
+  }
 }
