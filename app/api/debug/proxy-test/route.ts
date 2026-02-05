@@ -37,4 +37,5 @@ export async function GET() {
             proxy_url_used: proxyUrl ? "HIDDEN" : "NONE"
         }, { status: 500 });
     }
+    
 }
