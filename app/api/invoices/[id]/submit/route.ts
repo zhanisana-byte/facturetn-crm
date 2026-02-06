@@ -25,7 +25,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 
   const { data: invoice, error: invErr } = await supabase
     .from("invoices")
-    .select("id,company_id,status,require_accountant_validation,signed_at,signature_status,ttn_status")
+    .select("id,company_id,status,require_accountant_validation,signature_status,ttn_status")
     .eq("id", id)
     .maybeSingle();
 
@@ -56,33 +56,35 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ ok: false, error: sigErr.message }, { status: 400 });
   }
 
-  const isSignedLegacy = !!(invoice as any).signed_at || (invoice as any).signature_status === "signed";
+  const isSignedLegacy = (invoice as any).signature_status === "signed";
   const isSigned = isSignedLegacy || isSignatureBlocking(sig);
 
-  const ttnStatus = (invoice as any).ttn_status || "draft";
-  const isLocked = !["draft", "not_sent", "error", "failed"].includes(ttnStatus);
-
-  if (isSigned || isLocked) {
-    return NextResponse.json({ ok: false, error: "Invoice is locked/signed and cannot be modified." }, { status: 409 });
+  if (!isSigned) {
+    return NextResponse.json(
+      { ok: false, error: "Cette facture n'est pas signée. Veuillez signer avant soumission TTN." },
+      { status: 409 },
+    );
   }
 
-  if (!(invoice as any).require_accountant_validation) {
-    return NextResponse.json({ ok: true, skipped: true, message: "Validation non requise pour cette facture." });
-  }
-
-  const currentStatus = String((invoice as any).status || "draft");
-  if (currentStatus === "pending_validation") {
-    return NextResponse.json({ ok: true, already: true });
-  }
-  if (currentStatus === "validated") {
-    return NextResponse.json({ ok: true, already_validated: true });
+  if ((invoice as any).require_accountant_validation) {
+    const st = String((invoice as any).status || "draft");
+    if (st !== "validated") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Cette facture nécessite une validation comptable. Elle doit être validée avant soumission.",
+        },
+        { status: 409 },
+      );
+    }
   }
 
   const { error: upErr } = await supabase
     .from("invoices")
     .update({
-      status: "pending_validation",
-      updated_at: new Date().toISOString(),
+      status: "ready_to_send",
+      ttn_status: "scheduled",
+      ttn_scheduled_at: new Date().toISOString(),
     })
     .eq("id", id);
 
