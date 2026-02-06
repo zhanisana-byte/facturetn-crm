@@ -22,7 +22,8 @@ function mapError(codeOrMessage: string) {
   if (c === "TTN_NOT_CONFIGURED")
     return "TTN n’est pas configuré. Ouvrez Paramètres TTN et configurez la signature DigiGo.";
   if (c === "MISSING_INVOICE_ID") return "Identifiant facture manquant.";
-  if (c === "SIGNATURE_CONTEXT_INSERT_FAILED") return "Impossible d'initialiser le contexte de signature. Réessayez.";
+  if (c === "SIGNATURE_CONTEXT_INSERT_FAILED")
+    return "Impossible d'initialiser le contexte de signature. Réessayez.";
 
   return raw;
 }
@@ -33,6 +34,16 @@ function Pill({ children }: { children: React.ReactNode }) {
       {children}
     </span>
   );
+}
+
+function setEverywhere(key: string, value: string) {
+  if (!value) return;
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {}
+  try {
+    window.sessionStorage.setItem(key, value);
+  } catch {}
 }
 
 export default function InvoiceSignatureClient({
@@ -51,16 +62,6 @@ export default function InvoiceSignatureClient({
   function stopPending() {
     abortRef.current?.abort();
     abortRef.current = null;
-  }
-
-  function storeEverywhere(key: string, value: string) {
-    if (!value) return;
-    try {
-      window.localStorage.setItem(key, value);
-    } catch {}
-    try {
-      window.sessionStorage.setItem(key, value);
-    } catch {}
   }
 
   async function startAndRedirect() {
@@ -94,8 +95,8 @@ export default function InvoiceSignatureClient({
       }
 
       const state = s(j?.state || "");
-      storeEverywhere("digigo_state", state);
-      storeEverywhere("digigo_invoice_id", invoiceId);
+      if (state) setEverywhere("digigo_state", state);
+      setEverywhere("digigo_invoice_id", invoiceId);
 
       window.location.href = authorizeUrl;
     } catch (e: any) {
