@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import DigigoSignButton from "@/components/DigigoSignButton";
+import { useMemo, useState } from "react";
+import InvoiceSignatureClient from "./InvoiceSignatureClient";
 
 function s(v: any) {
   return String(v ?? "").trim();
@@ -22,7 +23,9 @@ function Line({ label, value }: { label: string; value: any }) {
   return (
     <div className="flex items-start justify-between gap-3 py-1">
       <div className="text-sm text-slate-600">{label}</div>
-      <div className="text-sm font-medium text-slate-900 text-right break-words">{s(value) || "—"}</div>
+      <div className="text-sm font-medium text-slate-900 text-right break-words">
+        {s(value) || "—"}
+      </div>
     </div>
   );
 }
@@ -42,41 +45,45 @@ function Box({
   );
 }
 
-export default function InvoiceSignatureSummaryClient({
+export default function InvoiceSignatureUI({
   invoice,
   company,
   items,
+  backUrl,
 }: {
   invoice: any;
   company: any | null;
   items: any[];
+  backUrl: string;
 }) {
+  const [openSign, setOpenSign] = useState(false);
+
   const currency = s(invoice?.currency || "TND");
-
-  // Totaux
-  const stampRaw = invoice?.stamp_amount ?? invoice?.stamp_duty;
-  const stamp = stampRaw == null ? 1 : n(stampRaw);
-
-  let ht = 0;
-  let tva = 0;
-
-  for (const it of items || []) {
-    const qty = n(it.quantity ?? 0);
-    const pu = n(it.unit_price_ht ?? it.unit_price ?? 0);
-    const vatPct = n(it.vat_pct ?? 0);
-
-    const base = qty * pu;
-    ht += base;
-    tva += (base * vatPct) / 100;
-  }
-
-  const ttc = ht + tva + stamp;
-
-  // Header facture
   const invoiceNo = s(invoice?.invoice_number || invoice?.invoice_no || invoice?.id);
   const issueDate = s(invoice?.issue_date);
   const dueDate = s(invoice?.due_date);
   const docType = s(invoice?.document_type || "facture");
+
+  const stampRaw = invoice?.stamp_amount ?? invoice?.stamp_duty;
+  const stamp = stampRaw == null ? 1 : n(stampRaw);
+
+  const totals = useMemo(() => {
+    let ht = 0;
+    let tva = 0;
+
+    for (const it of items || []) {
+      const qty = n(it.quantity ?? 0);
+      const pu = n(it.unit_price_ht ?? it.unit_price ?? 0);
+      const vatPct = n(it.vat_pct ?? 0);
+
+      const base = qty * pu;
+      ht += base;
+      tva += (base * vatPct) / 100;
+    }
+
+    const ttc = ht + tva + stamp;
+    return { ht, tva, ttc };
+  }, [items, stamp]);
 
   // Vendeur (company)
   const sellerName = s(company?.company_name || "");
@@ -93,22 +100,25 @@ export default function InvoiceSignatureSummaryClient({
   const customerEmail = s(invoice?.customer_email || "");
   const customerPhone = s(invoice?.customer_phone || "");
 
-  // Champs manquants (bloquants)
-  const missing: string[] = [];
-  if (!sellerName) missing.push("Nom société (vendeur)");
-  if (!sellerMf) missing.push("MF société (vendeur)");
-  if (!sellerAdr) missing.push("Adresse société (vendeur)");
-  if (!customerName) missing.push("Nom client");
-  if (!customerMf) missing.push("MF client");
-  if (!customerAdr) missing.push("Adresse client");
-  if (!issueDate) missing.push("Date facture");
+  const missing = useMemo(() => {
+    const m: string[] = [];
+    if (!sellerName) m.push("Nom société (vendeur)");
+    if (!sellerMf) m.push("MF société (vendeur)");
+    if (!sellerAdr) m.push("Adresse société (vendeur)");
+    if (!customerName) m.push("Nom client");
+    if (!customerMf) m.push("MF client");
+    if (!customerAdr) m.push("Adresse client");
+    if (!issueDate) m.push("Date facture");
+    return m;
+  }, [sellerName, sellerMf, sellerAdr, customerName, customerMf, customerAdr, issueDate]);
+
+  const canStartSignature = missing.length === 0;
 
   return (
     <div className="w-full">
-      {/* Page centrée comme une facture */}
-      <div className="mx-auto w-full max-w-[1050px] px-4 pb-10 space-y-6">
+      <div className="mx-auto w-full max-w-[1050px] px-4 pb-10 space-y-6 pt-4">
         {/* Top bar */}
-        <div className="flex items-start justify-between gap-3 flex-wrap pt-4">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <div className="text-xl font-semibold">Résumé avant signature</div>
             <div className="text-sm text-slate-600 mt-1">
@@ -117,7 +127,7 @@ export default function InvoiceSignatureSummaryClient({
           </div>
 
           <div className="flex gap-2">
-            <Link className="ftn-btn-ghost" href={`/invoices/${invoice.id}`}>
+            <Link className="ftn-btn-ghost" href={backUrl}>
               Retour facture
             </Link>
           </div>
@@ -134,9 +144,9 @@ export default function InvoiceSignatureSummaryClient({
           </div>
         ) : null}
 
-        {/* Zone "document" facture */}
+        {/* Document facture */}
         <div className="rounded-3xl border border-slate-200 bg-white/60 shadow-sm">
-          {/* Header facture */}
+          {/* Header */}
           <div className="p-6 border-b border-slate-200">
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
@@ -158,22 +168,16 @@ export default function InvoiceSignatureSummaryClient({
           {/* Vendeur / Client */}
           <div className="p-6 grid gap-4 md:grid-cols-2">
             <Box title="Vendeur (Ma société)">
-              <Line
-                label="Nom"
-                value={sellerName || (isMissing(sellerName) ? "—" : sellerName)}
-              />
+              <Line label="Nom" value={sellerName} />
               <Line label="MF" value={sellerMf} />
-              <Line
-                label="Adresse"
-                value={sellerAdr}
-              />
+              <Line label="Adresse" value={sellerAdr} />
               <Line label="Ville" value={sellerCity} />
               <Line label="Code postal" value={sellerZip} />
               <Line label="Pays" value={sellerCountry} />
 
               {(isMissing(sellerName) || isMissing(sellerMf) || isMissing(sellerAdr)) ? (
                 <div className="mt-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
-                  Certains champs vendeur sont requis (Nom, MF, Adresse) pour la signature TTN.
+                  Champs vendeur requis : Nom, MF, Adresse.
                 </div>
               ) : null}
             </Box>
@@ -261,20 +265,20 @@ export default function InvoiceSignatureSummaryClient({
               })}
             </div>
 
-            {/* Totaux + Action */}
+            {/* Totaux + bouton */}
             <div className="mt-6 grid gap-4 md:grid-cols-2">
               <div className="text-xs text-slate-500">
-                En cliquant sur “Signer”, vous serez redirigé vers DigiGo pour valider la signature.
+                Après vérification, cliquez sur “Démarrer la signature DigiGo”.
               </div>
 
               <div className="ml-auto w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="flex items-center justify-between text-sm py-1">
                   <span className="text-slate-600">Total HT</span>
-                  <span className="font-medium">{money(ht, currency)}</span>
+                  <span className="font-medium">{money(totals.ht, currency)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm py-1">
                   <span className="text-slate-600">TVA</span>
-                  <span className="font-medium">{money(tva, currency)}</span>
+                  <span className="font-medium">{money(totals.tva, currency)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm py-1">
                   <span className="text-slate-600">Timbre</span>
@@ -282,19 +286,44 @@ export default function InvoiceSignatureSummaryClient({
                 </div>
                 <div className="flex items-center justify-between text-base border-t pt-2 mt-2">
                   <span className="font-semibold">Total TTC</span>
-                  <span className="font-semibold">{money(ttc, currency)}</span>
+                  <span className="font-semibold">{money(totals.ttc, currency)}</span>
                 </div>
 
-                <div className="mt-4 flex justify-end">
-                  <DigigoSignButton invoiceId={invoice.id} />
+                <div className="mt-4 flex flex-col gap-2">
+                  {!openSign ? (
+                    <>
+                      <button
+                        className="ftn-btn"
+                        type="button"
+                        onClick={() => setOpenSign(true)}
+                        disabled={!canStartSignature}
+                        title={!canStartSignature ? "Complétez les champs obligatoires avant de signer." : ""}
+                      >
+                        Démarrer la signature DigiGo
+                      </button>
+                      {!canStartSignature ? (
+                        <div className="text-xs text-amber-700">
+                          Signature désactivée : champs obligatoires manquants.
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <button className="ftn-btn-ghost" type="button" onClick={() => setOpenSign(false)}>
+                      Masquer la signature
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
+
+            {/* Bloc signature (PIN/OTP) */}
+            {openSign ? (
+              <div className="mt-6">
+                <InvoiceSignatureClient invoiceId={invoice.id} backUrl={backUrl} />
+              </div>
+            ) : null}
           </div>
         </div>
-
-        {/* Footer spacing */}
-        <div className="h-2" />
       </div>
     </div>
   );
