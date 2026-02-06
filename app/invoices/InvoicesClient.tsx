@@ -145,13 +145,14 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
 
       const invoices = (inv ?? []) as InvoiceRow[];
 
-      // signed_at est stocké dans invoice_signatures (pas dans invoices)
+      // signed_at est dans invoice_signatures (pas dans invoices)
       const invIds = Array.from(new Set(invoices.map((x) => x.id).filter(Boolean))) as string[];
       if (invIds.length) {
         const { data: sigs, error: sigErr } = await supabase
           .from("invoice_signatures")
           .select("invoice_id,signed_at")
           .in("invoice_id", invIds);
+
         if (sigErr) throw sigErr;
 
         const sigMap = new Map<string, string | null>();
@@ -294,8 +295,9 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
         </div>
 
         <div className="ftn-card-content">
-          <div className="ftn-filters">
-            <select className="ftn-input" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+          {/* ✅ Filtres en lignes (comme ancien design) */}
+          <div className="ftn-row" style={{ gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <select className="ftn-input" style={{ minWidth: 220, flex: "1 1 220px" }} value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
               <option value="all">Toutes les sociétés</option>
               {companies.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -304,26 +306,28 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
               ))}
             </select>
 
-            <select className="ftn-input" value={type} onChange={(e) => setType(e.target.value)}>
+            <select className="ftn-input" style={{ minWidth: 160, flex: "1 1 160px" }} value={type} onChange={(e) => setType(e.target.value)}>
               <option value="all">Type : tout</option>
               <option value="facture">Facture</option>
               <option value="devis">Devis</option>
               <option value="avoir">Avoir</option>
             </select>
 
-            <select className="ftn-input" value={mode} onChange={(e) => setMode(e.target.value)}>
+            <select className="ftn-input" style={{ minWidth: 160, flex: "1 1 160px" }} value={mode} onChange={(e) => setMode(e.target.value)}>
               <option value="all">Mode : tout</option>
               <option value="normale">Normale</option>
               <option value="permanente">Permanente</option>
             </select>
 
-            <select className="ftn-input" value={sig} onChange={(e) => setSig(e.target.value)}>
+            <select className="ftn-input" style={{ minWidth: 170, flex: "1 1 170px" }} value={sig} onChange={(e) => setSig(e.target.value)}>
               <option value="all">Signature : tout</option>
               <option value="signed">Signée</option>
               <option value="not_signed">Non signée</option>
             </select>
+          </div>
 
-            <select className="ftn-input" value={ttn} onChange={(e) => setTtn(e.target.value)}>
+          <div className="ftn-row" style={{ gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+            <select className="ftn-input" style={{ minWidth: 170, flex: "1 1 170px" }} value={ttn} onChange={(e) => setTtn(e.target.value)}>
               <option value="all">TTN : tout</option>
               <option value="not_sent">Non envoyée</option>
               <option value="scheduled">Planifiée</option>
@@ -333,7 +337,7 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
               <option value="canceled">Annulée</option>
             </select>
 
-            <select className="ftn-input" value={createdBy} onChange={(e) => setCreatedBy(e.target.value)}>
+            <select className="ftn-input" style={{ minWidth: 200, flex: "1 1 200px" }} value={createdBy} onChange={(e) => setCreatedBy(e.target.value)}>
               <option value="all">Créé par : tout</option>
               {createdByOptions.map((o) => (
                 <option key={o.id} value={o.id}>
@@ -342,36 +346,39 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
               ))}
             </select>
 
-            <input className="ftn-input" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-            <input className="ftn-input" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+            <input className="ftn-input" style={{ minWidth: 170, flex: "1 1 170px" }} type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+            <input className="ftn-input" style={{ minWidth: 170, flex: "1 1 170px" }} type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+          </div>
 
+          <div className="ftn-row" style={{ gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
             <input
               className="ftn-input"
+              style={{ minWidth: 260, flex: "1 1 260px" }}
               placeholder="Client (nom/email/tel/MF)"
               value={clientQ}
               onChange={(e) => setClientQ(e.target.value)}
             />
 
-            <div className="ftn-row" style={{ gap: 10 }}>
-              <input
-                className="ftn-input"
-                placeholder="Recherche (société, numéro, référence..)"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
-              <button className="ftn-btn ftn-btn-primary" onClick={() => load()} disabled={loading}>
-                Actualiser
-              </button>
-            </div>
+            <input
+              className="ftn-input"
+              style={{ minWidth: 320, flex: "2 1 320px" }}
+              placeholder="Recherche (société, numéro, référence..)"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+
+            <button className="ftn-btn ftn-btn-primary" onClick={() => load()} disabled={loading} style={{ whiteSpace: "nowrap" }}>
+              Actualiser
+            </button>
           </div>
 
           {err ? (
-            <div className="ftn-alert ftn-alert-error" role="alert">
+            <div className="ftn-alert ftn-alert-error" role="alert" style={{ marginTop: 12 }}>
               {err}
             </div>
           ) : null}
 
-          <div className="ftn-table-wrap">
+          <div className="ftn-table-wrap" style={{ marginTop: 12 }}>
             <table className="ftn-table">
               <thead>
                 <tr>
@@ -423,7 +430,9 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
                         <td>{docTypeLabel(r)}</td>
                         <td>{modeLabel(r)}</td>
                         <td>{fmtDate(r.issue_date)}</td>
-                        <td>{fmt3(r.total_ttc)} {r.currency || "TND"}</td>
+                        <td>
+                          {fmt3(r.total_ttc)} {r.currency || "TND"}
+                        </td>
                         <td>{userLabel(r.created_by_user_id)}</td>
                       </tr>
                     );
@@ -450,11 +459,7 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
               <button className="ftn-btn" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}>
                 Précédent
               </button>
-              <button
-                className="ftn-btn"
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={safePage >= totalPages}
-              >
+              <button className="ftn-btn" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}>
                 Suivant
               </button>
               <button className="ftn-btn" onClick={() => setPage(totalPages)} disabled={safePage >= totalPages}>
