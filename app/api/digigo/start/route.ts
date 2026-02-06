@@ -234,5 +234,5 @@ export async function POST(req: Request) {
     );
   }
 
-  return NextResponse.json({ ok: true, authorize_url }, { status: 200 });
+  return NextResponse.json({ ok: true, authorize_url, state: stateStr }, { status: 200 });
 }
