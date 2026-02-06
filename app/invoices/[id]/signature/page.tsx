@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import InvoiceSignatureClient from "./InvoiceSignatureClient";
 import { createClient } from "@/lib/supabase/server";
+import InvoiceSignatureUI from "./ui";
 
 export const dynamic = "force-dynamic";
 
@@ -10,10 +10,8 @@ function s(v: any) {
 
 function safeBackUrl(v: any, fallback: string) {
   const raw = s(v);
-  // On autorise uniquement les chemins relatifs internes
   if (!raw) return fallback;
   if (!raw.startsWith("/")) return fallback;
-  // Optionnel: empêche // ou http(s)
   if (raw.startsWith("//")) return fallback;
   return raw;
 }
@@ -33,24 +31,37 @@ export default async function Page({
   const invoiceId = s(params.id);
   if (!invoiceId) redirect("/invoices");
 
-  // Vérifie que la facture existe (et évite un écran signature sur id invalide)
   const { data: invoice } = await supabase
     .from("invoices")
-    .select("id")
+    .select("*")
     .eq("id", invoiceId)
     .maybeSingle();
 
-  if (!invoice?.id) redirect("/invoices");
+  if (!invoice) redirect("/invoices");
+
+  const { data: company } = await supabase
+    .from("companies")
+    .select("*")
+    .eq("id", (invoice as any).company_id)
+    .maybeSingle();
+
+  const { data: items } = await supabase
+    .from("invoice_items")
+    .select("*")
+    .eq("invoice_id", invoiceId)
+    .order("line_no", { ascending: true });
 
   const backParam = searchParams?.back;
   const backRaw = Array.isArray(backParam) ? backParam[0] : backParam;
-
   const fallbackBack = `/invoices/${invoiceId}`;
   const backUrl = safeBackUrl(backRaw, fallbackBack);
 
   return (
-    <div className="mx-auto w-full max-w-[900px] px-4 py-6">
-      <InvoiceSignatureClient invoiceId={invoiceId} backUrl={backUrl} />
-    </div>
+    <InvoiceSignatureUI
+      invoice={invoice as any}
+      company={(company ?? null) as any}
+      items={(items ?? []) as any[]}
+      backUrl={backUrl}
+    />
   );
 }
