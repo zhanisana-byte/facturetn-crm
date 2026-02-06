@@ -1,32 +1,27 @@
 import { redirect } from "next/navigation";
-import AppShell from "@/app/components/AppShell";
-import InvoiceSignatureClient from "./InvoiceSignatureClient";
 import { createClient } from "@/lib/supabase/server";
+import InvoiceSignatureSummaryClient from "./ui";
 
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
 
-export default async function InvoiceSignaturePage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ id: string }>;
-  searchParams?: Promise<{ back?: string }>;
-}) {
+function s(v: any) {
+  return String(v ?? "").trim();
+}
+
+export default async function Page({ params }: { params: { id: string } }) {
   const supabase = await createClient();
-  const { data: s } = await supabase.auth.getSession();
-  const user = s.session?.user;
-  if (!user) redirect("/login");
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) redirect("/login");
 
-  const { id } = await params;
-  const sp = (await searchParams) || {};
-  const backUrl = typeof sp.back === "string" && sp.back.trim() ? sp.back : `/invoices/${id}`;
+  const invoiceId = s(params.id);
+  const { data: invoice } = await supabase.from("invoices").select("*").eq("id", invoiceId).maybeSingle();
+  if (!invoice) redirect("/invoices");
 
-  return (
-    <AppShell title="Signature facture" subtitle="Signature DigiGo" accountType="profil">
-      <div className="mx-auto w-full max-w-3xl p-6">
-        <InvoiceSignatureClient invoiceId={id} backUrl={backUrl} />
-      </div>
-    </AppShell>
-  );
+  const { data: items } = await supabase
+    .from("invoice_items")
+    .select("*")
+    .eq("invoice_id", invoiceId)
+    .order("line_no", { ascending: true });
+
+  return <InvoiceSignatureSummaryClient invoice={invoice as any} items={(items ?? []) as any[]} />;
 }
