@@ -22,6 +22,9 @@ function mapError(codeOrMessage: string) {
   if (c === "COMPANY_NOT_FOUND") return "Société introuvable.";
   if (c === "TTN_NOT_CONFIGURED")
     return "TTN n’est pas configuré. Ouvrez Paramètres TTN et configurez la signature DigiGo.";
+  if (c === "MISSING_INVOICE_ID") return "Identifiant facture manquant.";
+  if (c === "SIGNATURE_CONTEXT_INSERT_FAILED")
+    return "Impossible d'initialiser le contexte de signature. Réessayez.";
 
   return raw;
 }
@@ -78,8 +81,18 @@ export default function InvoiceSignatureClient({
 
       const authorizeUrl = s(j?.authorize_url || "");
       if (!authorizeUrl) {
-        setMsg({ ok: false, text: "URL DigiGo manquante. Vérifiez la configuration." });
+        setMsg({
+          ok: false,
+          text: "URL DigiGo manquante. Vérifiez la configuration.",
+        });
         return;
+      }
+
+      const state = s(j?.state || "");
+      if (state) {
+        try {
+          window.sessionStorage.setItem("digigo_state", state);
+        } catch {}
       }
 
       window.location.href = authorizeUrl;
@@ -135,7 +148,9 @@ export default function InvoiceSignatureClient({
         <div className="h-2 w-full bg-slate-200 rounded overflow-hidden">
           <div className={`h-full transition-all ${loading ? "w-2/4" : "w-1/4"} bg-slate-800`} />
         </div>
-        <div className="mt-2 text-xs text-slate-500">Étapes : Initialisation → Redirection DigiGo → Signature</div>
+        <div className="mt-2 text-xs text-slate-500">
+          Étapes : Initialisation → Redirection DigiGo → Signature
+        </div>
       </div>
 
       <div className="mt-6 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
