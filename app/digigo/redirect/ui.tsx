@@ -20,8 +20,8 @@ function getStored(key: string) {
   return v;
 }
 
-function clearStored() {
-  for (const k of ["digigo_state", "digigo_invoice_id"]) {
+function clearStored(keys: string[]) {
+  for (const k of keys) {
     try {
       window.localStorage.removeItem(k);
     } catch {}
@@ -42,16 +42,10 @@ export default function DigigoRedirectClient() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const oauthToken = code || token;
-    if (!oauthToken) {
-      setError("Retour DigiGo invalide.");
-      return;
-    }
-
     const state = stateFromUrl || getStored("digigo_state");
-    const invoice_id = getStored("digigo_invoice_id");
+    const invoiceId = getStored("digigo_invoice_id");
 
-    if (!state && !invoice_id) {
+    if ((!token && !code) || (!state && !invoiceId)) {
       setError("Retour DigiGo invalide.");
       return;
     }
@@ -65,14 +59,14 @@ export default function DigigoRedirectClient() {
             token: token || undefined,
             code: code || undefined,
             state: state || undefined,
-            invoice_id: !state ? invoice_id : undefined,
+            invoice_id: !state ? invoiceId : undefined,
           }),
         });
 
         const j = await r.json().catch(() => ({}));
 
         if (r.ok && j?.ok && j?.invoice_id) {
-          clearStored();
+          clearStored(["digigo_state", "digigo_invoice_id"]);
           router.replace(`/invoices/${j.invoice_id}`);
           return;
         }
