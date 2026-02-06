@@ -9,12 +9,21 @@ export default function DigigoRootRedirect() {
 
   useEffect(() => {
     const token = params.get("token");
-    const state = params.get("state");
     const code = params.get("code");
     const error = params.get("error");
 
-    if (token || (state && code) || error) {
-      router.replace("/digigo/redirect?" + params.toString());
+    const qs = new URLSearchParams(params.toString());
+
+    if (!qs.get("state")) {
+      const st = typeof window !== "undefined" ? window.sessionStorage.getItem("digigo_state") : "";
+      if (st) qs.set("state", st);
+    }
+
+    if (token || (qs.get("state") && code) || error) {
+      try {
+        window.sessionStorage.removeItem("digigo_state");
+      } catch {}
+      router.replace("/digigo/redirect?" + qs.toString());
     }
   }, [params, router]);
 
