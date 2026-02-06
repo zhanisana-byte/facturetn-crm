@@ -7,17 +7,17 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function getStoredState() {
-  let st = "";
+function getStored(key: string) {
+  let v = "";
   try {
-    st = s(window.localStorage.getItem("digigo_state") || "");
+    v = s(window.localStorage.getItem(key) || "");
   } catch {}
-  if (st) return st;
+  if (v) return v;
 
   try {
-    st = s(window.sessionStorage.getItem("digigo_state") || "");
+    v = s(window.sessionStorage.getItem(key) || "");
   } catch {}
-  return st;
+  return v;
 }
 
 export default function DigigoRootRedirect() {
@@ -32,14 +32,11 @@ export default function DigigoRootRedirect() {
     const qs = new URLSearchParams(params.toString());
 
     if (!qs.get("state")) {
-      const st = typeof window !== "undefined" ? getStoredState() : "";
+      const st = typeof window !== "undefined" ? getStored("digigo_state") : "";
       if (st) qs.set("state", st);
     }
 
-    if (token || (qs.get("state") && code) || error) {
-      // IMPORTANT: NE PAS effacer le state ici.
-      // /digigo/redirect en a besoin pour valider le retour,
-      // puis /digigo/redirect le supprimera après succès.
+    if (token || code || error) {
       router.replace("/digigo/redirect?" + qs.toString());
     }
   }, [params, router]);
