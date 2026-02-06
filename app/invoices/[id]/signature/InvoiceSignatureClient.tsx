@@ -11,8 +11,6 @@ function s(v: any) {
 function mapError(codeOrMessage: string) {
   const raw = s(codeOrMessage);
 
-  // Si c’est une phrase claire (ex: "L’adresse du client manquant"), on l’affiche telle quelle.
-  // On considère "code" seulement si c'est court et ressemble à un identifiant.
   const looksLikeCode = raw.length <= 40 && /^[A-Z0-9_]+$/.test(raw.replaceAll(" ", "_"));
   if (!looksLikeCode) return raw || "Erreur DigiGo.";
 
@@ -57,7 +55,6 @@ export default function InvoiceSignatureClient({
   const canContinuePin = useMemo(() => s(pin).length >= 4, [pin]);
   const canContinueOtp = useMemo(() => s(otp).length >= 4 && !!otpId, [otp, otpId]);
 
-  // Évite double start() en dev (React StrictMode) + annule fetch en cours
   const startedOnce = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -198,7 +195,6 @@ export default function InvoiceSignatureClient({
 
   return (
     <div className="rounded-2xl border bg-white/70 p-5 sm:p-6 shadow">
-      {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <div className="text-lg sm:text-xl font-semibold">{title}</div>
@@ -218,7 +214,6 @@ export default function InvoiceSignatureClient({
         </a>
       </div>
 
-      {/* Message */}
       {msg ? (
         <div
           className={`mt-5 rounded-xl border p-3 text-sm ${
@@ -231,7 +226,6 @@ export default function InvoiceSignatureClient({
         </div>
       ) : null}
 
-      {/* Progress */}
       <div className="mt-5">
         <div className="h-2 w-full bg-slate-200 rounded overflow-hidden">
           <div
@@ -246,16 +240,13 @@ export default function InvoiceSignatureClient({
             } bg-slate-800`}
           />
         </div>
-        <div className="mt-2 text-xs text-slate-500">
-          Étapes : Initialisation → PIN → OTP → Signature
-        </div>
+        <div className="mt-2 text-xs text-slate-500">Étapes : Initialisation → PIN → OTP → Signature</div>
       </div>
 
-      {/* Step: start */}
       {step === "start" ? (
         <div className="mt-6 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
           <button className="ftn-btn" disabled>
-            {loading ? "Initialisation..." : "Initialisation..."}
+            Initialisation...
           </button>
           <button className="ftn-btn ftn-btn-ghost" onClick={start} disabled={loading} type="button">
             Relancer
@@ -263,7 +254,6 @@ export default function InvoiceSignatureClient({
         </div>
       ) : null}
 
-      {/* Step: pin */}
       {step === "pin" ? (
         <div className="mt-6 grid gap-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -296,14 +286,11 @@ export default function InvoiceSignatureClient({
         </div>
       ) : null}
 
-      {/* Step: otp */}
       {step === "otp" ? (
         <div className="mt-6 grid gap-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="text-sm font-medium text-slate-900">Code OTP</div>
-            <div className="text-xs text-slate-500 mt-1">
-              Saisissez le code reçu par SMS / Email.
-            </div>
+            <div className="text-xs text-slate-500 mt-1">Saisissez le code reçu par SMS / Email.</div>
 
             <input
               className="ftn-input mt-3"
@@ -329,7 +316,6 @@ export default function InvoiceSignatureClient({
         </div>
       ) : null}
 
-      {/* Step: done */}
       {step === "done" ? (
         <div className="mt-6 space-y-3">
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
@@ -346,11 +332,10 @@ export default function InvoiceSignatureClient({
         </div>
       ) : null}
 
-      {/* Step: error */}
       {step === "error" ? (
         <div className="mt-6 space-y-3">
           <div className="text-xs text-slate-500">
-            Astuce : si l’erreur mentionne un champ manquant (adresse, MF…), complétez les informations du client / société puis relancez.
+            Astuce : si l’erreur mentionne un champ manquant (adresse, MF…), complétez les informations puis relancez.
           </div>
           <div className="flex flex-col sm:flex-row gap-3">
             <button className="ftn-btn" onClick={start} disabled={loading} type="button">
