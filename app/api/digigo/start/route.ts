@@ -169,7 +169,7 @@ export async function POST(req: Request) {
 
   const unsigned_hash = sha256Base64Utf8(unsigned_xml);
   const nonce = crypto.randomBytes(16).toString("hex");
-  const state = `${invoice_id}.${nonce}`;
+  const stateStr = `${invoice_id}.${nonce}`;
 
   let authorize_url = "";
   try {
@@ -177,7 +177,7 @@ export async function POST(req: Request) {
       credentialId,
       hashBase64: unsigned_hash,
       numSignatures: 1,
-      state,
+      state: stateStr,
     });
   } catch {
     return NextResponse.json(
@@ -188,31 +188,32 @@ export async function POST(req: Request) {
 
   const service = createServiceClient();
 
-  const { error: upsertError } = await service
+  const payload = {
+    invoice_id,
+    provider: "digigo",
+    state: "pending_auth",
+    unsigned_xml,
+    unsigned_hash,
+    signed_xml: "",
+    signed_hash: "",
+    company_id,
+    environment: "production",
+    signer_user_id: auth.user.id,
+    meta: {
+      state: stateStr,
+      credentialId,
+      hashAlgo: "SHA256",
+      signAlgo: "RS256",
+    },
+  };
+
+  const { data: upserted, error: upsertError } = await service
     .from("invoice_signatures")
-    .upsert(
-      {
-        invoice_id,
-        company_id,
-        environment: "production",
-        provider: "digigo",
-        unsigned_xml,
-        unsigned_hash,
-        signed_xml: "",
-        signed_hash: "",
-        signer_user_id: auth.user.id,
-        state: "pending_auth",
-        meta: {
-          state,
-          credentialId,
-          hashAlgo: "SHA256",
-          signAlgo: "RS256",
-        },
-      },
-      { onConflict: "invoice_id" }
-    );
+    .upsert(payload as any, { onConflict: "invoice_id" })
+    .select("invoice_id");
 
   if (upsertError) {
+    console.error("DIGIGO_START_UPSERT_ERROR", upsertError);
     return NextResponse.json(
       {
         ok: false,
@@ -222,6 +223,13 @@ export async function POST(req: Request) {
         hint: (upsertError as any)?.hint ?? null,
         code: (upsertError as any)?.code ?? null,
       },
+      { status: 500 }
+    );
+  }
+
+  if (!upserted || upserted.length === 0) {
+    return NextResponse.json(
+      { ok: false, error: "SIGNATURE_CONTEXT_INSERT_FAILED", message: "UPSERT_RETURNED_EMPTY" },
       { status: 500 }
     );
   }
