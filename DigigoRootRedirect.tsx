@@ -37,9 +37,9 @@ export default function DigigoRootRedirect() {
     }
 
     if (token || (qs.get("state") && code) || error) {
-      // IMPORTANT: ne pas effacer ici !
-      // On laisse /digigo/redirect utiliser le state,
-      // puis /digigo/redirect effacera après succès.
+      // IMPORTANT: NE PAS effacer le state ici.
+      // /digigo/redirect en a besoin pour valider le retour,
+      // puis /digigo/redirect le supprimera après succès.
       router.replace("/digigo/redirect?" + qs.toString());
     }
   }, [params, router]);
