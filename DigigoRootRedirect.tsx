@@ -20,15 +20,6 @@ function getStoredState() {
   return st;
 }
 
-function clearStoredState() {
-  try {
-    window.localStorage.removeItem("digigo_state");
-  } catch {}
-  try {
-    window.sessionStorage.removeItem("digigo_state");
-  } catch {}
-}
-
 export default function DigigoRootRedirect() {
   const router = useRouter();
   const params = useSearchParams();
@@ -46,7 +37,9 @@ export default function DigigoRootRedirect() {
     }
 
     if (token || (qs.get("state") && code) || error) {
-      clearStoredState();
+      // IMPORTANT: ne pas effacer ici !
+      // On laisse /digigo/redirect utiliser le state,
+      // puis /digigo/redirect effacera après succès.
       router.replace("/digigo/redirect?" + qs.toString());
     }
   }, [params, router]);
