@@ -11,8 +11,8 @@ export default function DigigoRedirectClient() {
   const sp = useSearchParams();
   const router = useRouter();
 
-  const token = useMemo(() => s(sp.get("token")), [sp]);
-  const state = useMemo(() => s(sp.get("state")), [sp]);
+  const token = useMemo(() => s(sp.get("token") || ""), [sp]);
+  const state = useMemo(() => s(sp.get("state") || ""), [sp]);
 
   const [error, setError] = useState("");
 
@@ -50,9 +50,7 @@ export default function DigigoRedirectClient() {
             <div className="h-2 w-full bg-slate-200 rounded overflow-hidden">
               <div className="h-full w-1/2 bg-slate-700 animate-pulse" />
             </div>
-            <div className="text-sm text-slate-600 mt-3">
-              Traitement sécurisé en cours…
-            </div>
+            <div className="text-sm text-slate-600 mt-3">Traitement sécurisé en cours…</div>
           </div>
         ) : (
           <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
