@@ -14,18 +14,23 @@ export async function POST(req: Request) {
 
   const token = s(body.token);
   const code = s(body.code);
-  const state = s(body.state);
+  let state = s(body.state);
+  const invoice_id_from_body = s(body.invoice_id || body.invoiceId);
 
-  if (!state || (!token && !code)) {
-    return NextResponse.json({ ok: false, error: "MISSING_FIELDS" }, { status: 400 });
-  }
-
-  const invoice_id = s(state.split(".")[0]);
-  if (!invoice_id) {
-    return NextResponse.json({ ok: false, error: "STATE_INVALID" }, { status: 400 });
+  const oauthToken = code || token;
+  if (!oauthToken) {
+    return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
   }
 
   const service = createServiceClient();
+
+  let invoice_id = "";
+  if (state) invoice_id = s(state.split(".")[0]);
+  if (!invoice_id && invoice_id_from_body) invoice_id = invoice_id_from_body;
+
+  if (!invoice_id) {
+    return NextResponse.json({ ok: false, error: "MISSING_INVOICE_ID" }, { status: 400 });
+  }
 
   const { data: sig, error: sigErr } = await service
     .from("invoice_signatures")
@@ -36,7 +41,6 @@ export async function POST(req: Request) {
   if (sigErr) {
     return NextResponse.json({ ok: false, error: "DB_ERROR", message: s(sigErr.message) }, { status: 500 });
   }
-
   if (!sig) {
     return NextResponse.json({ ok: false, error: "SIGNATURE_CONTEXT_NOT_FOUND" }, { status: 404 });
   }
@@ -44,21 +48,10 @@ export async function POST(req: Request) {
   const meta = (sig as any)?.meta ?? {};
   const metaState = s(meta.state);
 
-  if (metaState !== state) {
-    const canHeal =
-      !metaState || metaState === "test" || metaState === "STATE_TEST" || metaState === "state_test";
-
-    if (!canHeal) {
-      return NextResponse.json({ ok: false, error: "STATE_MISMATCH" }, { status: 400 });
-    }
-
-    await service
-      .from("invoice_signatures")
-      .update({ meta: { ...meta, state } })
-      .eq("invoice_id", invoice_id);
+  if (!state) state = metaState;
+  if (!state) {
+    return NextResponse.json({ ok: false, error: "STATE_MISSING" }, { status: 400 });
   }
-
-  const oauthToken = code || token;
 
   await service
     .from("invoice_signatures")
