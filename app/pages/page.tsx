@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import PermissionBadge from "@/app/components/PermissionBadge";
-import DigigoRootRedirect from "@/app/DigigoRootRedirect";
+import DigigoRootRedirect from "../DigigoRootRedirect";
 
 export const dynamic = "force-dynamic";
 
@@ -54,12 +54,10 @@ function roleRank(role: string) {
 }
 
 function mergeCompany(a: CompanyMission, b: CompanyMission): CompanyMission {
-  const bestRole = roleRank(b.role) > roleRank(a.role) ? b.role : a.role;
-
   return {
     id: a.id,
     name: a.name || b.name,
-    role: bestRole,
+    role: roleRank(b.role) > roleRank(a.role) ? b.role : a.role,
     canCreateInvoices: a.canCreateInvoices || b.canCreateInvoices,
     canSubmitTTN: a.canSubmitTTN || b.canSubmitTTN,
     canManageCustomers: a.canManageCustomers || b.canManageCustomers,
@@ -151,30 +149,20 @@ export default async function PagesIndex(props: {
     if (sort === "invoices")
       return mul * (Number(a.canCreateInvoices) - Number(b.canCreateInvoices));
     if (sort === "customers")
-      return mul *
-        (Number(a.canManageCustomers) - Number(b.canManageCustomers));
+      return (
+        mul *
+        (Number(a.canManageCustomers) - Number(b.canManageCustomers))
+      );
     return mul * (Number(a.canSubmitTTN) - Number(b.canSubmitTTN));
   });
 
-  const total = companies.length;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const safePage = Math.min(Math.max(1, page), totalPages);
-  const from = (safePage - 1) * PAGE_SIZE;
-  const to = Math.min(from + PAGE_SIZE, total);
-  companies = companies.slice(from, to);
-
   return (
     <div className="mx-auto w-full max-w-6xl p-6 space-y-4">
-      {/* 🔥 REDIRECTION DIGIGO (NE PAS SUPPRIMER) */}
+      {/* 🔴 REDIRECTION DIGIGO – À NE PAS SUPPRIMER */}
       <DigigoRootRedirect />
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="text-lg font-semibold text-slate-900">Mes entités</div>
-        <div className="mt-1 text-sm text-slate-700">
-          Permissions{" "}
-          <span className="font-semibold text-emerald-700">vert</span> /{" "}
-          <span className="font-semibold text-rose-700">rouge</span>.
-        </div>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
