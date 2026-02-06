@@ -13,11 +13,19 @@ export default function DigigoRedirectClient() {
 
   const token = useMemo(() => s(sp.get("token") || ""), [sp]);
   const code = useMemo(() => s(sp.get("code") || ""), [sp]);
-  const state = useMemo(() => s(sp.get("state") || ""), [sp]);
+  const stateFromUrl = useMemo(() => s(sp.get("state") || ""), [sp]);
 
   const [error, setError] = useState("");
 
   useEffect(() => {
+    let state = stateFromUrl;
+
+    if (!state) {
+      try {
+        state = s(window.sessionStorage.getItem("digigo_state") || "");
+      } catch {}
+    }
+
     if (!state || (!token && !code)) {
       setError("Retour DigiGo invalide.");
       return;
@@ -34,16 +42,19 @@ export default function DigigoRedirectClient() {
         const j = await r.json().catch(() => ({}));
 
         if (r.ok && j?.ok && j?.invoice_id) {
+          try {
+            window.sessionStorage.removeItem("digigo_state");
+          } catch {}
           router.replace(`/invoices/${j.invoice_id}`);
           return;
         }
 
         setError(s(j?.error || j?.message || "Signature échouée."));
-      } catch (e: any) {
-        setError("fetch failed");
+      } catch {
+        setError("Erreur réseau (fetch failed).");
       }
     })();
-  }, [token, code, state, router]);
+  }, [token, code, stateFromUrl, router]);
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4">
@@ -55,7 +66,9 @@ export default function DigigoRedirectClient() {
             <div className="h-2 w-full bg-slate-200 rounded overflow-hidden">
               <div className="h-full w-1/2 bg-slate-700 animate-pulse" />
             </div>
-            <div className="text-sm text-slate-600 mt-3">Traitement sécurisé en cours…</div>
+            <div className="text-sm text-slate-600 mt-3">
+              Traitement sécurisé en cours…
+            </div>
           </div>
         ) : (
           <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
