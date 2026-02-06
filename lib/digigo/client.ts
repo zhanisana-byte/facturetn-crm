@@ -168,15 +168,10 @@ export function digigoAuthorizeUrl(input: {
 }) {
   const base = digigoBaseUrl();
 
-  const redirect = new URL(digigoRedirectUri());
-  redirect.searchParams.set("state", input.state);
-
   const u = new URL(`${base}/tunsign-proxy-webapp/oauth2/authorize`);
-  u.searchParams.set("redirectUri", redirect.toString());
+  u.searchParams.set("redirectUri", digigoRedirectUri());
 
-  // IMPORTANT: DigiGo te renvoie ?token=... (et pas code)
-  u.searchParams.set("responseType", "token");
-
+  u.searchParams.set("responseType", "code");
   u.searchParams.set("scope", "credential");
   u.searchParams.set("credentialId", input.credentialId);
   u.searchParams.set("clientId", digigoClientId());
@@ -186,17 +181,42 @@ export function digigoAuthorizeUrl(input: {
   return u.toString();
 }
 
-export async function digigoExchangeTokenForSad(tokenOrCode: string) {
+export async function digigoExchangeTokenForSad(authorizationJwtTokenOrCode: string) {
   const base = digigoBaseUrl();
   const clientId = digigoClientId();
   const grantType = digigoGrantType();
   const clientSecret = digigoClientSecret();
 
-  const url = `${base}/tunsign-proxy-webapp/oauth2/token/${encodeURIComponent(
-    clientId
-  )}/${encodeURIComponent(grantType)}/${encodeURIComponent(clientSecret)}/${encodeURIComponent(tokenOrCode)}`;
+  const raw = String(authorizationJwtTokenOrCode || "").trim();
+  let jti = "";
+  let payload: any = null;
 
-  return httpGetJson(url);
+  if (raw.split(".").length === 3) {
+    const decoded = verifyAndDecodeJwt(raw);
+    payload = decoded.payload;
+    jti = String((payload as any)?.jti ?? "").trim();
+  } else {
+    jti = raw;
+  }
+  if (!jti) {
+    const e: any = new Error("JWT_JTI_MISSING");
+    e.data = payload;
+    throw e;
+  }
+
+  const url = `${base}/tunsign-proxy-webapp/services/v1/oauth2/token/${encodeURIComponent(
+    clientId
+  )}/${encodeURIComponent(grantType)}/${encodeURIComponent(clientSecret)}/${encodeURIComponent(jti)}`;
+
+  try {
+    return await httpPostJson(url, { redirectUri: digigoRedirectUri() });
+  } catch (e: any) {
+    const st = Number(e?.status ?? 0);
+    if (st === 404 || st === 405) {
+      return httpGetJson(url);
+    }
+    throw e;
+  }
 }
 
 export async function digigoSignHash(input: {
