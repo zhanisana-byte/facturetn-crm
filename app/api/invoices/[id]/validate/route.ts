@@ -15,7 +15,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   const { data: invoice, error: invErr } = await supabase
     .from("invoices")
     .select(
-      "id,company_id,invoice_number,issue_date,total_ttc,qr_payload,status,require_accountant_validation,accountant_validated_at,accountant_validated_by,seller_snapshot_at,seller_name,seller_tax_id,seller_street,seller_city,seller_zip,signed_at,signature_status,ttn_status"
+      "id,company_id,invoice_number,issue_date,total_ttc,qr_payload,status,require_accountant_validation,accountant_validated_at,accountant_validated_by,seller_snapshot_at,seller_name,seller_tax_id,seller_street,seller_city,seller_zip,signature_status,ttn_status",
     )
     .eq("id", id)
     .maybeSingle();
@@ -27,8 +27,22 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ ok: false, error: "Facture introuvable ou accès refusé." }, { status: 404 });
   }
 
-  // Security checks
-  const isSigned = !!(invoice as any).signed_at || (invoice as any).signature_status === "signed";
+  // Security checks (signature réelle = invoice_signatures)
+  const { data: sig, error: sigErr } = await supabase
+    .from("invoice_signatures")
+    .select("state,signed_xml,signed_at")
+    .eq("invoice_id", id)
+    .maybeSingle();
+
+  if (sigErr) {
+    return NextResponse.json({ ok: false, error: sigErr.message }, { status: 400 });
+  }
+
+  const st = String((invoice as any).signature_status || "").toLowerCase();
+  const sigState = String((sig as any)?.state || "").toLowerCase();
+  const sigXml = typeof (sig as any)?.signed_xml === "string" ? (sig as any).signed_xml.trim() : "";
+  const isSigned = st === "signed" || sigState === "signed" || !!(sig as any)?.signed_at || sigXml.length > 0;
+
   const ttnStatus = (invoice as any).ttn_status || "draft";
   const isLocked = !["draft", "not_sent", "error", "failed"].includes(ttnStatus);
 
@@ -57,14 +71,14 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   if ((invoice as any).require_accountant_validation) {
-    const st = String((invoice as any).status || "draft");
-    if (st !== "pending_validation") {
+    const st2 = String((invoice as any).status || "draft");
+    if (st2 !== "pending_validation") {
       return NextResponse.json(
         {
           ok: false,
           error: "Cette facture n'est pas en attente de validation. cliquez d'abord sur 'Soumettre pour validation'.",
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
   }
@@ -79,36 +93,18 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ ok: false, error: cErr?.message || "Société introuvable" }, { status: 400 });
   }
 
-  const seller_name = (company as any).company_name || null;
-  const seller_tax_id = (company as any).tax_id || null;
-  const seller_street = (company as any).address || null;
-  const seller_city = null;
-  const seller_zip = null;
-
-  const existingQr = (invoice as any).qr_payload;
-  const qr_payload = existingQr
-    ? existingQr
-    : JSON.stringify({
-      seller_tax_id,
-      invoice_number: (invoice as any).invoice_number ?? null,
-      issue_date: (invoice as any).issue_date ?? null,
-      total_ttc: (invoice as any).total_ttc ?? null,
-    });
+  const now = new Date().toISOString();
 
   const { error: upErr } = await supabase
     .from("invoices")
     .update({
+      accountant_validated_at: now,
       accountant_validated_by: auth.user.id,
-      accountant_validated_at: new Date().toISOString(),
       status: "validated",
-      locked_at: new Date().toISOString(),
-      seller_snapshot_at: new Date().toISOString(),
-      seller_name,
-      seller_tax_id,
-      seller_street,
-      seller_city,
-      seller_zip,
-      qr_payload,
+      seller_snapshot_at: now,
+      seller_name: (company as any).company_name || null,
+      seller_tax_id: (company as any).tax_id || null,
+      seller_street: (company as any).address || null,
     })
     .eq("id", id);
 
