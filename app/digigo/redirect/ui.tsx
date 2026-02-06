@@ -11,13 +11,13 @@ export default function DigigoRedirectClient() {
   const sp = useSearchParams();
   const router = useRouter();
 
-  const token = useMemo(() => s(sp.get("token") || ""), [sp]);
   const state = useMemo(() => s(sp.get("state") || ""), [sp]);
+  const codeOrToken = useMemo(() => s(sp.get("code") || sp.get("token") || ""), [sp]);
 
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!token || !state) {
+    if (!state || !codeOrToken) {
       setError("Retour DigiGo invalide.");
       return;
     }
@@ -26,7 +26,7 @@ export default function DigigoRedirectClient() {
       const r = await fetch("/api/digigo/callback", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token, state }),
+        body: JSON.stringify({ code: codeOrToken, state }),
       });
 
       const j = await r.json().catch(() => ({}));
@@ -38,7 +38,7 @@ export default function DigigoRedirectClient() {
 
       setError(s(j?.error || j?.message || "Signature échouée."));
     })();
-  }, [token, state, router]);
+  }, [codeOrToken, state, router]);
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4">
