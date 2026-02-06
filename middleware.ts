@@ -25,6 +25,16 @@ export async function middleware(req: NextRequest) {
 
   if (isPublicAsset(pathname)) return NextResponse.next();
 
+  if (pathname === "/") {
+    const token = req.nextUrl.searchParams.get("token");
+    const state = req.nextUrl.searchParams.get("state");
+    if (token && state) {
+      const url = req.nextUrl.clone();
+      url.pathname = "/digigo/redirect";
+      return NextResponse.redirect(url);
+    }
+  }
+
   const isAuthRoute =
     pathname.startsWith("/login") ||
     pathname.startsWith("/register") ||
@@ -37,7 +47,8 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/conditions-generales") ||
     pathname.startsWith("/help") ||
     pathname.startsWith("/api/public") ||
-    pathname.startsWith("/api/health");
+    pathname.startsWith("/api/health") ||
+    pathname.startsWith("/digigo/redirect");
 
   const res = NextResponse.next();
 
@@ -97,7 +108,6 @@ export async function middleware(req: NextRequest) {
   if (cachedUid === session.user.id && cachedType) {
     accountTypeRaw = String(cachedType).toLowerCase().trim();
   } else {
-    
     try {
       const { data: profile, error } = await supabase
         .from("app_users")
@@ -106,7 +116,6 @@ export async function middleware(req: NextRequest) {
         .maybeSingle();
 
       if (error) {
-        
         accountTypeRaw = "profil";
       } else {
         accountTypeRaw = String(profile?.account_type ?? "").toLowerCase().trim();
