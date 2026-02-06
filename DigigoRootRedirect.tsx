@@ -36,6 +36,11 @@ export default function DigigoRootRedirect() {
       if (st) qs.set("state", st);
     }
 
+    if (!qs.get("invoice_id")) {
+      const inv = typeof window !== "undefined" ? getStored("digigo_invoice_id") : "";
+      if (inv) qs.set("invoice_id", inv);
+    }
+
     if (token || code || error) {
       router.replace("/digigo/redirect?" + qs.toString());
     }
