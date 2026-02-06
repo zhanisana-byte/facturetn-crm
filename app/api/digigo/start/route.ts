@@ -48,8 +48,6 @@ function computeFromItems(items: any[]) {
 }
 
 function friendlyTeifError(msg: string) {
-  // Les erreurs sortent déjà en FR depuis lib/ttn/teif.ts
-  // On les renvoie telles quelles (mais propres) pour que l’utilisateur comprenne quoi remplir.
   const m = s(msg);
   if (!m) return "Données facture incomplètes pour lancer la signature.";
   return m;
@@ -83,7 +81,12 @@ export async function POST(req: Request) {
     .maybeSingle();
 
   const credentialId = s((identity as any)?.email);
-  if (!credentialId) return NextResponse.json({ ok: false, error: "Veuillez renseigner votre email DigiGo (Identité DigiGo)." }, { status: 400 });
+  if (!credentialId) {
+    return NextResponse.json(
+      { ok: false, error: "Veuillez renseigner votre email DigiGo (Identité DigiGo)." },
+      { status: 400 }
+    );
+  }
 
   const { data: items } = await supabase
     .from("invoice_items")
@@ -149,14 +152,15 @@ export async function POST(req: Request) {
       purpose: "ttn",
     });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: friendlyTeifError(e?.message || "") },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, error: friendlyTeifError(e?.message || "") }, { status: 400 });
   }
 
-  // Sécurité: si env manquant, on renvoie un message clair
-  if (!s(process.env.DIGIGO_BASE_URL) || !s(process.env.DIGIGO_CLIENT_ID) || !s(process.env.DIGIGO_CLIENT_SECRET) || !s(process.env.DIGIGO_REDIRECT_URI)) {
+  if (
+    !s(process.env.DIGIGO_BASE_URL) ||
+    !s(process.env.DIGIGO_CLIENT_ID) ||
+    !s(process.env.DIGIGO_CLIENT_SECRET) ||
+    !s(process.env.DIGIGO_REDIRECT_URI)
+  ) {
     return NextResponse.json(
       { ok: false, error: "Configuration DigiGo incomplète (variables d’environnement manquantes)." },
       { status: 500 }
@@ -175,7 +179,7 @@ export async function POST(req: Request) {
       numSignatures: 1,
       state,
     });
-  } catch (e: any) {
+  } catch {
     return NextResponse.json(
       { ok: false, error: "Impossible de construire l’URL DigiGo (vérifie DIGIGO_BASE_URL / DIGIGO_REDIRECT_URI)." },
       { status: 500 }
@@ -183,7 +187,8 @@ export async function POST(req: Request) {
   }
 
   const service = createServiceClient();
-  await service
+
+  const { error: upsertError } = await service
     .from("invoice_signatures")
     .upsert(
       {
@@ -206,6 +211,20 @@ export async function POST(req: Request) {
       },
       { onConflict: "invoice_id" }
     );
+
+  if (upsertError) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "SIGNATURE_CONTEXT_INSERT_FAILED",
+        message: upsertError.message,
+        details: (upsertError as any)?.details ?? null,
+        hint: (upsertError as any)?.hint ?? null,
+        code: (upsertError as any)?.code ?? null,
+      },
+      { status: 500 }
+    );
+  }
 
   return NextResponse.json({ ok: true, authorize_url }, { status: 200 });
 }
