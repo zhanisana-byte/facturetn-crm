@@ -75,12 +75,15 @@ function buildAgent() {
 
 async function httpGetJson(url: string) {
   const agent = buildAgent();
+
   const res = await fetch(url, { method: "GET", agent: agent as any } as any);
   const txt = await res.text();
+
   let data: any = txt;
   try {
     data = JSON.parse(txt);
   } catch {}
+
   if (!res.ok) {
     const msg = (data && (data.error || data.message)) || `HTTP_${res.status}`;
     const e: any = new Error(msg);
@@ -93,6 +96,7 @@ async function httpGetJson(url: string) {
 
 async function httpPostJson(url: string, body: any) {
   const agent = buildAgent();
+
   const res = await fetch(
     url,
     {
@@ -102,11 +106,14 @@ async function httpPostJson(url: string, body: any) {
       agent: agent as any,
     } as any
   );
+
   const txt = await res.text();
+
   let data: any = txt;
   try {
     data = JSON.parse(txt);
   } catch {}
+
   if (!res.ok) {
     const msg = (data && (data.error || data.message)) || `HTTP_${res.status}`;
     const e: any = new Error(msg);
@@ -130,10 +137,12 @@ function b64urlToJson(s: string) {
 export function verifyAndDecodeJwt(token: string) {
   const parts = String(token || "").split(".");
   if (parts.length !== 3) throw new Error("JWT_INVALID");
+
   const [h, p, sig] = parts;
 
   const header = b64urlToJson(h);
   const payload = b64urlToJson(p);
+
   const signed = Buffer.from(`${h}.${p}`, "utf8");
   const signature = b64urlToBuf(sig);
 
@@ -164,7 +173,10 @@ export function digigoAuthorizeUrl(input: {
 
   const u = new URL(`${base}/tunsign-proxy-webapp/oauth2/authorize`);
   u.searchParams.set("redirectUri", redirect.toString());
-  u.searchParams.set("responseType", "code");
+
+  // IMPORTANT: DigiGo te renvoie ?token=... (et pas code)
+  u.searchParams.set("responseType", "token");
+
   u.searchParams.set("scope", "credential");
   u.searchParams.set("credentialId", input.credentialId);
   u.searchParams.set("clientId", digigoClientId());
@@ -174,14 +186,16 @@ export function digigoAuthorizeUrl(input: {
   return u.toString();
 }
 
-export async function digigoExchangeTokenForSad(code: string) {
+export async function digigoExchangeTokenForSad(tokenOrCode: string) {
   const base = digigoBaseUrl();
   const clientId = digigoClientId();
   const grantType = digigoGrantType();
   const clientSecret = digigoClientSecret();
-  const url = `${base}/tunsign-proxy-webapp/oauth2/token/${encodeURIComponent(clientId)}/${encodeURIComponent(
-    grantType
-  )}/${encodeURIComponent(clientSecret)}/${encodeURIComponent(code)}`;
+
+  const url = `${base}/tunsign-proxy-webapp/oauth2/token/${encodeURIComponent(
+    clientId
+  )}/${encodeURIComponent(grantType)}/${encodeURIComponent(clientSecret)}/${encodeURIComponent(tokenOrCode)}`;
+
   return httpGetJson(url);
 }
 
@@ -194,10 +208,12 @@ export async function digigoSignHash(input: {
 }) {
   const base = digigoBaseUrl();
   const clientId = digigoClientId();
+
   const url = `${base}/tunsign-proxy-webapp/services/v1/signatures/signHash/${encodeURIComponent(
     clientId
   )}/${encodeURIComponent(input.credentialId)}/${encodeURIComponent(input.sad)}/${encodeURIComponent(
     input.hashAlgo
   )}/${encodeURIComponent(input.signAlgo)}`;
+
   return httpPostJson(url, { hash: input.hashesBase64 });
 }
