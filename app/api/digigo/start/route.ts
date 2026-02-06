@@ -12,12 +12,10 @@ export const dynamic = "force-dynamic";
 function s(v: any) {
   return String(v ?? "").trim();
 }
-
 function n(v: any) {
   const x = Number(v ?? 0);
   return Number.isFinite(x) ? x : 0;
 }
-
 function clampPct(x: number) {
   if (!Number.isFinite(x)) return 0;
   if (x < 0) return 0;
@@ -49,6 +47,14 @@ function computeFromItems(items: any[]) {
   return { ht, tva };
 }
 
+function friendlyTeifError(msg: string) {
+  // Les erreurs sortent déjà en FR depuis lib/ttn/teif.ts
+  // On les renvoie telles quelles (mais propres) pour que l’utilisateur comprenne quoi remplir.
+  const m = s(msg);
+  if (!m) return "Données facture incomplètes pour lancer la signature.";
+  return m;
+}
+
 export async function POST(req: Request) {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
@@ -77,7 +83,7 @@ export async function POST(req: Request) {
     .maybeSingle();
 
   const credentialId = s((identity as any)?.email);
-  if (!credentialId) return NextResponse.json({ ok: false, error: "DIGIGO_EMAIL_REQUIRED" }, { status: 400 });
+  if (!credentialId) return NextResponse.json({ ok: false, error: "Veuillez renseigner votre email DigiGo (Identité DigiGo)." }, { status: 400 });
 
   const { data: items } = await supabase
     .from("invoice_items")
@@ -101,56 +107,80 @@ export async function POST(req: Request) {
   const tva = computed.tva;
   const ttc = ht + tva + stampAmount;
 
-  const unsigned_xml = buildTeifInvoiceXml({
-    invoiceId: invoice_id,
-    company: {
-      name: s((company as any)?.company_name ?? ""),
-      taxId: s((company as any)?.tax_id ?? (company as any)?.taxId ?? ""),
-      address: s((company as any)?.address ?? ""),
-      city: s((company as any)?.city ?? ""),
-      postalCode: s((company as any)?.postal_code ?? (company as any)?.zip ?? ""),
-      country: s((company as any)?.country ?? "TN"),
-    },
-    invoice: {
-      documentType: docType,
-      number,
-      issueDate,
-      dueDate,
-      currency,
-      customerName: s((invoice as any)?.customer_name ?? ""),
-      customerTaxId: s((invoice as any)?.customer_tax_id ?? ""),
-      customerEmail: s((invoice as any)?.customer_email ?? ""),
-      customerPhone: s((invoice as any)?.customer_phone ?? ""),
-      customerAddress: s((invoice as any)?.customer_address ?? ""),
-      notes: s((invoice as any)?.notes ?? ""),
-    },
-    totals: {
-      ht,
-      tva,
-      ttc,
-      stampEnabled: true,
-      stampAmount,
-    },
-    items: (items ?? []).map((it: any) => ({
-      description: s(it.description ?? ""),
-      qty: n(it.quantity ?? 1),
-      price: n(it.unit_price_ht ?? 0),
-      vat: n(it.vat_pct ?? 0),
-      discount: n(it.discount_pct ?? 0),
-    })),
-    purpose: "ttn",
-  });
+  let unsigned_xml = "";
+  try {
+    unsigned_xml = buildTeifInvoiceXml({
+      invoiceId: invoice_id,
+      company: {
+        name: s((company as any)?.company_name ?? ""),
+        taxId: s((company as any)?.tax_id ?? (company as any)?.taxId ?? ""),
+        address: s((company as any)?.address ?? ""),
+        city: s((company as any)?.city ?? ""),
+        postalCode: s((company as any)?.postal_code ?? (company as any)?.zip ?? ""),
+        country: s((company as any)?.country ?? "TN"),
+      },
+      invoice: {
+        documentType: docType,
+        number,
+        issueDate,
+        dueDate,
+        currency,
+        customerName: s((invoice as any)?.customer_name ?? ""),
+        customerTaxId: s((invoice as any)?.customer_tax_id ?? ""),
+        customerEmail: s((invoice as any)?.customer_email ?? ""),
+        customerPhone: s((invoice as any)?.customer_phone ?? ""),
+        customerAddress: s((invoice as any)?.customer_address ?? ""),
+        notes: s((invoice as any)?.notes ?? ""),
+      },
+      totals: {
+        ht,
+        tva,
+        ttc,
+        stampEnabled: true,
+        stampAmount,
+      },
+      items: (items ?? []).map((it: any) => ({
+        description: s(it.description ?? ""),
+        qty: n(it.quantity ?? 1),
+        price: n(it.unit_price_ht ?? 0),
+        vat: n(it.vat_pct ?? 0),
+        discount: n(it.discount_pct ?? 0),
+      })),
+      purpose: "ttn",
+    });
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: friendlyTeifError(e?.message || "") },
+      { status: 400 }
+    );
+  }
+
+  // Sécurité: si env manquant, on renvoie un message clair
+  if (!s(process.env.DIGIGO_BASE_URL) || !s(process.env.DIGIGO_CLIENT_ID) || !s(process.env.DIGIGO_CLIENT_SECRET) || !s(process.env.DIGIGO_REDIRECT_URI)) {
+    return NextResponse.json(
+      { ok: false, error: "Configuration DigiGo incomplète (variables d’environnement manquantes)." },
+      { status: 500 }
+    );
+  }
 
   const unsigned_hash = sha256Base64Utf8(unsigned_xml);
   const nonce = crypto.randomBytes(16).toString("hex");
   const state = `${invoice_id}.${nonce}`;
 
-  const authorize_url = digigoAuthorizeUrl({
-    credentialId,
-    hashBase64: unsigned_hash,
-    numSignatures: 1,
-    state,
-  });
+  let authorize_url = "";
+  try {
+    authorize_url = digigoAuthorizeUrl({
+      credentialId,
+      hashBase64: unsigned_hash,
+      numSignatures: 1,
+      state,
+    });
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: "Impossible de construire l’URL DigiGo (vérifie DIGIGO_BASE_URL / DIGIGO_REDIRECT_URI)." },
+      { status: 500 }
+    );
+  }
 
   const service = createServiceClient();
   await service
