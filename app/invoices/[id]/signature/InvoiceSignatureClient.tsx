@@ -10,8 +10,7 @@ function mapError(codeOrMessage: string) {
   const raw = s(codeOrMessage);
   if (!raw) return "Erreur DigiGo.";
 
-  const looksLikeCode =
-    raw.length <= 40 && /^[A-Z0-9_]+$/.test(raw.replaceAll(" ", "_"));
+  const looksLikeCode = raw.length <= 40 && /^[A-Z0-9_]+$/.test(raw.replaceAll(" ", "_"));
   if (!looksLikeCode) return raw;
 
   const c = raw.toUpperCase();
@@ -23,8 +22,7 @@ function mapError(codeOrMessage: string) {
   if (c === "TTN_NOT_CONFIGURED")
     return "TTN n’est pas configuré. Ouvrez Paramètres TTN et configurez la signature DigiGo.";
   if (c === "MISSING_INVOICE_ID") return "Identifiant facture manquant.";
-  if (c === "SIGNATURE_CONTEXT_INSERT_FAILED")
-    return "Impossible d'initialiser le contexte de signature. Réessayez.";
+  if (c === "SIGNATURE_CONTEXT_INSERT_FAILED") return "Impossible d'initialiser le contexte de signature. Réessayez.";
 
   return raw;
 }
@@ -55,6 +53,16 @@ export default function InvoiceSignatureClient({
     abortRef.current = null;
   }
 
+  function storeEverywhere(key: string, value: string) {
+    if (!value) return;
+    try {
+      window.localStorage.setItem(key, value);
+    } catch {}
+    try {
+      window.sessionStorage.setItem(key, value);
+    } catch {}
+  }
+
   async function startAndRedirect() {
     stopPending();
     const ctrl = new AbortController();
@@ -81,22 +89,13 @@ export default function InvoiceSignatureClient({
 
       const authorizeUrl = s(j?.authorize_url || "");
       if (!authorizeUrl) {
-        setMsg({
-          ok: false,
-          text: "URL DigiGo manquante. Vérifiez la configuration.",
-        });
+        setMsg({ ok: false, text: "URL DigiGo manquante. Vérifiez la configuration." });
         return;
       }
 
       const state = s(j?.state || "");
-      if (state) {
-        try {
-          window.localStorage.setItem("digigo_state", state);
-        } catch {}
-        try {
-          window.sessionStorage.setItem("digigo_state", state);
-        } catch {}
-      }
+      storeEverywhere("digigo_state", state);
+      storeEverywhere("digigo_invoice_id", invoiceId);
 
       window.location.href = authorizeUrl;
     } catch (e: any) {
@@ -151,9 +150,7 @@ export default function InvoiceSignatureClient({
         <div className="h-2 w-full bg-slate-200 rounded overflow-hidden">
           <div className={`h-full transition-all ${loading ? "w-2/4" : "w-1/4"} bg-slate-800`} />
         </div>
-        <div className="mt-2 text-xs text-slate-500">
-          Étapes : Initialisation → Redirection DigiGo → Signature
-        </div>
+        <div className="mt-2 text-xs text-slate-500">Étapes : Initialisation → Redirection DigiGo → Signature</div>
       </div>
 
       <div className="mt-6 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
