@@ -10,9 +10,33 @@ export default function DigigoSignButton({ invoiceId }: { invoiceId: string }) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
+  function setStateEverywhere(state: string) {
+    if (!state) return;
+
+    try {
+      window.localStorage.setItem("digigo_state", state);
+    } catch {}
+
+    try {
+      window.sessionStorage.setItem("digigo_state", state);
+    } catch {}
+  }
+
+  function clearStateEverywhere() {
+    try {
+      window.localStorage.removeItem("digigo_state");
+    } catch {}
+    try {
+      window.sessionStorage.removeItem("digigo_state");
+    } catch {}
+  }
+
   async function start() {
     setErr("");
     setLoading(true);
+
+    clearStateEverywhere();
+
     try {
       const r = await fetch("/api/digigo/start", {
         method: "POST",
@@ -21,19 +45,18 @@ export default function DigigoSignButton({ invoiceId }: { invoiceId: string }) {
       });
 
       const j = await r.json().catch(() => ({}));
+
       if (!r.ok || !j?.ok || !j?.authorize_url) {
         setErr(s(j?.error || j?.message || "Impossible de démarrer DigiGo."));
         return;
       }
 
       const state = s(j?.state || "");
-      if (state) {
-        try {
-          window.sessionStorage.setItem("digigo_state", state);
-        } catch {}
-      }
+      setStateEverywhere(state);
 
       window.location.href = String(j.authorize_url);
+    } catch (e: any) {
+      setErr(s(e?.message || "Erreur réseau."));
     } finally {
       setLoading(false);
     }
