@@ -15,22 +15,23 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
 
-  const phone = s((body as any).phone);
   const email = s((body as any).email);
-  const national_id = s((body as any).national_id);
 
-  if (!phone && !email) {
-    return NextResponse.json({ ok: false, error: "IDENTITY_INCOMPLETE", message: "Téléphone OU email requis (au moins un)." }, { status: 400 });
-    }
+  if (!email) {
+    return NextResponse.json(
+      { ok: false, error: "EMAIL_REQUIRED", message: "Email DigiGo requis." },
+      { status: 400 }
+    );
+  }
 
   const { error } = await supabase
     .from("user_digigo_identities")
     .upsert(
       {
         user_id: auth.user.id,
-        phone: phone || null,
-        email: email || null,
-        national_id: national_id || null,
+        phone: null,
+        email,
+        national_id: null,
       },
       { onConflict: "user_id" }
     );
