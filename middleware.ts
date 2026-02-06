@@ -25,10 +25,17 @@ export async function middleware(req: NextRequest) {
 
   if (isPublicAsset(pathname)) return NextResponse.next();
 
+  // ✅ IMPORTANT : kit DigiGo = redirectUri sur "/"
+  // Si DigiGo revient sur /?token=...&state=... -> on redirige vers /digigo/redirect
   if (pathname === "/") {
     const token = req.nextUrl.searchParams.get("token");
     const state = req.nextUrl.searchParams.get("state");
-    if (token && state) {
+
+    // (optionnel, par sécurité si un jour ils renvoient code/error)
+    const code = req.nextUrl.searchParams.get("code");
+    const error = req.nextUrl.searchParams.get("error");
+
+    if ((token && state) || (code && state) || error) {
       const url = req.nextUrl.clone();
       url.pathname = "/digigo/redirect";
       return NextResponse.redirect(url);
@@ -170,8 +177,7 @@ export async function middleware(req: NextRequest) {
   }
 
   if (accountType === "multi_societe") {
-    if (area !== "groups")
-      return NextResponse.redirect(new URL("/switch", req.url));
+    if (area !== "groups") return NextResponse.redirect(new URL("/switch", req.url));
     return res;
   }
 
