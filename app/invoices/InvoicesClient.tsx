@@ -11,15 +11,15 @@ type InvoiceRow = {
   id: string;
   company_id: string;
 
+  created_at: string | null; // ✅ date ajout
   issue_date: string | null;
+
   invoice_number: string | null;
   unique_reference: string | null;
 
   document_type: string | null;
   invoice_mode: string | null;
 
-  subtotal_ht: number | null;
-  total_vat: number | null;
   total_ttc: number | null;
   currency: string | null;
 
@@ -92,6 +92,7 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
 
   const [usersMap, setUsersMap] = useState<Map<string, AppUser>>(new Map());
 
+  // filtres
   const [companyId, setCompanyId] = useState<string>("all");
   const [type, setType] = useState<string>("all");
   const [mode, setMode] = useState<string>("all");
@@ -99,8 +100,9 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
   const [ttn, setTtn] = useState<string>("all");
   const [createdBy, setCreatedBy] = useState<string>("all");
 
-  const [fromDate, setFromDate] = useState<string>("");
-  const [toDate, setToDate] = useState<string>("");
+  // ✅ date ajout
+  const [addedFrom, setAddedFrom] = useState<string>("");
+  const [addedTo, setAddedTo] = useState<string>("");
 
   const [clientQ, setClientQ] = useState("");
   const [q, setQ] = useState("");
@@ -120,13 +122,12 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
           [
             "id",
             "company_id",
+            "created_at", // ✅ date ajout
             "issue_date",
             "invoice_number",
             "unique_reference",
             "document_type",
             "invoice_mode",
-            "subtotal_ht",
-            "total_vat",
             "total_ttc",
             "currency",
             "customer_name",
@@ -136,7 +137,7 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
             "created_by_user_id",
             "signature_status",
             "ttn_status",
-          ].join(",")
+          ].join(","),
         )
         .order("created_at", { ascending: false })
         .limit(1500);
@@ -145,7 +146,7 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
 
       const invoices = (inv ?? []) as InvoiceRow[];
 
-      // signed_at est dans invoice_signatures (pas dans invoices)
+      // signed_at est dans invoice_signatures
       const invIds = Array.from(new Set(invoices.map((x) => x.id).filter(Boolean))) as string[];
       if (invIds.length) {
         const { data: sigs, error: sigErr } = await supabase
@@ -194,8 +195,9 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
     const cqq = clientQ.trim().toLowerCase();
-    const from = fromDate ? new Date(fromDate) : null;
-    const to = toDate ? new Date(toDate) : null;
+
+    const from = addedFrom ? new Date(addedFrom) : null;
+    const to = addedTo ? new Date(addedTo) : null;
 
     return rows.filter((r) => {
       if (companyId !== "all" && r.company_id !== companyId) return false;
@@ -225,8 +227,9 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
         if ((r.created_by_user_id || "") !== createdBy) return false;
       }
 
+      // ✅ Filtre par date ajout (created_at)
       if (from || to) {
-        const d = r.issue_date ? new Date(r.issue_date) : null;
+        const d = r.created_at ? new Date(r.created_at) : null;
         if (!d || Number.isNaN(d.getTime())) return false;
         if (from && d < from) return false;
         if (to) {
@@ -249,7 +252,7 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
 
       return true;
     });
-  }, [rows, companyId, type, mode, sig, ttn, createdBy, fromDate, toDate, clientQ, q, companyName]);
+  }, [rows, companyId, type, mode, sig, ttn, createdBy, addedFrom, addedTo, clientQ, q, companyName]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(Math.max(1, page), totalPages);
@@ -295,9 +298,10 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
         </div>
 
         <div className="ftn-card-content">
-          {/* ✅ Filtres en lignes (comme ancien design) */}
-          <div className="ftn-row" style={{ gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-            <select className="ftn-input" style={{ minWidth: 220, flex: "1 1 220px" }} value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+          {/* ✅ 2 lignes de 5 colonnes (petites colonnes) */}
+          <div className="inv-grid">
+            {/* ligne 1 */}
+            <select className="ftn-input inv-span-2" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
               <option value="all">Toutes les sociétés</option>
               {companies.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -306,28 +310,27 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
               ))}
             </select>
 
-            <select className="ftn-input" style={{ minWidth: 160, flex: "1 1 160px" }} value={type} onChange={(e) => setType(e.target.value)}>
+            <select className="ftn-input" value={type} onChange={(e) => setType(e.target.value)}>
               <option value="all">Type : tout</option>
               <option value="facture">Facture</option>
               <option value="devis">Devis</option>
               <option value="avoir">Avoir</option>
             </select>
 
-            <select className="ftn-input" style={{ minWidth: 160, flex: "1 1 160px" }} value={mode} onChange={(e) => setMode(e.target.value)}>
+            <select className="ftn-input" value={mode} onChange={(e) => setMode(e.target.value)}>
               <option value="all">Mode : tout</option>
               <option value="normale">Normale</option>
               <option value="permanente">Permanente</option>
             </select>
 
-            <select className="ftn-input" style={{ minWidth: 170, flex: "1 1 170px" }} value={sig} onChange={(e) => setSig(e.target.value)}>
+            <select className="ftn-input" value={sig} onChange={(e) => setSig(e.target.value)}>
               <option value="all">Signature : tout</option>
               <option value="signed">Signée</option>
               <option value="not_signed">Non signée</option>
             </select>
-          </div>
 
-          <div className="ftn-row" style={{ gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
-            <select className="ftn-input" style={{ minWidth: 170, flex: "1 1 170px" }} value={ttn} onChange={(e) => setTtn(e.target.value)}>
+            {/* ligne 2 */}
+            <select className="ftn-input" value={ttn} onChange={(e) => setTtn(e.target.value)}>
               <option value="all">TTN : tout</option>
               <option value="not_sent">Non envoyée</option>
               <option value="scheduled">Planifiée</option>
@@ -337,7 +340,7 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
               <option value="canceled">Annulée</option>
             </select>
 
-            <select className="ftn-input" style={{ minWidth: 200, flex: "1 1 200px" }} value={createdBy} onChange={(e) => setCreatedBy(e.target.value)}>
+            <select className="ftn-input inv-span-2" value={createdBy} onChange={(e) => setCreatedBy(e.target.value)}>
               <option value="all">Créé par : tout</option>
               {createdByOptions.map((o) => (
                 <option key={o.id} value={o.id}>
@@ -346,30 +349,23 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
               ))}
             </select>
 
-            <input className="ftn-input" style={{ minWidth: 170, flex: "1 1 170px" }} type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-            <input className="ftn-input" style={{ minWidth: 170, flex: "1 1 170px" }} type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+            <input className="ftn-input" type="date" value={addedFrom} onChange={(e) => setAddedFrom(e.target.value)} aria-label="Ajout du" />
+            <input className="ftn-input" type="date" value={addedTo} onChange={(e) => setAddedTo(e.target.value)} aria-label="Ajout au" />
           </div>
 
-          <div className="ftn-row" style={{ gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
-            <input
-              className="ftn-input"
-              style={{ minWidth: 260, flex: "1 1 260px" }}
-              placeholder="Client (nom/email/tel/MF)"
-              value={clientQ}
-              onChange={(e) => setClientQ(e.target.value)}
-            />
-
-            <input
-              className="ftn-input"
-              style={{ minWidth: 320, flex: "2 1 320px" }}
-              placeholder="Recherche (société, numéro, référence..)"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-
-            <button className="ftn-btn ftn-btn-primary" onClick={() => load()} disabled={loading} style={{ whiteSpace: "nowrap" }}>
+          {/* ✅ Recherche: Client + Recherche + bouton sur une ligne */}
+          <div className="inv-search-row">
+            <input className="ftn-input" placeholder="Client (nom/email/tel/MF)" value={clientQ} onChange={(e) => setClientQ(e.target.value)} />
+            <input className="ftn-input" placeholder="Recherche (société, numéro, référence..)" value={q} onChange={(e) => setQ(e.target.value)} />
+            <button className="ftn-btn ftn-btn-primary" onClick={() => load()} disabled={loading}>
               Actualiser
             </button>
+          </div>
+
+          {/* ✅ labels “Ajout du / au” en petit au-dessus (optionnel visuel) */}
+          <div className="inv-date-hints">
+            <span>Ajout du</span>
+            <span>Au</span>
           </div>
 
           {err ? (
@@ -469,6 +465,90 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
           </div>
         </div>
       </div>
+
+      {/* ✅ CSS local: 2 lignes, 5 colonnes, responsive */}
+      <style jsx>{`
+        .inv-grid {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 10px;
+          align-items: center;
+        }
+        .inv-span-2 {
+          grid-column: span 2;
+        }
+
+        .inv-search-row {
+          margin-top: 10px;
+          display: grid;
+          grid-template-columns: 1fr 1.3fr auto;
+          gap: 10px;
+          align-items: center;
+        }
+
+        /* petits hints "Ajout du / Au" alignés sur les 2 dates */
+        .inv-date-hints {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 10px;
+          margin-top: 6px;
+          font-size: 12px;
+          opacity: 0.7;
+          user-select: none;
+        }
+        /* On place les 2 labels sur les 2 dernières colonnes (dates) */
+        .inv-date-hints span:first-child {
+          grid-column: 4;
+        }
+        .inv-date-hints span:last-child {
+          grid-column: 5;
+        }
+
+        @media (max-width: 1200px) {
+          .inv-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+          }
+          .inv-date-hints {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+          }
+          .inv-date-hints span:first-child {
+            grid-column: 3;
+          }
+          .inv-date-hints span:last-child {
+            grid-column: 4;
+          }
+        }
+
+        @media (max-width: 900px) {
+          .inv-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+          .inv-span-2 {
+            grid-column: span 2;
+          }
+          .inv-search-row {
+            grid-template-columns: 1fr 1fr;
+          }
+          .inv-search-row button {
+            grid-column: span 2;
+          }
+          .inv-date-hints {
+            display: none;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .inv-grid {
+            grid-template-columns: 1fr;
+          }
+          .inv-span-2 {
+            grid-column: span 1;
+          }
+          .inv-search-row {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
     </div>
   );
 }
