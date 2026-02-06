@@ -26,6 +26,13 @@ export default function DigigoSignButton({ invoiceId }: { invoiceId: string }) {
         return;
       }
 
+      const state = s(j?.state || "");
+      if (state) {
+        try {
+          window.sessionStorage.setItem("digigo_state", state);
+        } catch {}
+      }
+
       window.location.href = String(j.authorize_url);
     } finally {
       setLoading(false);
