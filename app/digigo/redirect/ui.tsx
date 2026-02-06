@@ -7,26 +7,28 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function getStoredState() {
-  let st = "";
+function getStored(key: string) {
+  let v = "";
   try {
-    st = s(window.localStorage.getItem("digigo_state") || "");
+    v = s(window.localStorage.getItem(key) || "");
   } catch {}
-  if (st) return st;
+  if (v) return v;
 
   try {
-    st = s(window.sessionStorage.getItem("digigo_state") || "");
+    v = s(window.sessionStorage.getItem(key) || "");
   } catch {}
-  return st;
+  return v;
 }
 
-function clearStoredState() {
-  try {
-    window.localStorage.removeItem("digigo_state");
-  } catch {}
-  try {
-    window.sessionStorage.removeItem("digigo_state");
-  } catch {}
+function clearStored() {
+  for (const k of ["digigo_state", "digigo_invoice_id"]) {
+    try {
+      window.localStorage.removeItem(k);
+    } catch {}
+    try {
+      window.sessionStorage.removeItem(k);
+    } catch {}
+  }
 }
 
 export default function DigigoRedirectClient() {
@@ -40,9 +42,16 @@ export default function DigigoRedirectClient() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const state = stateFromUrl || getStoredState();
+    const oauthToken = code || token;
+    if (!oauthToken) {
+      setError("Retour DigiGo invalide.");
+      return;
+    }
 
-    if (!state || (!token && !code)) {
+    const state = stateFromUrl || getStored("digigo_state");
+    const invoice_id = getStored("digigo_invoice_id");
+
+    if (!state && !invoice_id) {
       setError("Retour DigiGo invalide.");
       return;
     }
@@ -52,13 +61,18 @@ export default function DigigoRedirectClient() {
         const r = await fetch("/api/digigo/callback", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, code, state }),
+          body: JSON.stringify({
+            token: token || undefined,
+            code: code || undefined,
+            state: state || undefined,
+            invoice_id: !state ? invoice_id : undefined,
+          }),
         });
 
         const j = await r.json().catch(() => ({}));
 
         if (r.ok && j?.ok && j?.invoice_id) {
-          clearStoredState();
+          clearStored();
           router.replace(`/invoices/${j.invoice_id}`);
           return;
         }
