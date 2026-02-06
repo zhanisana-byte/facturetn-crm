@@ -91,6 +91,9 @@ export default function InvoiceSignatureClient({
       const state = s(j?.state || "");
       if (state) {
         try {
+          window.localStorage.setItem("digigo_state", state);
+        } catch {}
+        try {
           window.sessionStorage.setItem("digigo_state", state);
         } catch {}
       }
