@@ -3,6 +3,32 @@
 import { useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+function s(v: any) {
+  return String(v ?? "").trim();
+}
+
+function getStoredState() {
+  let st = "";
+  try {
+    st = s(window.localStorage.getItem("digigo_state") || "");
+  } catch {}
+  if (st) return st;
+
+  try {
+    st = s(window.sessionStorage.getItem("digigo_state") || "");
+  } catch {}
+  return st;
+}
+
+function clearStoredState() {
+  try {
+    window.localStorage.removeItem("digigo_state");
+  } catch {}
+  try {
+    window.sessionStorage.removeItem("digigo_state");
+  } catch {}
+}
+
 export default function DigigoRootRedirect() {
   const router = useRouter();
   const params = useSearchParams();
@@ -15,14 +41,12 @@ export default function DigigoRootRedirect() {
     const qs = new URLSearchParams(params.toString());
 
     if (!qs.get("state")) {
-      const st = typeof window !== "undefined" ? window.sessionStorage.getItem("digigo_state") : "";
+      const st = typeof window !== "undefined" ? getStoredState() : "";
       if (st) qs.set("state", st);
     }
 
     if (token || (qs.get("state") && code) || error) {
-      try {
-        window.sessionStorage.removeItem("digigo_state");
-      } catch {}
+      clearStoredState();
       router.replace("/digigo/redirect?" + qs.toString());
     }
   }, [params, router]);
