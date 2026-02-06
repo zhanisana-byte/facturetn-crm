@@ -11,10 +11,14 @@ function s(v: any) {
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
+
   const token = s(body.token);
+  const code = s(body.code);
   const state = s(body.state);
 
-  if (!token || !state) return NextResponse.json({ ok: false, error: "MISSING_FIELDS" }, { status: 400 });
+  if (!state || (!token && !code)) {
+    return NextResponse.json({ ok: false, error: "MISSING_FIELDS" }, { status: 400 });
+  }
 
   const invoice_id = s(state.split(".")[0]);
   if (!invoice_id) return NextResponse.json({ ok: false, error: "STATE_INVALID" }, { status: 400 });
@@ -32,29 +36,38 @@ export async function POST(req: Request) {
   const meta = (sig as any)?.meta ?? {};
   if (s(meta.state) !== state) return NextResponse.json({ ok: false, error: "STATE_MISMATCH" }, { status: 400 });
 
-  let jwt: any;
-  try {
-    jwt = verifyAndDecodeJwt(token);
-  } catch (e: any) {
+  // 1) Déterminer le "oauthCode" correct
+  let oauthCode = code;
+
+  // Si on n'a pas "code" mais on a "token", on essaye de le décoder uniquement pour logs / debug
+  // (MAIS on n'utilise PAS jti comme code OAuth)
+  if (!oauthCode && token) {
+    try {
+      verifyAndDecodeJwt(token);
+    } catch (e: any) {
+      await service
+        .from("invoice_signatures")
+        .update({ state: "auth_failed", meta: { ...meta, jwt_error: s(e?.message || "JWT_ERROR") } })
+        .eq("invoice_id", invoice_id);
+      return NextResponse.json({ ok: false, error: s(e?.message || "JWT_ERROR") }, { status: 400 });
+    }
+
+    // Ici, sans "code" OAuth fourni par DigiGo, on ne peut pas appeler /oauth2/token
     await service
       .from("invoice_signatures")
-      .update({ state: "auth_failed", meta: { ...meta, jwt_error: s(e?.message || "JWT_ERROR") } })
+      .update({ state: "auth_failed", meta: { ...meta, jwt_error: "OAUTH_CODE_MISSING" } })
       .eq("invoice_id", invoice_id);
-    return NextResponse.json({ ok: false, error: s(e?.message || "JWT_ERROR") }, { status: 400 });
+
+    return NextResponse.json(
+      { ok: false, error: "OAUTH_CODE_MISSING" },
+      { status: 400 }
+    );
   }
 
-  const code = s(jwt?.payload?.jti);
-  if (!code) {
-    await service
-      .from("invoice_signatures")
-      .update({ state: "auth_failed", meta: { ...meta, jwt_error: "JWT_JTI_MISSING" } })
-      .eq("invoice_id", invoice_id);
-    return NextResponse.json({ ok: false, error: "JWT_JTI_MISSING" }, { status: 400 });
-  }
-
+  // 2) Exchange code -> SAD
   let sadResp: any;
   try {
-    sadResp = await digigoExchangeTokenForSad(code);
+    sadResp = await digigoExchangeTokenForSad(oauthCode);
   } catch (e: any) {
     await service
       .from("invoice_signatures")
@@ -75,6 +88,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "SAD_MISSING" }, { status: 502 });
   }
 
+  // 3) Sign hash
   const credentialId = s(meta.credentialId);
   const unsigned_hash = s((sig as any)?.unsigned_hash);
 
