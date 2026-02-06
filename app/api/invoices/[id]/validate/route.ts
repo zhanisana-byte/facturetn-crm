@@ -15,7 +15,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   const { data: invoice, error: invErr } = await supabase
     .from("invoices")
     .select(
-      "id,company_id,invoice_number,issue_date,total_ttc,qr_payload,status,require_accountant_validation,accountant_validated_at,accountant_validated_by,seller_snapshot_at,seller_name,seller_tax_id,seller_street,seller_city,seller_zip,signature_status,ttn_status",
+      "id,company_id,status,ttn_status,signature_status,accountant_validated_at,accountant_validated_by,seller_snapshot_at,seller_name,seller_tax_id,seller_street,seller_city,seller_zip",
     )
     .eq("id", id)
     .maybeSingle();
@@ -27,29 +27,12 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ ok: false, error: "Facture introuvable ou accès refusé." }, { status: 404 });
   }
 
-  // Security checks (signature réelle = invoice_signatures)
-  const { data: sig, error: sigErr } = await supabase
-    .from("invoice_signatures")
-    .select("state,signed_xml,signed_at")
-    .eq("invoice_id", id)
-    .maybeSingle();
-
-  if (sigErr) {
-    return NextResponse.json({ ok: false, error: sigErr.message }, { status: 400 });
+  // Si déjà validée
+  if ((invoice as any).accountant_validated_at) {
+    return NextResponse.json({ ok: true, already: true });
   }
 
-  const st = String((invoice as any).signature_status || "").toLowerCase();
-  const sigState = String((sig as any)?.state || "").toLowerCase();
-  const sigXml = typeof (sig as any)?.signed_xml === "string" ? (sig as any).signed_xml.trim() : "";
-  const isSigned = st === "signed" || sigState === "signed" || !!(sig as any)?.signed_at || sigXml.length > 0;
-
-  const ttnStatus = (invoice as any).ttn_status || "draft";
-  const isLocked = !["draft", "not_sent", "error", "failed"].includes(ttnStatus);
-
-  if (isSigned || isLocked) {
-    return NextResponse.json({ ok: false, error: "Invoice is locked/signed and cannot be modified." }, { status: 409 });
-  }
-
+  // Vérifier permission de validation
   const { data: membership, error: mErr } = await supabase
     .from("memberships")
     .select("role,is_active,can_validate_invoices")
@@ -61,31 +44,37 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ ok: false, error: mErr.message }, { status: 400 });
   }
 
-  const canValidate = !!membership?.is_active && (membership?.role === "owner" || membership?.can_validate_invoices === true);
+  const isActive = !!membership?.is_active;
+  const role = String(membership?.role || "").toLowerCase();
+  const canValidate = isActive && (role === "owner" || membership?.can_validate_invoices === true);
+
   if (!canValidate) {
     return NextResponse.json({ ok: false, error: "Accès refusé (permission validation)." }, { status: 403 });
   }
 
-  if ((invoice as any).accountant_validated_at) {
-    return NextResponse.json({ ok: true, already: true });
+  // Verrouillage: si déjà signé OU déjà soumis TTN -> pas de validation/modif
+  const { data: sig } = await supabase
+    .from("invoice_signatures")
+    .select("state,signed_xml,signed_at")
+    .eq("invoice_id", id)
+    .maybeSingle();
+
+  const invSig = String((invoice as any).signature_status || "").toLowerCase();
+  const sigState = String((sig as any)?.state || "").toLowerCase();
+  const sigXml = typeof (sig as any)?.signed_xml === "string" ? (sig as any).signed_xml.trim() : "";
+  const isSigned = invSig === "signed" || sigState === "signed" || !!(sig as any)?.signed_at || sigXml.length > 0;
+
+  const ttnStatus = String((invoice as any).ttn_status || "not_sent").toLowerCase();
+  const isTTNLocked = ["submitted", "accepted"].includes(ttnStatus);
+
+  if (isSigned || isTTNLocked) {
+    return NextResponse.json({ ok: false, error: "Facture verrouillée (signée ou déjà soumise TTN)." }, { status: 409 });
   }
 
-  if ((invoice as any).require_accountant_validation) {
-    const st2 = String((invoice as any).status || "draft");
-    if (st2 !== "pending_validation") {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Cette facture n'est pas en attente de validation. cliquez d'abord sur 'Soumettre pour validation'.",
-        },
-        { status: 400 },
-      );
-    }
-  }
-
+  // Snapshot vendeur (minimum)
   const { data: company, error: cErr } = await supabase
     .from("companies")
-    .select("id, company_name, tax_id, address")
+    .select("id, company_name, tax_id, address, city, zip, postal_code")
     .eq("id", (invoice as any).company_id)
     .single();
 
@@ -105,6 +94,8 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       seller_name: (company as any).company_name || null,
       seller_tax_id: (company as any).tax_id || null,
       seller_street: (company as any).address || null,
+      seller_city: (company as any).city || null,
+      seller_zip: (company as any).zip || (company as any).postal_code || null,
     })
     .eq("id", id);
 
