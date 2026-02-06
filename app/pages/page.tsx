@@ -94,14 +94,17 @@ export default async function PagesIndex(props: {
   if (capsSet.has("customers")) query = query.eq("can_manage_customers", true);
   if (capsSet.has("ttn")) query = query.eq("can_submit_ttn", true);
 
-  const { data: memberships = [] } = await query;
+  const { data: memberships } = await query;
 
-  const companies: CompanyMission[] = memberships
+  // ✅ Fix TS : memberships peut être null -> on normalise en tableau
+  const safeMemberships: any[] = Array.isArray(memberships) ? memberships : [];
+
+  const companies: CompanyMission[] = safeMemberships
     .filter((m: any) => m?.companies?.id)
     .map((m: any) => ({
-      id: m.companies.id,
-      name: m.companies.company_name,
-      role: m.role ?? "viewer",
+      id: String(m.companies.id),
+      name: String(m.companies.company_name ?? "Société"),
+      role: String(m.role ?? "viewer"),
       canCreateInvoices: !!m.can_create_invoices,
       canSubmitTTN: !!m.can_submit_ttn,
       canManageCustomers: !!m.can_manage_customers,
@@ -114,7 +117,6 @@ export default async function PagesIndex(props: {
 
   return (
     <div className="mx-auto w-full max-w-6xl p-6 space-y-4">
-      {/* 🔴 DIGIGO REDIRECT – NE PAS SUPPRIMER */}
       <DigigoRootRedirect />
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -148,7 +150,7 @@ export default async function PagesIndex(props: {
                 </td>
                 <td className="px-4 py-3 text-right">
                   <Link
-                    href={`/companies/${c.id}`}
+                    href={`/companies/${encodeURIComponent(c.id)}`}
                     className="rounded-xl bg-black px-3 py-2 text-xs text-white hover:opacity-90"
                   >
                     Ouvrir
@@ -156,6 +158,7 @@ export default async function PagesIndex(props: {
                 </td>
               </tr>
             ))}
+
             {visible.length === 0 && (
               <tr>
                 <td
