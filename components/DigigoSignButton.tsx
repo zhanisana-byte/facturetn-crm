@@ -10,32 +10,19 @@ export default function DigigoSignButton({ invoiceId }: { invoiceId: string }) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  function setStateEverywhere(state: string) {
-    if (!state) return;
-
+  function storeEverywhere(key: string, value: string) {
+    if (!value) return;
     try {
-      window.localStorage.setItem("digigo_state", state);
-    } catch {}
-
-    try {
-      window.sessionStorage.setItem("digigo_state", state);
-    } catch {}
-  }
-
-  function clearStateEverywhere() {
-    try {
-      window.localStorage.removeItem("digigo_state");
+      window.localStorage.setItem(key, value);
     } catch {}
     try {
-      window.sessionStorage.removeItem("digigo_state");
+      window.sessionStorage.setItem(key, value);
     } catch {}
   }
 
   async function start() {
     setErr("");
     setLoading(true);
-
-    clearStateEverywhere();
 
     try {
       const r = await fetch("/api/digigo/start", {
@@ -52,7 +39,8 @@ export default function DigigoSignButton({ invoiceId }: { invoiceId: string }) {
       }
 
       const state = s(j?.state || "");
-      setStateEverywhere(state);
+      storeEverywhere("digigo_state", state);
+      storeEverywhere("digigo_invoice_id", invoiceId);
 
       window.location.href = String(j.authorize_url);
     } catch (e: any) {
