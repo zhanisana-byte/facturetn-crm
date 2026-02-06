@@ -7,6 +7,28 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
+function getStoredState() {
+  let st = "";
+  try {
+    st = s(window.localStorage.getItem("digigo_state") || "");
+  } catch {}
+  if (st) return st;
+
+  try {
+    st = s(window.sessionStorage.getItem("digigo_state") || "");
+  } catch {}
+  return st;
+}
+
+function clearStoredState() {
+  try {
+    window.localStorage.removeItem("digigo_state");
+  } catch {}
+  try {
+    window.sessionStorage.removeItem("digigo_state");
+  } catch {}
+}
+
 export default function DigigoRedirectClient() {
   const sp = useSearchParams();
   const router = useRouter();
@@ -18,13 +40,7 @@ export default function DigigoRedirectClient() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    let state = stateFromUrl;
-
-    if (!state) {
-      try {
-        state = s(window.sessionStorage.getItem("digigo_state") || "");
-      } catch {}
-    }
+    const state = stateFromUrl || getStoredState();
 
     if (!state || (!token && !code)) {
       setError("Retour DigiGo invalide.");
@@ -42,9 +58,7 @@ export default function DigigoRedirectClient() {
         const j = await r.json().catch(() => ({}));
 
         if (r.ok && j?.ok && j?.invoice_id) {
-          try {
-            window.sessionStorage.removeItem("digigo_state");
-          } catch {}
+          clearStoredState();
           router.replace(`/invoices/${j.invoice_id}`);
           return;
         }
@@ -66,9 +80,7 @@ export default function DigigoRedirectClient() {
             <div className="h-2 w-full bg-slate-200 rounded overflow-hidden">
               <div className="h-full w-1/2 bg-slate-700 animate-pulse" />
             </div>
-            <div className="text-sm text-slate-600 mt-3">
-              Traitement sécurisé en cours…
-            </div>
+            <div className="text-sm text-slate-600 mt-3">Traitement sécurisé en cours…</div>
           </div>
         ) : (
           <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
