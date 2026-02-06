@@ -11,34 +11,39 @@ export default function DigigoRedirectClient() {
   const sp = useSearchParams();
   const router = useRouter();
 
+  const token = useMemo(() => s(sp.get("token") || ""), [sp]);
+  const code = useMemo(() => s(sp.get("code") || ""), [sp]);
   const state = useMemo(() => s(sp.get("state") || ""), [sp]);
-  const codeOrToken = useMemo(() => s(sp.get("code") || sp.get("token") || ""), [sp]);
 
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!state || !codeOrToken) {
+    if (!state || (!token && !code)) {
       setError("Retour DigiGo invalide.");
       return;
     }
 
     (async () => {
-      const r = await fetch("/api/digigo/callback", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ code: codeOrToken, state }),
-      });
+      try {
+        const r = await fetch("/api/digigo/callback", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ token, code, state }),
+        });
 
-      const j = await r.json().catch(() => ({}));
+        const j = await r.json().catch(() => ({}));
 
-      if (r.ok && j?.ok && j?.invoice_id) {
-        router.replace(`/invoices/${j.invoice_id}`);
-        return;
+        if (r.ok && j?.ok && j?.invoice_id) {
+          router.replace(`/invoices/${j.invoice_id}`);
+          return;
+        }
+
+        setError(s(j?.error || j?.message || "Signature échouée."));
+      } catch (e: any) {
+        setError("fetch failed");
       }
-
-      setError(s(j?.error || j?.message || "Signature échouée."));
     })();
-  }, [codeOrToken, state, router]);
+  }, [token, code, state, router]);
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4">
