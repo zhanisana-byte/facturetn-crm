@@ -17,11 +17,23 @@ export default async function Page({ params }: { params: { id: string } }) {
   const { data: invoice } = await supabase.from("invoices").select("*").eq("id", invoiceId).maybeSingle();
   if (!invoice) redirect("/invoices");
 
+  const { data: company } = await supabase
+    .from("companies")
+    .select("*")
+    .eq("id", (invoice as any).company_id)
+    .maybeSingle();
+
   const { data: items } = await supabase
     .from("invoice_items")
     .select("*")
     .eq("invoice_id", invoiceId)
     .order("line_no", { ascending: true });
 
-  return <InvoiceSignatureSummaryClient invoice={invoice as any} items={(items ?? []) as any[]} />;
+  return (
+    <InvoiceSignatureSummaryClient
+      invoice={invoice as any}
+      company={(company ?? null) as any}
+      items={(items ?? []) as any[]}
+    />
+  );
 }
