@@ -20,6 +20,7 @@ export async function POST(req: Request) {
   if (!invoice_id) return NextResponse.json({ ok: false, error: "STATE_INVALID" }, { status: 400 });
 
   const service = createServiceClient();
+
   const { data: sig } = await service
     .from("invoice_signatures")
     .select("invoice_id, company_id, unsigned_hash, meta")
@@ -57,7 +58,10 @@ export async function POST(req: Request) {
   } catch (e: any) {
     await service
       .from("invoice_signatures")
-      .update({ state: "token_failed", meta: { ...meta, token_error: s(e?.message || "TOKEN_ERROR"), token_data: e?.data ?? null } })
+      .update({
+        state: "token_failed",
+        meta: { ...meta, token_error: s(e?.message || "TOKEN_ERROR"), token_data: e?.data ?? null },
+      })
       .eq("invoice_id", invoice_id);
     return NextResponse.json({ ok: false, error: s(e?.message || "TOKEN_ERROR") }, { status: 502 });
   }
@@ -73,6 +77,7 @@ export async function POST(req: Request) {
 
   const credentialId = s(meta.credentialId);
   const unsigned_hash = s((sig as any)?.unsigned_hash);
+
   if (!credentialId || !unsigned_hash) {
     await service
       .from("invoice_signatures")
@@ -93,21 +98,36 @@ export async function POST(req: Request) {
   } catch (e: any) {
     await service
       .from("invoice_signatures")
-      .update({ state: "sign_failed", meta: { ...meta, sign_error: s(e?.message || "SIGN_ERROR"), sign_data: e?.data ?? null } })
+      .update({
+        state: "sign_failed",
+        meta: { ...meta, sign_error: s(e?.message || "SIGN_ERROR"), sign_data: e?.data ?? null },
+      })
       .eq("invoice_id", invoice_id);
     return NextResponse.json({ ok: false, error: s(e?.message || "SIGN_ERROR") }, { status: 502 });
   }
 
+  const signedValue =
+    s(signResp?.value?.[0]) ||
+    s(signResp?.value) ||
+    s(signResp?.values?.[0]) ||
+    "";
+
   await service
     .from("invoice_signatures")
     .update({
-      state: "signed_hash",
-      meta: {
-        ...meta,
-        digigo_sign: signResp ?? null,
-      },
+      state: "signed",
+      signed_hash: signedValue || null,
+      meta: { ...meta, digigo_sign: signResp ?? null },
     })
     .eq("invoice_id", invoice_id);
+
+  await service
+    .from("invoices")
+    .update({
+      signature_status: "signed",
+      signature_provider: "digigo",
+    })
+    .eq("id", invoice_id);
 
   return NextResponse.json({ ok: true, invoice_id }, { status: 200 });
 }
