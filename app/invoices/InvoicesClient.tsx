@@ -54,56 +54,55 @@ function modeLabel(r: InvoiceRow) {
   return m === "permanente" ? "Permanente" : "Normale";
 }
 
+function ttnLabel(r: InvoiceRow) {
+  const s = (r.ttn_status || "not_sent").toLowerCase();
+  if (s === "accepted") return "Acceptée";
+  if (s === "submitted") return "Soumise";
+  if (s === "scheduled") return "Planifiée";
+  if (s === "rejected") return "Rejetée";
+  if (s === "canceled") return "Annulée";
+  return "Non envoyée";
+}
+
 function isSigned(r: InvoiceRow) {
   const st = (r.signature_status || "").toLowerCase();
   return st === "signed" || !!r.signed_at;
 }
 
-function sigPill(r: InvoiceRow) {
-  const st = (r.signature_status || "").toLowerCase();
-  if (isSigned(r)) return { label: "Signée", cls: "border-emerald-200 bg-emerald-50 text-emerald-800" };
-  if (st === "pending" || st === "in_progress" || st === "processing" || st === "pending_signature")
-    return { label: "En cours", cls: "border-amber-200 bg-amber-50 text-amber-800" };
-  if (st === "error" || st === "failed") return { label: "Erreur", cls: "border-rose-200 bg-rose-50 text-rose-700" };
-  return { label: "Non signée", cls: "border-slate-200 bg-slate-50 text-slate-700" };
+function sigLabel(r: InvoiceRow) {
+  return isSigned(r) ? "Signée" : "Non signée";
 }
 
-function ttnPill(ttnStatus: string | null) {
-  const s = (ttnStatus || "not_sent").toLowerCase();
-  if (s === "accepted") return { label: "Accepté", cls: "border-emerald-200 bg-emerald-50 text-emerald-800" };
-  if (s === "rejected") return { label: "Rejeté", cls: "border-rose-200 bg-rose-50 text-rose-700" };
-  if (s === "submitted") return { label: "Soumis", cls: "border-amber-200 bg-amber-50 text-amber-800" };
-  if (s === "scheduled") return { label: "Programmé", cls: "border-amber-200 bg-amber-50 text-amber-800" };
-  return { label: "Non envoyé", cls: "border-slate-200 bg-slate-50 text-slate-700" };
-}
-
-function xmlReady(r: InvoiceRow) {
-  const hasDate = !!(r.issue_date && r.issue_date.slice(0, 10));
-  const hasClient = !!(r.customer_name && r.customer_name.trim().length >= 2);
-  const hasTaxOrEmail = !!((r.customer_tax_id && r.customer_tax_id.trim()) || (r.customer_email && r.customer_email.trim()));
-  const hasTotals = Number(r.total_ttc ?? 0) > 0;
-  return hasDate && hasClient && hasTaxOrEmail && hasTotals;
+function fmtDate(d?: string | null) {
+  if (!d) return "";
+  try {
+    const dt = new Date(d);
+    if (Number.isNaN(dt.getTime())) return String(d);
+    return dt.toLocaleDateString();
+  } catch {
+    return String(d);
+  }
 }
 
 export default function InvoicesClient({ companies }: { companies: Company[] }) {
-  const supabase = createClient();
-
-  const [loading, setLoading] = useState(true);
+  const supabase = useMemo(() => createClient(), []);
+  const [rows, setRows] = useState<InvoiceRow[]>([]);
+  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const [rows, setRows] = useState<InvoiceRow[]>([]);
   const [usersMap, setUsersMap] = useState<Map<string, AppUser>>(new Map());
 
-  const [companyId, setCompanyId] = useState("all");
-  const [docType, setDocType] = useState("all");
-  const [mode, setMode] = useState("all");
-  const [sig, setSig] = useState("all");
-  const [ttn, setTtn] = useState("all");
-  const [createdBy, setCreatedBy] = useState("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [companyId, setCompanyId] = useState<string>("all");
+  const [type, setType] = useState<string>("all");
+  const [mode, setMode] = useState<string>("all");
+  const [sig, setSig] = useState<string>("all");
+  const [ttn, setTtn] = useState<string>("all");
+  const [createdBy, setCreatedBy] = useState<string>("all");
 
-  const [clientTerm, setClientTerm] = useState("");
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDate, setToDate] = useState<string>("");
+
+  const [clientQ, setClientQ] = useState("");
   const [q, setQ] = useState("");
 
   const [page, setPage] = useState(1);
@@ -136,7 +135,6 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
             "customer_tax_id",
             "created_by_user_id",
             "signature_status",
-            "signed_at",
             "ttn_status",
           ].join(",")
         )
@@ -146,6 +144,21 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
       if (invErr) throw invErr;
 
       const invoices = (inv ?? []) as InvoiceRow[];
+
+      // signed_at est stocké dans invoice_signatures (pas dans invoices)
+      const invIds = Array.from(new Set(invoices.map((x) => x.id).filter(Boolean))) as string[];
+      if (invIds.length) {
+        const { data: sigs, error: sigErr } = await supabase
+          .from("invoice_signatures")
+          .select("invoice_id,signed_at")
+          .in("invoice_id", invIds);
+        if (sigErr) throw sigErr;
+
+        const sigMap = new Map<string, string | null>();
+        for (const s of (sigs ?? []) as any[]) sigMap.set(String(s.invoice_id), s.signed_at ?? null);
+        for (const r of invoices) (r as any).signed_at = sigMap.get(r.id) ?? null;
+      }
+
       setRows(invoices);
 
       const ids = Array.from(new Set(invoices.map((x) => x.created_by_user_id).filter(Boolean))) as string[];
@@ -177,273 +190,277 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
     return list.sort((a, b) => a.label.localeCompare(b.label));
   }, [usersMap]);
 
-  function displayUser(uid: string | null) {
-    if (!uid) return "—";
-    const u = usersMap.get(uid);
-    return u?.full_name || u?.email || "—";
-  }
-
   const filtered = useMemo(() => {
-    const tSearch = q.trim().toLowerCase();
-    const tClient = clientTerm.trim().toLowerCase();
-
-    const df = dateFrom ? new Date(`${dateFrom}T00:00:00`) : null;
-    const dt = dateTo ? new Date(`${dateTo}T23:59:59`) : null;
+    const qq = q.trim().toLowerCase();
+    const cqq = clientQ.trim().toLowerCase();
+    const from = fromDate ? new Date(fromDate) : null;
+    const to = toDate ? new Date(toDate) : null;
 
     return rows.filter((r) => {
       if (companyId !== "all" && r.company_id !== companyId) return false;
 
-      const dtp = (r.document_type || "facture").toLowerCase();
-      if (docType !== "all" && dtp !== docType) return false;
+      if (type !== "all") {
+        const t = (r.document_type || "facture").toLowerCase();
+        if (t !== type) return false;
+      }
 
-      const md = (r.invoice_mode || "normale").toLowerCase();
       if (mode !== "all") {
-        if (mode === "permanente" && md !== "permanente") return false;
-        if (mode === "normale" && md === "permanente") return false;
+        const m = (r.invoice_mode || "normale").toLowerCase();
+        if (m !== mode) return false;
       }
 
-      const signed = isSigned(r);
-      if (sig === "signed" && !signed) return false;
-      if (sig === "not_signed" && signed) return false;
-
-      const ttnStatus = (r.ttn_status || "not_sent").toLowerCase();
-      if (ttn !== "all" && ttnStatus !== ttn) return false;
-
-      if (createdBy !== "all" && (r.created_by_user_id || "") !== createdBy) return false;
-
-      if (df || dt) {
-        const d = r.issue_date ? new Date(`${r.issue_date.slice(0, 10)}T12:00:00`) : null;
-        if (!d) return false;
-        if (df && d < df) return false;
-        if (dt && d > dt) return false;
+      if (sig !== "all") {
+        const s = isSigned(r);
+        if (sig === "signed" && !s) return false;
+        if (sig === "not_signed" && s) return false;
       }
 
-      if (tClient) {
-        const cn = (r.customer_name || "").toLowerCase();
-        const ce = (r.customer_email || "").toLowerCase();
-        const cp = (r.customer_phone || "").toLowerCase();
-        const ct = (r.customer_tax_id || "").toLowerCase();
-        if (!(cn.includes(tClient) || ce.includes(tClient) || cp.includes(tClient) || ct.includes(tClient))) return false;
+      if (ttn !== "all") {
+        const t = (r.ttn_status || "not_sent").toLowerCase();
+        if (t !== ttn) return false;
       }
 
-      if (!tSearch) return true;
+      if (createdBy !== "all") {
+        if ((r.created_by_user_id || "") !== createdBy) return false;
+      }
 
-      const comp = (companyName.get(r.company_id) || "").toLowerCase();
-      const ref = (r.unique_reference || "").toLowerCase();
-      const no = (r.invoice_number || "").toLowerCase();
-      const cl = (r.customer_name || "").toLowerCase();
-      const typ = `${docTypeLabel(r)} ${modeLabel(r)}`.toLowerCase();
+      if (from || to) {
+        const d = r.issue_date ? new Date(r.issue_date) : null;
+        if (!d || Number.isNaN(d.getTime())) return false;
+        if (from && d < from) return false;
+        if (to) {
+          const end = new Date(to);
+          end.setHours(23, 59, 59, 999);
+          if (d > end) return false;
+        }
+      }
 
-      return comp.includes(tSearch) || ref.includes(tSearch) || no.includes(tSearch) || cl.includes(tSearch) || typ.includes(tSearch);
+      if (cqq) {
+        const blob = `${r.customer_name ?? ""} ${r.customer_email ?? ""} ${r.customer_phone ?? ""} ${r.customer_tax_id ?? ""}`.toLowerCase();
+        if (!blob.includes(cqq)) return false;
+      }
+
+      if (qq) {
+        const company = companyName.get(r.company_id) || "";
+        const blob = `${company} ${r.invoice_number ?? ""} ${r.unique_reference ?? ""} ${r.customer_name ?? ""}`.toLowerCase();
+        if (!blob.includes(qq)) return false;
+      }
+
+      return true;
     });
-  }, [rows, companyId, docType, mode, sig, ttn, createdBy, dateFrom, dateTo, clientTerm, q, companyName]);
-
-  useEffect(() => setPage(1), [companyId, docType, mode, sig, ttn, createdBy, dateFrom, dateTo, clientTerm, q]);
+  }, [rows, companyId, type, mode, sig, ttn, createdBy, fromDate, toDate, clientQ, q, companyName]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pageSafe = Math.min(Math.max(1, page), totalPages);
+  const safePage = Math.min(Math.max(1, page), totalPages);
+
+  useEffect(() => {
+    if (safePage !== page) setPage(safePage);
+  }, [safePage, page]);
 
   const paged = useMemo(() => {
-    const start = (pageSafe - 1) * pageSize;
+    const start = (safePage - 1) * pageSize;
     return filtered.slice(start, start + pageSize);
-  }, [filtered, pageSafe]);
+  }, [filtered, safePage]);
+
+  function userLabel(userId?: string | null) {
+    if (!userId) return "";
+    const u = usersMap.get(userId);
+    return u?.full_name || u?.email || userId;
+  }
 
   return (
-    <div className="p-4 md:p-6 space-y-4">
-      <div className="ftn-card p-4 md:p-6">
-        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+    <div className="ftn-page">
+      <div className="ftn-page-header">
+        <div>
+          <h1 className="ftn-title">Factures</h1>
+          <p className="ftn-subtitle">Toutes vos factures (facture / devis / avoir / permanente) + suivi TTN</p>
+        </div>
+      </div>
+
+      <div className="ftn-card">
+        <div className="ftn-card-header">
           <div>
-            <div className="text-xl font-semibold">Documents</div>
-            <div className="text-sm text-slate-600">Factures, devis, avoirs — suivi signature et TTN.</div>
+            <div className="ftn-card-title">Documents</div>
+            <div className="ftn-card-subtitle">Factures, devis, avoirs — suivi signature et TTN.</div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Link href="/invoices/new" className="ftn-btn">
+          <div className="ftn-row" style={{ gap: 10 }}>
+            <Link className="ftn-btn ftn-btn-primary" href="/invoices/new">
               + Nouveau document
             </Link>
-            <Link href="/declarations" className="ftn-btn ftn-btn-ghost">
+            <Link className="ftn-btn" href="/declarations">
               Déclarations
             </Link>
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-2">
-          <select className="ftn-input" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
-            <option value="all">Toutes les sociétés</option>
-            {companies.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+        <div className="ftn-card-content">
+          <div className="ftn-filters">
+            <select className="ftn-input" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+              <option value="all">Toutes les sociétés</option>
+              {companies.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
 
-          <select className="ftn-input" value={docType} onChange={(e) => setDocType(e.target.value)}>
-            <option value="all">Type : tout</option>
-            <option value="facture">Facture</option>
-            <option value="devis">Devis</option>
-            <option value="avoir">Avoir</option>
-          </select>
+            <select className="ftn-input" value={type} onChange={(e) => setType(e.target.value)}>
+              <option value="all">Type : tout</option>
+              <option value="facture">Facture</option>
+              <option value="devis">Devis</option>
+              <option value="avoir">Avoir</option>
+            </select>
 
-          <select className="ftn-input" value={mode} onChange={(e) => setMode(e.target.value)}>
-            <option value="all">Mode : tout</option>
-            <option value="normale">Normale</option>
-            <option value="permanente">Permanente</option>
-          </select>
+            <select className="ftn-input" value={mode} onChange={(e) => setMode(e.target.value)}>
+              <option value="all">Mode : tout</option>
+              <option value="normale">Normale</option>
+              <option value="permanente">Permanente</option>
+            </select>
 
-          <select className="ftn-input" value={sig} onChange={(e) => setSig(e.target.value)}>
-            <option value="all">Signature : tout</option>
-            <option value="not_signed">Non signée</option>
-            <option value="signed">Signée</option>
-          </select>
-        </div>
+            <select className="ftn-input" value={sig} onChange={(e) => setSig(e.target.value)}>
+              <option value="all">Signature : tout</option>
+              <option value="signed">Signée</option>
+              <option value="not_signed">Non signée</option>
+            </select>
 
-        <div className="mt-2 grid grid-cols-1 md:grid-cols-4 gap-2">
-          <select className="ftn-input" value={ttn} onChange={(e) => setTtn(e.target.value)}>
-            <option value="all">TTN : tout</option>
-            <option value="not_sent">Non envoyé</option>
-            <option value="scheduled">Programmé</option>
-            <option value="submitted">Soumis</option>
-            <option value="accepted">Accepté</option>
-            <option value="rejected">Rejeté</option>
-          </select>
+            <select className="ftn-input" value={ttn} onChange={(e) => setTtn(e.target.value)}>
+              <option value="all">TTN : tout</option>
+              <option value="not_sent">Non envoyée</option>
+              <option value="scheduled">Planifiée</option>
+              <option value="submitted">Soumise</option>
+              <option value="accepted">Acceptée</option>
+              <option value="rejected">Rejetée</option>
+              <option value="canceled">Annulée</option>
+            </select>
 
-          <select className="ftn-input" value={createdBy} onChange={(e) => setCreatedBy(e.target.value)}>
-            <option value="all">Créé par : tout</option>
-            {createdByOptions.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.label}
-              </option>
-            ))}
-          </select>
+            <select className="ftn-input" value={createdBy} onChange={(e) => setCreatedBy(e.target.value)}>
+              <option value="all">Créé par : tout</option>
+              {createdByOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
 
-          <input className="ftn-input" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-          <input className="ftn-input" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-        </div>
+            <input className="ftn-input" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+            <input className="ftn-input" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
 
-        <div className="mt-2 flex flex-col md:flex-row gap-2">
-          <input className="ftn-input flex-1" placeholder="Client (nom/email/tel/MF)" value={clientTerm} onChange={(e) => setClientTerm(e.target.value)} />
-          <input className="ftn-input flex-1" placeholder="Recherche (société, numéro, référence…)" value={q} onChange={(e) => setQ(e.target.value)} />
-          <button className="ftn-btn" onClick={() => load()} disabled={loading}>
-            Actualiser
-          </button>
-        </div>
+            <input
+              className="ftn-input"
+              placeholder="Client (nom/email/tel/MF)"
+              value={clientQ}
+              onChange={(e) => setClientQ(e.target.value)}
+            />
 
-        {err ? <div className="mt-3 ftn-alert">{err}</div> : null}
-
-        <div className="mt-4 overflow-x-auto">
-          <table className="ftn-table min-w-[1250px]">
-            <thead>
-              <tr>
-                <th>Société</th>
-                <th>Client</th>
-                <th>Type</th>
-                <th>Mode</th>
-                <th>Date</th>
-                <th>Montant</th>
-                <th>Créé par</th>
-                <th>Signature</th>
-                <th>TTN</th>
-                <th>Résumé</th>
-                <th className="text-right">Télécharger</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={11} className="py-8 text-center text-slate-500">
-                    Chargement…
-                  </td>
-                </tr>
-              ) : filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={11} className="py-8 text-center text-slate-500">
-                    Aucun résultat.
-                  </td>
-                </tr>
-              ) : (
-                paged.map((r) => {
-                  const sigx = sigPill(r);
-                  const ttnx = ttnPill(r.ttn_status);
-                  const okXml = xmlReady(r);
-
-                  return (
-                    <tr key={r.id}>
-                      <td className="whitespace-nowrap">
-                        <div className="font-medium">{companyName.get(r.company_id) ?? "—"}</div>
-                        <div className="text-xs text-slate-500">{r.invoice_number || r.unique_reference || "—"}</div>
-                      </td>
-
-                      <td className="whitespace-nowrap">
-                        <div className="font-medium">{r.customer_name || "—"}</div>
-                        <div className="text-xs text-slate-500">{r.customer_email || r.customer_phone || r.customer_tax_id || "—"}</div>
-                      </td>
-
-                      <td className="whitespace-nowrap">{docTypeLabel(r)}</td>
-                      <td className="whitespace-nowrap">{modeLabel(r)}</td>
-                      <td className="whitespace-nowrap">{(r.issue_date || "").slice(0, 10) || "—"}</td>
-
-                      <td className="whitespace-nowrap">
-                        <div className="font-medium">
-                          {fmt3(r.total_ttc)} {r.currency || "TND"}
-                        </div>
-                        <div className="text-xs text-slate-500">
-                          HT {fmt3(r.subtotal_ht)} • TVA {fmt3(r.total_vat)}
-                        </div>
-                      </td>
-
-                      <td className="whitespace-nowrap">{displayUser(r.created_by_user_id)}</td>
-
-                      <td className="whitespace-nowrap">
-                        <span className={`ftn-pill ${sigx.cls}`}>{sigx.label}</span>
-                      </td>
-
-                      <td className="whitespace-nowrap">
-                        <span className={`ftn-pill ${ttnx.cls}`}>{ttnx.label}</span>
-                      </td>
-
-                      <td className="whitespace-nowrap">
-                        <Link className="ftn-btn" href={`/invoices/${r.id}/summary`} prefetch={false}>
-                          Déclarer
-                        </Link>
-                        <div className="text-xs text-slate-500 mt-1">{okXml ? "XML prêt" : "Données incomplètes"}</div>
-                      </td>
-
-                      <td className="whitespace-nowrap text-right">
-                        <div className="flex flex-wrap justify-end gap-2">
-                          <a className="ftn-btn ftn-btn-ghost" href={`/api/invoices/${r.id}/pdf`} target="_blank" rel="noreferrer">
-                            PDF
-                          </a>
-                          {okXml ? (
-                            <a className="ftn-btn ftn-btn-ghost" href={`/api/invoices/${r.id}/xml`} target="_blank" rel="noreferrer">
-                              XML
-                            </a>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="text-sm text-slate-600">
-            Page {pageSafe} / {totalPages} • {filtered.length} document(s)
+            <div className="ftn-row" style={{ gap: 10 }}>
+              <input
+                className="ftn-input"
+                placeholder="Recherche (société, numéro, référence..)"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+              <button className="ftn-btn ftn-btn-primary" onClick={() => load()} disabled={loading}>
+                Actualiser
+              </button>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <button className="ftn-btn" onClick={() => setPage(1)} disabled={pageSafe <= 1}>
-              Début
-            </button>
-            <button className="ftn-btn" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={pageSafe <= 1}>
-              Précédent
-            </button>
-            <button className="ftn-btn" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={pageSafe >= totalPages}>
-              Suivant
-            </button>
-            <button className="ftn-btn" onClick={() => setPage(totalPages)} disabled={pageSafe >= totalPages}>
-              Fin
-            </button>
+
+          {err ? (
+            <div className="ftn-alert ftn-alert-error" role="alert">
+              {err}
+            </div>
+          ) : null}
+
+          <div className="ftn-table-wrap">
+            <table className="ftn-table">
+              <thead>
+                <tr>
+                  <th>Société</th>
+                  <th>Client</th>
+                  <th>Type</th>
+                  <th>Mode</th>
+                  <th>Date</th>
+                  <th>Montant</th>
+                  <th>Créé par</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={7} style={{ padding: 16 }}>
+                      Chargement...
+                    </td>
+                  </tr>
+                ) : paged.length ? (
+                  paged.map((r) => {
+                    const company = companyName.get(r.company_id) || r.company_id;
+                    return (
+                      <tr key={r.id}>
+                        <td>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            <Link className="ftn-link" href={`/invoices/${r.id}`}>
+                              {company}
+                            </Link>
+                            <div className="ftn-muted" style={{ fontSize: 12 }}>
+                              {r.invoice_number || r.unique_reference || ""}
+                            </div>
+                            <div className="ftn-row" style={{ gap: 8, flexWrap: "wrap" }}>
+                              <span className="ftn-badge">{docTypeLabel(r)}</span>
+                              <span className="ftn-badge">{modeLabel(r)}</span>
+                              <span className="ftn-badge">{sigLabel(r)}</span>
+                              <span className="ftn-badge">{ttnLabel(r)}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            <div>{r.customer_name || "-"}</div>
+                            <div className="ftn-muted" style={{ fontSize: 12 }}>
+                              {r.customer_email || r.customer_phone || r.customer_tax_id || ""}
+                            </div>
+                          </div>
+                        </td>
+                        <td>{docTypeLabel(r)}</td>
+                        <td>{modeLabel(r)}</td>
+                        <td>{fmtDate(r.issue_date)}</td>
+                        <td>{fmt3(r.total_ttc)} {r.currency || "TND"}</td>
+                        <td>{userLabel(r.created_by_user_id)}</td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={7} style={{ padding: 16 }}>
+                      Aucun résultat.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="ftn-pagination">
+            <div className="ftn-muted">
+              Page {safePage} / {totalPages} • {filtered.length} document(s)
+            </div>
+            <div className="ftn-row" style={{ gap: 10 }}>
+              <button className="ftn-btn" onClick={() => setPage(1)} disabled={safePage <= 1}>
+                Début
+              </button>
+              <button className="ftn-btn" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}>
+                Précédent
+              </button>
+              <button
+                className="ftn-btn"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+              >
+                Suivant
+              </button>
+              <button className="ftn-btn" onClick={() => setPage(totalPages)} disabled={safePage >= totalPages}>
+                Fin
+              </button>
+            </div>
           </div>
         </div>
       </div>
