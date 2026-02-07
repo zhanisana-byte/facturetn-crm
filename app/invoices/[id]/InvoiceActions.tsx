@@ -138,6 +138,9 @@ export default function InvoiceActions({
         throw new Error(msg);
       }
       return data;
+    } catch (e: any) {
+      setErr(s(e?.message || "Erreur."));
+      throw e;
     } finally {
       setBusy(null);
     }
@@ -166,7 +169,7 @@ export default function InvoiceActions({
 
   const downloadPdfHref = `/api/invoices/${invoiceId}/pdf`;
   const downloadXmlHref = `/api/invoices/${invoiceId}/xml`;
-  const downloadSignedXmlHref = `/api/invoices/${invoiceId}/xml/signed`;
+  const downloadSignedXmlHref = `/api/invoices/${invoiceId}/xml-signed`;
 
   const canDownloadSignedXml = signatureRequired ? invoiceSigned : Boolean(invoiceSigned);
 
