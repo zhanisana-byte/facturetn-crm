@@ -22,6 +22,9 @@ function clampPct(x: number) {
   if (x > 100) return 100;
   return x;
 }
+function isUuid(v: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
 
 function computeFromItems(items: any[]) {
   let ht = 0;
@@ -73,13 +76,23 @@ export async function POST(req: Request) {
     if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
     const body = await req.json().catch(() => ({}));
-    const invoice_id = s(body?.invoice_id);
+    const invoice_id = s(body?.invoice_id ?? body?.invoiceId ?? body?.id);
     let environment = s(body?.environment);
 
     if (!invoice_id) return NextResponse.json({ ok: false, error: "MISSING_INVOICE_ID" }, { status: 400 });
+    if (!isUuid(invoice_id)) {
+      return NextResponse.json({ ok: false, error: "INVALID_INVOICE_ID", message: "invoice_id doit être un UUID." }, { status: 400 });
+    }
 
-    const { data: invoice, error: iErr } = await service.from("invoices").select("*").eq("id", invoice_id).single();
-    if (iErr || !invoice) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
+    const invRes = await service.from("invoices").select("*").eq("id", invoice_id).maybeSingle();
+    if (invRes.error) {
+      return NextResponse.json(
+        { ok: false, error: "INVOICE_READ_FAILED", message: invRes.error.message },
+        { status: 500 }
+      );
+    }
+    const invoice = invRes.data;
+    if (!invoice) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
     const company_id = s((invoice as any)?.company_id);
     if (!company_id) return NextResponse.json({ ok: false, error: "INVOICE_NO_COMPANY" }, { status: 400 });
@@ -87,8 +100,15 @@ export async function POST(req: Request) {
     const allowed = await canSignInvoice(supabase, auth.user.id, company_id);
     if (!allowed) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
 
-    const { data: company, error: cErr } = await service.from("companies").select("*").eq("id", company_id).single();
-    if (cErr || !company) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
+    const compRes = await service.from("companies").select("*").eq("id", company_id).maybeSingle();
+    if (compRes.error) {
+      return NextResponse.json(
+        { ok: false, error: "COMPANY_READ_FAILED", message: compRes.error.message },
+        { status: 500 }
+      );
+    }
+    const company = compRes.data;
+    if (!company) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
 
     let cred: any = null;
     let credErr: any = null;
@@ -122,7 +142,6 @@ export async function POST(req: Request) {
           .eq("company_id", company_id)
           .eq("environment", "test")
           .maybeSingle();
-
         cred = rTest.data;
         credErr = rTest.error;
         if (cred) environment = "test";
@@ -134,10 +153,7 @@ export async function POST(req: Request) {
 
     const provider = s((cred as any)?.signature_provider || "none");
     if (provider !== "digigo") {
-      return NextResponse.json(
-        { ok: false, error: "TTN_NOT_CONFIGURED", message: "Signature DigiGo non configurée." },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "TTN_NOT_CONFIGURED", message: "Signature DigiGo non configurée." }, { status: 400 });
     }
 
     const cfg =
@@ -145,25 +161,20 @@ export async function POST(req: Request) {
 
     const credentialId = s(cfg?.digigo_signer_email || (cred as any)?.cert_email || "");
     if (!credentialId) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "EMAIL_DIGIGO_COMPANY_MISSING",
-          message: "Renseignez l’email DigiGo dans Paramètres DigiGo (société).",
-        },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "EMAIL_DIGIGO_COMPANY_MISSING" }, { status: 400 });
     }
 
-    const { data: items, error: itErr } = await service
+    const itRes = await service
       .from("invoice_items")
       .select("*")
       .eq("invoice_id", invoice_id)
       .order("line_no", { ascending: true });
 
-    if (itErr) return NextResponse.json({ ok: false, error: "ITEMS_READ_FAILED", message: itErr.message }, { status: 500 });
+    if (itRes.error) return NextResponse.json({ ok: false, error: "ITEMS_READ_FAILED", message: itRes.error.message }, { status: 500 });
 
-    const calc = computeFromItems(items ?? []);
+    const items = itRes.data ?? [];
+    const calc = computeFromItems(items);
+
     const stampEnabled = Boolean((invoice as any)?.stamp_enabled);
     const stampAmount = n((invoice as any)?.stamp_amount);
 
@@ -190,7 +201,7 @@ export async function POST(req: Request) {
           dueDate: s((invoice as any)?.due_date ?? ""),
           currency: s((invoice as any)?.currency ?? "TND"),
           customerName: s((invoice as any)?.customer_name ?? ""),
-          customerTaxId: s((invoice as any)?.customer_tax_id ?? ""),
+          customerTaxId: s((invoice as any)?.customer_customer_tax_id ?? (invoice as any)?.customer_tax_id ?? ""),
           customerEmail: s((invoice as any)?.customer_email ?? ""),
           customerPhone: s((invoice as any)?.customer_phone ?? ""),
           customerAddress: s((invoice as any)?.customer_address ?? ""),
@@ -203,7 +214,7 @@ export async function POST(req: Request) {
           stampEnabled,
           stampAmount,
         },
-        items: (items ?? []).map((it: any) => ({
+        items: items.map((it: any) => ({
           description: s(it.description ?? ""),
           qty: n(it.quantity ?? 1),
           price: n(it.unit_price_ht ?? it.unit_price ?? 0),
@@ -232,10 +243,7 @@ export async function POST(req: Request) {
         state: stateStr,
       });
     } catch (e: any) {
-      return NextResponse.json(
-        { ok: false, error: "DIGIGO_AUTHORIZE_URL_FAILED", message: s(e?.message || e) },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: "DIGIGO_AUTHORIZE_URL_FAILED", message: s(e?.message || e) }, { status: 500 });
     }
 
     await service
@@ -248,11 +256,7 @@ export async function POST(req: Request) {
           unsigned_hash,
           unsigned_xml,
           signer_user_id: auth.user.id,
-          meta: {
-            credentialId,
-            state: stateStr,
-            environment: environment || undefined,
-          },
+          meta: { credentialId, state: stateStr, environment: environment || undefined },
         },
         { onConflict: "invoice_id" }
       )
@@ -261,6 +265,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, authorize_url, state: stateStr, unsigned_hash }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Unknown error" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "UNKNOWN_ERROR", message: e?.message || "Unknown error" }, { status: 500 });
   }
 }
