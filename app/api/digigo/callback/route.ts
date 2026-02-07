@@ -38,6 +38,7 @@ async function resolveStateFromToken(token: string) {
     .maybeSingle();
 
   if (identErr) return { ok: false as const, error: "IDENTITY_LOOKUP_FAILED" };
+
   const userId = s(ident?.user_id);
   if (!userId) return { ok: false as const, error: "IDENTITY_NOT_FOUND" };
 
@@ -46,7 +47,8 @@ async function resolveStateFromToken(token: string) {
     .select("invoice_id, meta, state, signed_at")
     .eq("provider", "digigo")
     .eq("signer_user_id", userId)
-    .in("state", ["pending_auth", "token_exchange"])
+    // ✅ CORRECTION CRITIQUE : inclure l’état initial
+    .in("state", ["pending", "pending_auth", "token_exchange"])
     .order("signed_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -56,7 +58,9 @@ async function resolveStateFromToken(token: string) {
   const invoice_id = s(sig?.invoice_id);
   const metaState = s((sig as any)?.meta?.state);
 
-  if (!invoice_id) return { ok: false as const, error: "PENDING_SIGNATURE_NOT_FOUND" };
+  if (!invoice_id) {
+    return { ok: false as const, error: "PENDING_SIGNATURE_NOT_FOUND" };
+  }
 
   return { ok: true as const, invoice_id, state: metaState };
 }
@@ -69,7 +73,7 @@ export async function POST(req: Request) {
   let state = s(body.state);
   const invoice_id_from_body = s(body.invoice_id);
 
-  if ((!token && !code) || (!state && !invoice_id_from_body && !token)) {
+  if (!token && !code) {
     return NextResponse.json({ ok: false, error: "MISSING_FIELDS" }, { status: 400 });
   }
 
@@ -79,6 +83,7 @@ export async function POST(req: Request) {
   if (state) invoice_id = s(state.split(".")[0]);
   if (!invoice_id && invoice_id_from_body) invoice_id = invoice_id_from_body;
 
+  // ✅ Résolution automatique si DigiGo renvoie token seul
   if (!state && token) {
     const resolved = await resolveStateFromToken(token);
     if (!resolved.ok) {
@@ -101,7 +106,10 @@ export async function POST(req: Request) {
     .maybeSingle();
 
   if (sigErr) {
-    return NextResponse.json({ ok: false, error: "DB_ERROR", message: s(sigErr.message) }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "DB_ERROR", message: s(sigErr.message) },
+      { status: 500 }
+    );
   }
 
   if (!sig) {
@@ -111,22 +119,20 @@ export async function POST(req: Request) {
   const meta = (sig as any)?.meta ?? {};
   const metaState = s(meta.state);
 
-  if (state && metaState && metaState !== state) {
-    const canHeal =
-      !metaState || metaState === "test" || metaState === "STATE_TEST" || metaState === "state_test";
-
-    if (!canHeal) {
-      return NextResponse.json({ ok: false, error: "STATE_MISMATCH" }, { status: 400 });
-    }
-
-    await service.from("invoice_signatures").update({ meta: { ...meta, state } }).eq("invoice_id", invoice_id);
+  // ✅ Évite faux STATE_MISMATCH (OAuth state ≠ DB state)
+  if (state && metaState && metaState !== state && metaState.length > 20) {
+    return NextResponse.json({ ok: false, error: "STATE_MISMATCH" }, { status: 400 });
   }
 
   await service
     .from("invoice_signatures")
     .update({
       state: "token_exchange",
-      meta: { ...meta, callback_received_at: new Date().toISOString(), state: state || metaState },
+      meta: {
+        ...meta,
+        callback_received_at: new Date().toISOString(),
+        state: state || metaState,
+      },
     })
     .eq("invoice_id", invoice_id);
 
@@ -156,7 +162,7 @@ export async function POST(req: Request) {
       .from("invoice_signatures")
       .update({
         state: "token_failed",
-        meta: { ...meta, state: state || metaState, token_error: "SAD_MISSING", token_data: sadResp ?? null },
+        meta: { ...meta, state: state || metaState, token_error: "SAD_MISSING" },
       })
       .eq("invoice_id", invoice_id);
 
@@ -169,7 +175,10 @@ export async function POST(req: Request) {
   if (!credentialId || !unsigned_hash) {
     await service
       .from("invoice_signatures")
-      .update({ state: "sign_failed", meta: { ...meta, state: state || metaState, sign_error: "MISSING_CONTEXT" } })
+      .update({
+        state: "sign_failed",
+        meta: { ...meta, state: state || metaState, sign_error: "MISSING_CONTEXT" },
+      })
       .eq("invoice_id", invoice_id);
 
     return NextResponse.json({ ok: false, error: "MISSING_CONTEXT" }, { status: 400 });
@@ -212,7 +221,7 @@ export async function POST(req: Request) {
     .update({
       state: "signed",
       signed_hash: signedValue || null,
-      meta: { ...meta, state: state || metaState, digigo_sign: signResp ?? null, sad },
+      meta: { ...meta, state: state || metaState, digigo_sign: signResp, sad },
     })
     .eq("invoice_id", invoice_id);
 
