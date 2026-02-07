@@ -4,6 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function s(v: any) {
+  return String(v ?? "").trim();
+}
+
 export async function POST(req: Request) {
   try {
     const supabase = await createClient();
@@ -15,12 +19,12 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    const company_name = String(body?.company_name ?? "").trim();
-    const tax_id = String(body?.tax_id ?? "").trim() || null;
+    const company_name = s(body?.company_name);
+    const tax_id = s(body?.tax_id) || null;
 
-    const address = String(body?.address ?? "").trim() || null;
-    const email = String(body?.email ?? "").trim() || null;
-    const phone = String(body?.phone ?? "").trim() || null;
+    const address = s(body?.address) || null;
+    const email = s(body?.email) || null;
+    const phone = s(body?.phone) || null;
 
     if (!company_name) {
       return NextResponse.json({ ok: false, error: "company_name required" }, { status: 400 });
@@ -39,10 +43,14 @@ export async function POST(req: Request) {
     const max = profile?.max_companies ?? 1;
 
     if (max <= 1) {
-      const { count } = await supabase
+      const { count, error: cntErr } = await supabase
         .from("companies")
         .select("id", { count: "exact", head: true })
         .eq("owner_user_id", auth.user.id);
+
+      if (cntErr) {
+        return NextResponse.json({ ok: false, error: cntErr.message }, { status: 400 });
+      }
 
       if ((count ?? 0) >= 1) {
         return NextResponse.json(
@@ -52,43 +60,43 @@ export async function POST(req: Request) {
       }
     }
 
+    const { data: rpcData, error: rpcErr } = await supabase.rpc("create_company_with_owner", {
+      p_company_name: company_name,
+      p_tax_id: tax_id,
+      p_address: address,
+      p_email: email,
+      p_phone: phone,
+    });
+
+    if (rpcErr) {
+      return NextResponse.json({ ok: false, error: rpcErr.message }, { status: 400 });
+    }
+
+    const companyId =
+      (rpcData as any)?.company_id ?? (rpcData as any)?.id ?? (typeof rpcData === "string" ? rpcData : null);
+
+    if (!companyId) {
+      return NextResponse.json(
+        { ok: false, error: "RPC returned no company_id" },
+        { status: 500 }
+      );
+    }
+
     const { data: comp, error: cErr } = await supabase
       .from("companies")
-      .insert({
-        company_name,
-        tax_id,
-        address,
-        email,
-        phone,
-        owner_user_id: auth.user.id,
-})
       .select("*")
+      .eq("id", companyId)
       .single();
 
     if (cErr) {
       return NextResponse.json({ ok: false, error: cErr.message }, { status: 400 });
     }
 
-    try {
-      await supabase.from("memberships").upsert(
-        {
-          company_id: comp.id,
-          user_id: auth.user.id,
-          role: "owner",
-          can_manage_customers: true,
-          can_create_invoices: true,
-          can_validate_invoices: true,
-          can_submit_ttn: true,
-          is_active: true,
-        } as any,
-        { onConflict: "company_id,user_id" } as any
-      );
-    } catch {
-      
-    }
-
     return NextResponse.json({ ok: true, company: comp }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Unknown error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Unknown error" },
+      { status: 500 }
+    );
   }
 }
