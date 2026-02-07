@@ -45,7 +45,8 @@ export default function DigigoRedirectClient() {
     const state = stateFromUrl || getStored("digigo_state");
     const invoiceId = getStored("digigo_invoice_id");
 
-    if ((!token && !code) || (!state && !invoiceId)) {
+    // ✅ DigiGo peut revenir uniquement avec token=...
+    if (!token && !code) {
       setError("Retour DigiGo invalide.");
       return;
     }
@@ -59,7 +60,7 @@ export default function DigigoRedirectClient() {
             token: token || undefined,
             code: code || undefined,
             state: state || undefined,
-            invoice_id: !state ? invoiceId : undefined,
+            invoice_id: invoiceId || undefined,
           }),
         });
 
