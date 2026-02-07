@@ -13,7 +13,6 @@ function getStored(key: string) {
     v = s(window.localStorage.getItem(key) || "");
   } catch {}
   if (v) return v;
-
   try {
     v = s(window.sessionStorage.getItem(key) || "");
   } catch {}
@@ -40,16 +39,19 @@ export default function DigigoRedirectClient() {
   const stateFromUrl = useMemo(() => s(sp.get("state") || ""), [sp]);
 
   const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
 
   useEffect(() => {
     const state = stateFromUrl || getStored("digigo_state");
     const invoiceId = getStored("digigo_invoice_id");
+    const backUrl = getStored("digigo_back_url");
 
-    // ✅ DigiGo peut revenir uniquement avec token=...
     if (!token && !code) {
       setError("Retour DigiGo invalide.");
       return;
     }
+
+    if (done) return;
 
     (async () => {
       try {
@@ -67,17 +69,19 @@ export default function DigigoRedirectClient() {
         const j = await r.json().catch(() => ({}));
 
         if (r.ok && j?.ok && j?.invoice_id) {
-          clearStored(["digigo_state", "digigo_invoice_id"]);
-          router.replace(`/invoices/${j.invoice_id}`);
+          clearStored(["digigo_state", "digigo_invoice_id", "digigo_back_url"]);
+          setDone(true);
+          const target = s(backUrl) || `/invoices/${j.invoice_id}`;
+          router.replace(target);
           return;
         }
 
-        setError(s(j?.error || j?.message || "Signature échouée."));
-      } catch {
-        setError("Erreur réseau (fetch failed).");
+        setError(s(j?.message || j?.error || "Signature échouée."));
+      } catch (e: any) {
+        setError(s(e?.message || "Erreur réseau (fetch failed)."));
       }
     })();
-  }, [token, code, stateFromUrl, router]);
+  }, [token, code, stateFromUrl, router, done]);
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4">
@@ -92,9 +96,7 @@ export default function DigigoRedirectClient() {
             <div className="text-sm text-slate-600 mt-3">Traitement sécurisé en cours…</div>
           </div>
         ) : (
-          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-            {error}
-          </div>
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>
         )}
       </div>
     </div>
