@@ -37,7 +37,7 @@ export default function DigigoSignButton({ invoiceId }: { invoiceId: string }) {
     setErr("");
     setLoading(true);
 
-    clearEverywhere(["digigo_state", "digigo_invoice_id"]);
+    clearEverywhere(["digigo_state", "digigo_invoice_id", "digigo_back_url"]);
 
     try {
       const r = await fetch("/api/digigo/start", {
@@ -54,7 +54,7 @@ export default function DigigoSignButton({ invoiceId }: { invoiceId: string }) {
       }
 
       const state = s(j?.state || "");
-      setEverywhere("digigo_state", state);
+      if (state) setEverywhere("digigo_state", state);
       setEverywhere("digigo_invoice_id", invoiceId);
 
       window.location.href = String(j.authorize_url);
