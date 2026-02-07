@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+
+type Status = "loading" | "success" | "error";
 
 function s(v: any) {
   return String(v ?? "").trim();
@@ -9,25 +11,12 @@ function s(v: any) {
 
 function getStored(key: string) {
   try {
-    const v = s(window.localStorage.getItem(key));
-    if (v) return v;
+    return s(window.localStorage.getItem(key));
   } catch {}
   try {
-    const v = s(window.sessionStorage.getItem(key));
-    if (v) return v;
+    return s(window.sessionStorage.getItem(key));
   } catch {}
   return "";
-}
-
-function setStored(key: string, val: string) {
-  const v = s(val);
-  if (!v) return;
-  try {
-    window.localStorage.setItem(key, v);
-  } catch {}
-  try {
-    window.sessionStorage.setItem(key, v);
-  } catch {}
 }
 
 function clearStored(keys: string[]) {
@@ -42,45 +31,36 @@ function clearStored(keys: string[]) {
 }
 
 export default function Ui() {
-  const sp = useSearchParams();
   const router = useRouter();
+  const params = useSearchParams();
 
-  const token = useMemo(() => s(sp.get("token")), [sp]);
-  const code = useMemo(() => s(sp.get("code")), [sp]);
-  const stateFromUrl = useMemo(() => s(sp.get("state")), [sp]);
-
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
+  const [status, setStatus] = useState<Status>("loading");
+  const [message, setMessage] = useState<string>("");
 
   useEffect(() => {
-    const run = async () => {
-      setLoading(true);
-      setErr("");
+    const token = s(params.get("token"));
+    const code = s(params.get("code")); // fallback si DigiGo change
+    const invoiceId =
+      getStored("digigo_invoice_id") ||
+      getStored("invoice_id");
 
-      const storedInvoiceId =
-        getStored("digigo_invoice_id") ||
-        getStored("ftn_digigo_invoice_id") ||
-        getStored("invoice_id");
+    const backUrl =
+      getStored("digigo_back_url") ||
+      (invoiceId ? `/invoices/${invoiceId}` : "/");
 
-      const storedState =
-        getStored("digigo_state") ||
-        getStored("ftn_digigo_state");
+    if (!token && !code) {
+      setStatus("error");
+      setMessage("Retour DigiGo invalide (token manquant).");
+      return;
+    }
 
-      const invoice_id = storedInvoiceId;
-      const state = stateFromUrl || storedState; // ✅ IMPORTANT: state peut manquer dans l’URL DigiGo
+    if (!invoiceId) {
+      setStatus("error");
+      setMessage("Contexte de signature introuvable (invoice_id manquant). Relancez la signature.");
+      return;
+    }
 
-      if (!token && !code) {
-        setErr("Retour DigiGo invalide (token/code manquant).");
-        setLoading(false);
-        return;
-      }
-
-      if (!invoice_id) {
-        setErr("Contexte de signature introuvable (invoice_id manquant). Relancez la signature.");
-        setLoading(false);
-        return;
-      }
-
+    async function finalize() {
       try {
         const res = await fetch("/api/digigo/callback", {
           method: "POST",
@@ -88,71 +68,72 @@ export default function Ui() {
           body: JSON.stringify({
             token,
             code,
-            invoice_id,
-            state, // peut être vide -> backend accepte
+            invoice_id: invoiceId,
+            state: getStored("digigo_state"),
           }),
         });
 
         const j = await res.json().catch(() => ({}));
 
         if (!res.ok || !j?.ok) {
-          const e = s(j?.message || j?.error || "Erreur inconnue");
-          // Si session perdue:
-          if (res.status === 401 || e.toLowerCase().includes("unauthorized")) {
-            setErr("UNAUTHORIZED — reconnectez-vous puis relancez la signature.");
-            setLoading(false);
-            return;
-          }
-          setErr(e);
-          setLoading(false);
+          setStatus("error");
+          setMessage(
+            s(j?.message || j?.error || "Échec de la finalisation DigiGo.")
+          );
           return;
         }
 
+        setStatus("success");
+        setMessage("Signature finalisée avec succès.");
+
         clearStored([
           "digigo_invoice_id",
-          "ftn_digigo_invoice_id",
-          "invoice_id",
           "digigo_state",
-          "ftn_digigo_state",
+          "digigo_back_url",
         ]);
 
-        const backUrl = getStored("digigo_back_url") || getStored("ftn_digigo_back_url");
-        if (backUrl) {
-          try {
-            window.location.href = backUrl;
-            return;
-          } catch {}
-        }
-
-        router.replace(`/invoices/${encodeURIComponent(invoice_id)}?signed=1`);
+        setTimeout(() => {
+          router.replace(backUrl);
+        }, 1200);
       } catch (e: any) {
-        setErr(s(e?.message || e));
-        setLoading(false);
+        setStatus("error");
+        setMessage(s(e?.message || "Erreur réseau."));
       }
-    };
+    }
 
-    run();
-  }, [token, code, stateFromUrl, router]);
+    finalize();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4">
       <div className="w-full max-w-lg rounded-2xl border bg-white/70 p-6 shadow">
-        <div className="text-xl font-semibold">Finalisation de la signature</div>
+        <div className="text-xl font-semibold">
+          Finalisation de la signature
+        </div>
 
-        {loading && !err ? (
+        {status === "loading" && (
           <div className="mt-4">
             <div className="h-2 w-full bg-slate-200 rounded overflow-hidden">
               <div className="h-full w-1/2 bg-slate-700 animate-pulse" />
             </div>
-            <div className="text-sm text-slate-600 mt-3">Traitement sécurisé en cours…</div>
+            <div className="text-sm text-slate-600 mt-3">
+              Traitement sécurisé en cours…
+            </div>
           </div>
-        ) : null}
+        )}
 
-        {err ? (
-          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {err}
+        {status === "error" && (
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            {message}
           </div>
-        ) : null}
+        )}
+
+        {status === "success" && (
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
+            {message}
+          </div>
+        )}
       </div>
     </div>
   );
