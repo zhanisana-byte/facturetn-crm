@@ -21,6 +21,8 @@ function mapError(codeOrMessage: string) {
   if (c === "COMPANY_NOT_FOUND") return "Société introuvable.";
   if (c === "TTN_NOT_CONFIGURED")
     return "TTN n’est pas configuré. Ouvrez Paramètres TTN et configurez la signature DigiGo.";
+  if (c === "EMAIL_DIGIGO_COMPANY_MISSING")
+    return "Renseignez l’email DigiGo dans Paramètres DigiGo (société).";
   if (c === "MISSING_INVOICE_ID") return "Identifiant facture manquant.";
   if (c === "SIGNATURE_CONTEXT_INSERT_FAILED")
     return "Impossible d'initialiser le contexte de signature. Réessayez.";
@@ -97,6 +99,7 @@ export default function InvoiceSignatureClient({
       const state = s(j?.state || "");
       if (state) setEverywhere("digigo_state", state);
       setEverywhere("digigo_invoice_id", invoiceId);
+      setEverywhere("digigo_back_url", backUrl);
 
       window.location.href = authorizeUrl;
     } catch (e: any) {
@@ -116,52 +119,48 @@ export default function InvoiceSignatureClient({
   }, []);
 
   return (
-    <div className="rounded-2xl border bg-white/70 p-5 sm:p-6 shadow">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <div className="text-lg sm:text-xl font-semibold">Signature DigiGo</div>
-          <div className="mt-1 text-sm text-slate-600">
-            Redirection vers DigiGo pour autoriser la signature. Vous reviendrez automatiquement après validation.
+    <div className="mx-auto w-full max-w-[760px]">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-1">
+            <div className="text-lg font-semibold text-slate-900">Signature DigiGo</div>
+            <div className="text-sm text-slate-600">Vous allez être redirigé pour signer le hash TEIF.</div>
           </div>
+          <Pill>Invoice: {invoiceId}</Pill>
+        </div>
 
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Pill>Facture: {invoiceId.slice(0, 8)}…</Pill>
-            <Pill>Mode: DigiGo</Pill>
+        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+          {loading ? "Préparation de la signature…" : "Initialisation…"}
+        </div>
+
+        {msg && (
+          <div
+            className={[
+              "mt-4 rounded-xl border p-4 text-sm",
+              msg.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800",
+            ].join(" ")}
+          >
+            {msg.text}
           </div>
+        )}
+
+        <div className="mt-5 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => startAndRedirect()}
+            disabled={loading}
+            className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Relancer
+          </button>
+
+          <a
+            href={backUrl}
+            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+          >
+            Retour
+          </a>
         </div>
-
-        <a className="ftn-btn-ghost" href={backUrl}>
-          Retour
-        </a>
-      </div>
-
-      {msg ? (
-        <div
-          className={`mt-5 rounded-xl border p-3 text-sm ${
-            msg.ok
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-              : "border-rose-200 bg-rose-50 text-rose-900"
-          }`}
-        >
-          {msg.text}
-        </div>
-      ) : null}
-
-      <div className="mt-5">
-        <div className="h-2 w-full bg-slate-200 rounded overflow-hidden">
-          <div className={`h-full transition-all ${loading ? "w-2/4" : "w-1/4"} bg-slate-800`} />
-        </div>
-        <div className="mt-2 text-xs text-slate-500">Étapes : Initialisation → Redirection DigiGo → Signature</div>
-      </div>
-
-      <div className="mt-6 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-        <button className="ftn-btn" onClick={startAndRedirect} disabled={loading} type="button">
-          {loading ? "Redirection…" : "Continuer vers DigiGo"}
-        </button>
-
-        <button className="ftn-btn ftn-btn-ghost" onClick={startAndRedirect} disabled={loading} type="button">
-          Relancer
-        </button>
       </div>
     </div>
   );
