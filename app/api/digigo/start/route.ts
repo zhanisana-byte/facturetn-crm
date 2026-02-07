@@ -55,41 +55,105 @@ function friendlyTeifError(msg: string) {
   return m;
 }
 
+async function canSignInvoice(supabase: any, userId: string, companyId: string) {
+  const a = await canCompanyAction(supabase, userId, companyId, "validate_invoices");
+  if (a) return true;
+  const b = await canCompanyAction(supabase, userId, companyId, "submit_ttn");
+  if (b) return true;
+  const c = await canCompanyAction(supabase, userId, companyId, "create_invoices");
+  return c;
+}
+
 export async function POST(req: Request) {
   try {
     const supabase = await createClient();
     const service = createServiceClient();
 
     const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
     const body = await req.json().catch(() => ({}));
     const invoice_id = s(body?.invoice_id);
-    const credentialId = s(body?.credentialId);
-    if (!invoice_id) return NextResponse.json({ ok: false, error: "invoice_id required" }, { status: 400 });
-    if (!credentialId) return NextResponse.json({ ok: false, error: "credentialId required" }, { status: 400 });
+    let environment = s(body?.environment);
 
-    const { data: invoice, error: iErr } = await service
-      .from("invoices")
-      .select("*")
-      .eq("id", invoice_id)
-      .single();
+    if (!invoice_id) return NextResponse.json({ ok: false, error: "MISSING_INVOICE_ID" }, { status: 400 });
 
-    if (iErr || !invoice) return NextResponse.json({ ok: false, error: "Invoice not found" }, { status: 404 });
+    const { data: invoice, error: iErr } = await service.from("invoices").select("*").eq("id", invoice_id).single();
+    if (iErr || !invoice) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
     const company_id = s((invoice as any)?.company_id);
-    if (!company_id) return NextResponse.json({ ok: false, error: "Invoice has no company_id" }, { status: 400 });
+    if (!company_id) return NextResponse.json({ ok: false, error: "INVOICE_NO_COMPANY" }, { status: 400 });
 
-    const allowed = await canCompanyAction(supabase, company_id, auth.user.id, "create_invoices");
-    if (!allowed) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    const allowed = await canSignInvoice(supabase, auth.user.id, company_id);
+    if (!allowed) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
 
-    const { data: company, error: cErr } = await service
-      .from("companies")
-      .select("*")
-      .eq("id", company_id)
-      .single();
+    const { data: company, error: cErr } = await service.from("companies").select("*").eq("id", company_id).single();
+    if (cErr || !company) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
 
-    if (cErr || !company) return NextResponse.json({ ok: false, error: "Company not found" }, { status: 404 });
+    let cred: any = null;
+    let credErr: any = null;
+
+    if (environment) {
+      const r = await service
+        .from("ttn_credentials")
+        .select("signature_provider, signature_config, cert_email, environment")
+        .eq("company_id", company_id)
+        .eq("environment", environment)
+        .maybeSingle();
+      cred = r.data;
+      credErr = r.error;
+    } else {
+      const rProd = await service
+        .from("ttn_credentials")
+        .select("signature_provider, signature_config, cert_email, environment")
+        .eq("company_id", company_id)
+        .eq("environment", "production")
+        .maybeSingle();
+
+      if (rProd.error) {
+        credErr = rProd.error;
+      } else if (rProd.data) {
+        cred = rProd.data;
+        environment = "production";
+      } else {
+        const rTest = await service
+          .from("ttn_credentials")
+          .select("signature_provider, signature_config, cert_email, environment")
+          .eq("company_id", company_id)
+          .eq("environment", "test")
+          .maybeSingle();
+
+        cred = rTest.data;
+        credErr = rTest.error;
+        if (cred) environment = "test";
+      }
+    }
+
+    if (credErr) return NextResponse.json({ ok: false, error: "TTN_READ_FAILED", message: credErr.message }, { status: 500 });
+    if (!cred) return NextResponse.json({ ok: false, error: "TTN_NOT_CONFIGURED" }, { status: 400 });
+
+    const provider = s((cred as any)?.signature_provider || "none");
+    if (provider !== "digigo") {
+      return NextResponse.json(
+        { ok: false, error: "TTN_NOT_CONFIGURED", message: "Signature DigiGo non configurée." },
+        { status: 400 }
+      );
+    }
+
+    const cfg =
+      (cred as any)?.signature_config && typeof (cred as any).signature_config === "object" ? (cred as any).signature_config : {};
+
+    const credentialId = s(cfg?.digigo_signer_email || (cred as any)?.cert_email || "");
+    if (!credentialId) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "EMAIL_DIGIGO_COMPANY_MISSING",
+          message: "Renseignez l’email DigiGo dans Paramètres DigiGo (société).",
+        },
+        { status: 400 }
+      );
+    }
 
     const { data: items, error: itErr } = await service
       .from("invoice_items")
@@ -97,7 +161,7 @@ export async function POST(req: Request) {
       .eq("invoice_id", invoice_id)
       .order("line_no", { ascending: true });
 
-    if (itErr) return NextResponse.json({ ok: false, error: itErr.message }, { status: 400 });
+    if (itErr) return NextResponse.json({ ok: false, error: "ITEMS_READ_FAILED", message: itErr.message }, { status: 500 });
 
     const calc = computeFromItems(items ?? []);
     const stampEnabled = Boolean((invoice as any)?.stamp_enabled);
@@ -130,7 +194,7 @@ export async function POST(req: Request) {
           customerEmail: s((invoice as any)?.customer_email ?? ""),
           customerPhone: s((invoice as any)?.customer_phone ?? ""),
           customerAddress: s((invoice as any)?.customer_address ?? ""),
-          notes: s((invoice as any)?.notes ?? ""),
+          notes: s((invoice as any)?.notes ?? (invoice as any)?.note ?? ""),
         },
         totals: {
           ht,
@@ -174,29 +238,28 @@ export async function POST(req: Request) {
       );
     }
 
-    const payload: any = {
-      invoice_id,
-      provider: "digigo",
-      state: "pending",
-      unsigned_hash,
-      unsigned_xml,
-      session_id: null,
-      otp_id: null,
-      error_message: null,
-      signer_user_id: auth.user.id,
-      meta: {
-        credentialId,
-        state: stateStr,
-      },
-    };
-
     await service
       .from("invoice_signatures")
-      .upsert(payload, { onConflict: "invoice_id" })
+      .upsert(
+        {
+          invoice_id,
+          provider: "digigo",
+          state: "pending",
+          unsigned_hash,
+          unsigned_xml,
+          signer_user_id: auth.user.id,
+          meta: {
+            credentialId,
+            state: stateStr,
+            environment: environment || undefined,
+          },
+        },
+        { onConflict: "invoice_id" }
+      )
       .select("id")
       .single();
 
-    return NextResponse.json({ ok: true, authorize_url, unsigned_hash }, { status: 200 });
+    return NextResponse.json({ ok: true, authorize_url, state: stateStr, unsigned_hash }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "Unknown error" }, { status: 500 });
   }
