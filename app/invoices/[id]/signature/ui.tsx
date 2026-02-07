@@ -23,20 +23,12 @@ function Line({ label, value }: { label: string; value: any }) {
   return (
     <div className="flex items-start justify-between gap-3 py-1">
       <div className="text-sm text-slate-600">{label}</div>
-      <div className="text-sm font-medium text-slate-900 text-right break-words">
-        {s(value) || "—"}
-      </div>
+      <div className="text-sm font-medium text-slate-900 text-right break-words">{s(value) || "—"}</div>
     </div>
   );
 }
 
-function Box({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function Box({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white/70 p-5">
       <div className="text-xs uppercase tracking-wide text-slate-500">{title}</div>
@@ -58,8 +50,9 @@ export default function InvoiceSignatureUI({
 }) {
   const [openSign, setOpenSign] = useState(false);
 
+  const invoiceId = useMemo(() => s(invoice?.id || ""), [invoice]);
   const currency = s(invoice?.currency || "TND");
-  const invoiceNo = s(invoice?.invoice_number || invoice?.invoice_no || invoice?.id);
+  const invoiceNo = s(invoice?.invoice_number || invoice?.invoice_no || invoiceId);
   const issueDate = s(invoice?.issue_date);
   const dueDate = s(invoice?.due_date);
   const docType = s(invoice?.document_type || "facture");
@@ -85,7 +78,6 @@ export default function InvoiceSignatureUI({
     return { ht, tva, ttc };
   }, [items, stamp]);
 
-  // Vendeur (company)
   const sellerName = s(company?.company_name || "");
   const sellerMf = s(company?.tax_id || company?.taxId || "");
   const sellerAdr = s(company?.address || "");
@@ -93,7 +85,6 @@ export default function InvoiceSignatureUI({
   const sellerZip = s(company?.postal_code || company?.zip || "");
   const sellerCountry = s(company?.country || "TN");
 
-  // Client (invoice snapshot)
   const customerName = s(invoice?.customer_name || "");
   const customerMf = s(invoice?.customer_tax_id || "");
   const customerAdr = s(invoice?.customer_address || "");
@@ -102,6 +93,7 @@ export default function InvoiceSignatureUI({
 
   const missing = useMemo(() => {
     const m: string[] = [];
+    if (!invoiceId) m.push("ID facture");
     if (!sellerName) m.push("Nom société (vendeur)");
     if (!sellerMf) m.push("MF société (vendeur)");
     if (!sellerAdr) m.push("Adresse société (vendeur)");
@@ -110,14 +102,13 @@ export default function InvoiceSignatureUI({
     if (!customerAdr) m.push("Adresse client");
     if (!issueDate) m.push("Date facture");
     return m;
-  }, [sellerName, sellerMf, sellerAdr, customerName, customerMf, customerAdr, issueDate]);
+  }, [invoiceId, sellerName, sellerMf, sellerAdr, customerName, customerMf, customerAdr, issueDate]);
 
   const canStartSignature = missing.length === 0;
 
   return (
     <div className="w-full">
       <div className="mx-auto w-full max-w-[1050px] px-4 pb-10 space-y-6 pt-4">
-        {/* Top bar */}
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <div className="text-xl font-semibold">Résumé avant signature</div>
@@ -133,7 +124,6 @@ export default function InvoiceSignatureUI({
           </div>
         </div>
 
-        {/* Warning champs manquants */}
         {missing.length ? (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
             <div className="font-semibold text-amber-900">Champs manquants (bloquants)</div>
@@ -144,9 +134,7 @@ export default function InvoiceSignatureUI({
           </div>
         ) : null}
 
-        {/* Document facture */}
         <div className="rounded-3xl border border-slate-200 bg-white/60 shadow-sm">
-          {/* Header */}
           <div className="p-6 border-b border-slate-200">
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
@@ -165,7 +153,6 @@ export default function InvoiceSignatureUI({
             </div>
           </div>
 
-          {/* Vendeur / Client */}
           <div className="p-6 grid gap-4 md:grid-cols-2">
             <Box title="Vendeur (Ma société)">
               <Line label="Nom" value={sellerName} />
@@ -175,7 +162,7 @@ export default function InvoiceSignatureUI({
               <Line label="Code postal" value={sellerZip} />
               <Line label="Pays" value={sellerCountry} />
 
-              {(isMissing(sellerName) || isMissing(sellerMf) || isMissing(sellerAdr)) ? (
+              {isMissing(sellerName) || isMissing(sellerMf) || isMissing(sellerAdr) ? (
                 <div className="mt-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
                   Champs vendeur requis : Nom, MF, Adresse.
                 </div>
@@ -197,11 +184,9 @@ export default function InvoiceSignatureUI({
             </Box>
           </div>
 
-          {/* Lignes */}
           <div className="px-6 pb-6">
             <div className="text-sm font-semibold text-slate-900 mb-3">Lignes</div>
 
-            {/* Table desktop */}
             <div className="hidden md:block overflow-x-auto rounded-2xl border border-slate-200 bg-white">
               <table className="min-w-[860px] w-full text-sm">
                 <thead className="text-slate-600 bg-slate-50">
@@ -236,7 +221,6 @@ export default function InvoiceSignatureUI({
               </table>
             </div>
 
-            {/* Mobile cards */}
             <div className="grid gap-3 md:hidden">
               {(items || []).map((it, idx) => {
                 const qty = n(it.quantity ?? 0);
@@ -265,7 +249,6 @@ export default function InvoiceSignatureUI({
               })}
             </div>
 
-            {/* Totaux + bouton */}
             <div className="mt-6 grid gap-4 md:grid-cols-2">
               <div className="text-xs text-slate-500">
                 Après vérification, cliquez sur “Démarrer la signature DigiGo”.
@@ -316,10 +299,9 @@ export default function InvoiceSignatureUI({
               </div>
             </div>
 
-            {/* Bloc signature (PIN/OTP) */}
             {openSign ? (
               <div className="mt-6">
-                <InvoiceSignatureClient invoiceId={invoice.id} backUrl={backUrl} />
+                <InvoiceSignatureClient invoiceId={invoiceId} backUrl={backUrl} />
               </div>
             ) : null}
           </div>
