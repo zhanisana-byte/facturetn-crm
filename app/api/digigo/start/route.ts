@@ -62,10 +62,13 @@ export async function POST(req: Request) {
   const invoice_id = s(body.invoice_id || body.invoiceId);
   if (!invoice_id) return NextResponse.json({ ok: false, error: "MISSING_INVOICE_ID" }, { status: 400 });
 
+  const envRaw = s(body.environment);
+  let environment: "test" | "production" | "" = envRaw === "production" ? "production" : envRaw === "test" ? "test" : "";
+
   const { data: invoice } = await supabase.from("invoices").select("*").eq("id", invoice_id).maybeSingle();
   if (!invoice) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
-  const company_id = s((invoice as any).company_id);
+  const company_id = s((invoice as any)?.company_id);
   if (!company_id) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
 
   const allowed = await canCompanyAction(supabase, auth.user.id, company_id, "submit_ttn");
@@ -74,41 +77,77 @@ export async function POST(req: Request) {
   const { data: company } = await supabase.from("companies").select("*").eq("id", company_id).maybeSingle();
   if (!company) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
 
-  const { data: identity } = await supabase
-    .from("user_digigo_identities")
-    .select("email")
-    .eq("user_id", auth.user.id)
-    .maybeSingle();
+  const service = createServiceClient();
 
-  const credentialId = s((identity as any)?.email);
+  let cred: any = null;
+  let credErr: any = null;
+
+  if (environment) {
+    const r = await service
+      .from("ttn_credentials")
+      .select("signature_provider, signature_config, cert_email, environment")
+      .eq("company_id", company_id)
+      .eq("environment", environment)
+      .maybeSingle();
+    cred = r.data;
+    credErr = r.error;
+  } else {
+    const rProd = await service
+      .from("ttn_credentials")
+      .select("signature_provider, signature_config, cert_email, environment")
+      .eq("company_id", company_id)
+      .eq("environment", "production")
+      .maybeSingle();
+
+    if (rProd.error) {
+      credErr = rProd.error;
+    } else if (rProd.data) {
+      cred = rProd.data;
+      environment = "production";
+    } else {
+      const rTest = await service
+        .from("ttn_credentials")
+        .select("signature_provider, signature_config, cert_email, environment")
+        .eq("company_id", company_id)
+        .eq("environment", "test")
+        .maybeSingle();
+
+      cred = rTest.data;
+      credErr = rTest.error;
+      if (cred) environment = "test";
+    }
+  }
+
+  if (credErr) return NextResponse.json({ ok: false, error: "TTN_READ_FAILED", message: credErr.message }, { status: 500 });
+  if (!cred) return NextResponse.json({ ok: false, error: "TTN_NOT_CONFIGURED" }, { status: 400 });
+
+  const provider = s((cred as any)?.signature_provider);
+  if (provider !== "digigo") {
+    return NextResponse.json({ ok: false, error: "TTN_NOT_CONFIGURED", message: "Signature DigiGo non configurée." }, { status: 400 });
+  }
+
+  const cfg =
+    (cred as any)?.signature_config && typeof (cred as any).signature_config === "object"
+      ? (cred as any).signature_config
+      : {};
+
+  const credentialId = s(cfg?.digigo_signer_email || (cred as any)?.cert_email || "");
   if (!credentialId) {
     return NextResponse.json(
-      { ok: false, error: "Veuillez renseigner votre email DigiGo (Identité DigiGo)." },
+      { ok: false, error: "EMAIL_DIGIGO_COMPANY_MISSING", message: "Renseignez l’email DigiGo dans Paramètres DigiGo (société)." },
       { status: 400 }
     );
   }
 
-  const { data: items } = await supabase
-    .from("invoice_items")
-    .select("*")
-    .eq("invoice_id", invoice_id)
-    .order("line_no", { ascending: true });
+  const { data: items } = await supabase.from("invoice_items").select("*").eq("invoice_id", invoice_id);
 
-  const invNo = s((invoice as any)?.invoice_number ?? (invoice as any)?.invoice_no ?? "");
-  const number = invNo || `INV-${invoice_id.slice(0, 8)}`;
+  const computed = computeFromItems((items as any[]) || []);
+  const stampEnabled = !!((invoice as any).stamp_enabled ?? false);
+  const stampAmount = n((invoice as any).stamp_amount ?? 0);
 
-  const issueDate = s((invoice as any)?.issue_date ?? "");
-  const dueDate = s((invoice as any)?.due_date ?? "");
-  const currency = s((invoice as any)?.currency ?? "TND");
-  const docType = s((invoice as any)?.document_type ?? "facture");
-
-  const stampRaw = (invoice as any)?.stamp_amount ?? (invoice as any)?.stamp_duty;
-  const stampAmount = stampRaw == null ? 1 : n(stampRaw);
-
-  const computed = computeFromItems(items ?? []);
-  const ht = computed.ht;
-  const tva = computed.tva;
-  const ttc = ht + tva + stampAmount;
+  const ht = n((invoice as any).subtotal_ht ?? computed.ht);
+  const tva = n((invoice as any).total_vat ?? computed.tva);
+  const ttc = ht + tva + (stampEnabled ? stampAmount : 0);
 
   let unsigned_xml = "";
   try {
@@ -120,51 +159,37 @@ export async function POST(req: Request) {
         address: s((company as any)?.address ?? ""),
         city: s((company as any)?.city ?? ""),
         postalCode: s((company as any)?.postal_code ?? (company as any)?.zip ?? ""),
-        country: s((company as any)?.country ?? "TN"),
+        country: "TN",
+        phone: s((company as any)?.phone ?? ""),
+        email: s((company as any)?.email ?? ""),
+      },
+      customer: {
+        name: s((invoice as any)?.customer_name ?? ""),
+        taxId: s((invoice as any)?.customer_tax_id ?? ""),
+        address: s((invoice as any)?.customer_address ?? ""),
+        city: s((invoice as any)?.customer_city ?? ""),
+        postalCode: s((invoice as any)?.customer_zip ?? ""),
+        country: "TN",
+        phone: s((invoice as any)?.customer_phone ?? ""),
+        email: s((invoice as any)?.customer_email ?? ""),
       },
       invoice: {
-        documentType: docType,
-        number,
-        issueDate,
-        dueDate,
-        currency,
-        customerName: s((invoice as any)?.customer_name ?? ""),
-        customerTaxId: s((invoice as any)?.customer_tax_id ?? ""),
-        customerEmail: s((invoice as any)?.customer_email ?? ""),
-        customerPhone: s((invoice as any)?.customer_phone ?? ""),
-        customerAddress: s((invoice as any)?.customer_address ?? ""),
+        issueDate: (invoice as any)?.issue_date,
+        dueDate: (invoice as any)?.due_date,
+        currency: s((invoice as any)?.currency ?? "TND"),
+        invoiceNumber: s((invoice as any)?.invoice_number ?? ""),
+        documentType: s((invoice as any)?.document_type ?? "facture"),
+        subtotalHT: ht,
+        totalTVA: tva,
+        stampEnabled,
+        stampAmount,
+        totalTTC: ttc,
         notes: s((invoice as any)?.notes ?? ""),
       },
-      totals: {
-        ht,
-        tva,
-        ttc,
-        stampEnabled: true,
-        stampAmount,
-      },
-      items: (items ?? []).map((it: any) => ({
-        description: s(it.description ?? ""),
-        qty: n(it.quantity ?? 1),
-        price: n(it.unit_price_ht ?? 0),
-        vat: n(it.vat_pct ?? 0),
-        discount: n(it.discount_pct ?? 0),
-      })),
-      purpose: "ttn",
+      items: (items as any[]) || [],
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: friendlyTeifError(e?.message || "") }, { status: 400 });
-  }
-
-  if (
-    !s(process.env.DIGIGO_BASE_URL) ||
-    !s(process.env.DIGIGO_CLIENT_ID) ||
-    !s(process.env.DIGIGO_CLIENT_SECRET) ||
-    !s(process.env.DIGIGO_REDIRECT_URI)
-  ) {
-    return NextResponse.json(
-      { ok: false, error: "Configuration DigiGo incomplète (variables d’environnement manquantes)." },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "TEIF_BUILD_FAILED", message: friendlyTeifError(e?.message || String(e)) }, { status: 400 });
   }
 
   const unsigned_hash = sha256Base64Utf8(unsigned_xml);
@@ -179,16 +204,11 @@ export async function POST(req: Request) {
       numSignatures: 1,
       state: stateStr,
     });
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: "Impossible de construire l’URL DigiGo (vérifie DIGIGO_BASE_URL / DIGIGO_REDIRECT_URI)." },
-      { status: 500 }
-    );
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: "DIGIGO_AUTHORIZE_URL_FAILED", message: s(e?.message || e) }, { status: 500 });
   }
 
-  const service = createServiceClient();
-
-  const payload = {
+  const payload: any = {
     invoice_id,
     provider: "digigo",
     state: "pending_auth",
@@ -197,7 +217,7 @@ export async function POST(req: Request) {
     signed_xml: "",
     signed_hash: "",
     company_id,
-    environment: "production",
+    environment: environment || "test",
     signer_user_id: auth.user.id,
     meta: {
       state: stateStr,
@@ -207,32 +227,16 @@ export async function POST(req: Request) {
     },
   };
 
-  const { data: upserted, error: upsertError } = await service
+  const { error: upsertError } = await service
     .from("invoice_signatures")
-    .upsert(payload as any, { onConflict: "invoice_id" })
-    .select("invoice_id");
+    .upsert(payload as any, { onConflict: "invoice_id" });
 
   if (upsertError) {
-    console.error("DIGIGO_START_UPSERT_ERROR", upsertError);
     return NextResponse.json(
-      {
-        ok: false,
-        error: "SIGNATURE_CONTEXT_INSERT_FAILED",
-        message: upsertError.message,
-        details: (upsertError as any)?.details ?? null,
-        hint: (upsertError as any)?.hint ?? null,
-        code: (upsertError as any)?.code ?? null,
-      },
+      { ok: false, error: "SIGNATURE_CONTEXT_INSERT_FAILED", message: upsertError.message },
       { status: 500 }
     );
   }
 
-  if (!upserted || upserted.length === 0) {
-    return NextResponse.json(
-      { ok: false, error: "SIGNATURE_CONTEXT_INSERT_FAILED", message: "UPSERT_RETURNED_EMPTY" },
-      { status: 500 }
-    );
-  }
-
-  return NextResponse.json({ ok: true, authorize_url, state: stateStr }, { status: 200 });
+  return NextResponse.json({ ok: true, url: authorize_url, state: stateStr });
 }
