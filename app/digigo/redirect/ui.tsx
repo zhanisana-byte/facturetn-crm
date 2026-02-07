@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 function s(v: any) {
@@ -13,6 +13,7 @@ function getStored(key: string) {
     v = s(window.localStorage.getItem(key) || "");
   } catch {}
   if (v) return v;
+
   try {
     v = s(window.sessionStorage.getItem(key) || "");
   } catch {}
@@ -30,9 +31,10 @@ function clearStored(keys: string[]) {
   }
 }
 
-export default function DigigoRedirectClient() {
+export default function Ui() {
   const sp = useSearchParams();
   const router = useRouter();
+  const fired = useRef(false);
 
   const token = useMemo(() => s(sp.get("token") || ""), [sp]);
   const code = useMemo(() => s(sp.get("code") || ""), [sp]);
@@ -42,16 +44,25 @@ export default function DigigoRedirectClient() {
   const [done, setDone] = useState(false);
 
   useEffect(() => {
-    const state = stateFromUrl || getStored("digigo_state");
-    const invoiceId = getStored("digigo_invoice_id");
-    const backUrl = getStored("digigo_back_url");
+    if (fired.current) return;
+    fired.current = true;
+
+    const storedState = getStored("digigo_state");
+    const storedInvoiceId = getStored("digigo_invoice_id");
+    const storedBackUrl = getStored("digigo_back_url");
+
+    const state = stateFromUrl || storedState;
+    const invoiceId = storedInvoiceId;
 
     if (!token && !code) {
       setError("Retour DigiGo invalide.");
       return;
     }
 
-    if (done) return;
+    if (!state) {
+      setError("State manquant. Relancez la signature.");
+      return;
+    }
 
     (async () => {
       try {
@@ -61,7 +72,7 @@ export default function DigigoRedirectClient() {
           body: JSON.stringify({
             token: token || undefined,
             code: code || undefined,
-            state: state || undefined,
+            state,
             invoice_id: invoiceId || undefined,
           }),
         });
@@ -71,17 +82,18 @@ export default function DigigoRedirectClient() {
         if (r.ok && j?.ok && j?.invoice_id) {
           clearStored(["digigo_state", "digigo_invoice_id", "digigo_back_url"]);
           setDone(true);
-          const target = s(backUrl) || `/invoices/${j.invoice_id}`;
+
+          const target = s(storedBackUrl) || `/invoices/${j.invoice_id}`;
           router.replace(target);
           return;
         }
 
         setError(s(j?.message || j?.error || "Signature échouée."));
       } catch (e: any) {
-        setError(s(e?.message || "Erreur réseau (fetch failed)."));
+        setError(s(e?.message || "Erreur réseau."));
       }
     })();
-  }, [token, code, stateFromUrl, router, done]);
+  }, [token, code, stateFromUrl, router]);
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4">
@@ -93,10 +105,14 @@ export default function DigigoRedirectClient() {
             <div className="h-2 w-full bg-slate-200 rounded overflow-hidden">
               <div className="h-full w-1/2 bg-slate-700 animate-pulse" />
             </div>
-            <div className="text-sm text-slate-600 mt-3">Traitement sécurisé en cours…</div>
+            <div className="text-sm text-slate-600 mt-3">
+              {done ? "Signature terminée. Redirection…" : "Traitement sécurisé en cours…"}
+            </div>
           </div>
         ) : (
-          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            {error}
+          </div>
         )}
       </div>
     </div>
