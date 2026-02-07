@@ -22,37 +22,29 @@ function decodeJwtPayload(token: string): any | null {
   }
 }
 
-/**
- * 🔑 RÉSOLUTION FINALE
- * - indépendante de l’utilisateur
- * - basée sur la SIGNATURE EN COURS (facture / société)
- */
 async function resolveStateFromToken(token: string) {
   const payload = decodeJwtPayload(token);
   const digigoEmail = s(payload?.sub);
-  if (!digigoEmail) {
-    return { ok: false as const, error: "TOKEN_SUB_MISSING" };
-  }
+  if (!digigoEmail) return { ok: false as const, error: "TOKEN_SUB_MISSING" };
 
   const service = createServiceClient();
 
   const { data: sig, error } = await service
     .from("invoice_signatures")
-    .select("invoice_id, company_id, meta, state, signed_at")
+    .select("invoice_id, company_id, meta, state, updated_at")
     .eq("provider", "digigo")
-    .in("state", ["pending", "pending_auth", "token_exchange"])
-    .order("signed_at", { ascending: false })
+    .in("state", ["pending_auth", "token_exchange", "pending"])
+    .eq("meta->>credentialId", digigoEmail)
+    .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (error || !sig) {
-    return { ok: false as const, error: "PENDING_SIGNATURE_NOT_FOUND" };
-  }
+  if (error || !sig) return { ok: false as const, error: "PENDING_SIGNATURE_NOT_FOUND" };
 
   return {
     ok: true as const,
     invoice_id: s(sig.invoice_id),
-    company_id: s(sig.company_id),
+    company_id: s((sig as any).company_id),
     state: s((sig as any)?.meta?.state),
   };
 }
@@ -107,7 +99,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "SIGNATURE_CONTEXT_NOT_FOUND" }, { status: 404 });
   }
 
-  const meta = (sig as any).meta ?? {};
+  const meta = ((sig as any).meta && typeof (sig as any).meta === "object") ? (sig as any).meta : {};
   const metaState = s(meta.state);
 
   await service
@@ -144,13 +136,29 @@ export async function POST(req: Request) {
 
   const sad = s(sadResp?.sad);
   if (!sad) {
+    await service
+      .from("invoice_signatures")
+      .update({
+        state: "token_failed",
+        meta: { ...meta, sad_missing: true, sad_resp: sadResp ?? null },
+      })
+      .eq("invoice_id", invoice_id);
+
     return NextResponse.json({ ok: false, error: "SAD_MISSING" }, { status: 502 });
   }
 
   const credentialId = s(meta.credentialId);
-  const unsigned_hash = s(sig.unsigned_hash);
+  const unsigned_hash = s((sig as any).unsigned_hash);
 
   if (!credentialId || !unsigned_hash) {
+    await service
+      .from("invoice_signatures")
+      .update({
+        state: "failed",
+        meta: { ...meta, missing_context: true, credentialId: credentialId || null, unsigned_hash: unsigned_hash || null },
+      })
+      .eq("invoice_id", invoice_id);
+
     return NextResponse.json({ ok: false, error: "MISSING_CONTEXT" }, { status: 400 });
   }
 
@@ -164,6 +172,14 @@ export async function POST(req: Request) {
       hashesBase64: [unsigned_hash],
     });
   } catch (e: any) {
+    await service
+      .from("invoice_signatures")
+      .update({
+        state: "failed",
+        meta: { ...meta, sign_error: s(e?.message), sign_data: e?.data ?? null },
+      })
+      .eq("invoice_id", invoice_id);
+
     return NextResponse.json({ ok: false, error: "SIGN_ERROR" }, { status: 502 });
   }
 
