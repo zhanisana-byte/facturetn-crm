@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 function s(v: any) {
@@ -23,27 +23,33 @@ function getStored(key: string) {
 export default function DigigoRootRedirect() {
   const router = useRouter();
   const params = useSearchParams();
+  const fired = useRef(false);
 
   useEffect(() => {
-    const token = params.get("token");
-    const code = params.get("code");
-    const error = params.get("error");
+    if (fired.current) return;
+    fired.current = true;
+
+    const token = s(params.get("token") || "");
+    const code = s(params.get("code") || "");
+    const error = s(params.get("error") || "");
+    const state = s(params.get("state") || "");
+    const invoiceId = s(params.get("invoice_id") || "");
+
+    if (!token && !code && !error) return;
 
     const qs = new URLSearchParams(params.toString());
 
-    if (!qs.get("state")) {
+    if (!state) {
       const st = typeof window !== "undefined" ? getStored("digigo_state") : "";
       if (st) qs.set("state", st);
     }
 
-    if (!qs.get("invoice_id")) {
+    if (!invoiceId) {
       const inv = typeof window !== "undefined" ? getStored("digigo_invoice_id") : "";
       if (inv) qs.set("invoice_id", inv);
     }
 
-    if (token || code || error) {
-      router.replace("/digigo/redirect?" + qs.toString());
-    }
+    router.replace("/digigo/redirect?" + qs.toString());
   }, [params, router]);
 
   return null;
