@@ -6,11 +6,11 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function mapError(codeOrMessage: string) {
+function mapError(codeOrMessage: string, details?: string) {
   const raw = s(codeOrMessage);
   if (!raw) return "Erreur DigiGo.";
 
-  const looksLikeCode = raw.length <= 40 && /^[A-Z0-9_]+$/.test(raw.replaceAll(" ", "_"));
+  const looksLikeCode = raw.length <= 60 && /^[A-Z0-9_]+$/.test(raw.replaceAll(" ", "_"));
   if (!looksLikeCode) return raw;
 
   const c = raw.toUpperCase();
@@ -18,14 +18,15 @@ function mapError(codeOrMessage: string) {
   if (c === "UNAUTHORIZED") return "Session expirée. Reconnectez-vous.";
   if (c === "FORBIDDEN") return "Accès refusé.";
   if (c === "INVOICE_NOT_FOUND") return "Facture introuvable.";
+  if (c === "INVALID_INVOICE_ID") return "Identifiant facture invalide (UUID).";
+  if (c === "INVOICE_READ_FAILED") return `Erreur lecture facture: ${s(details) || "échec"}`;
   if (c === "COMPANY_NOT_FOUND") return "Société introuvable.";
+  if (c === "COMPANY_READ_FAILED") return `Erreur lecture société: ${s(details) || "échec"}`;
   if (c === "TTN_NOT_CONFIGURED")
     return "TTN n’est pas configuré. Ouvrez Paramètres TTN et configurez la signature DigiGo.";
   if (c === "EMAIL_DIGIGO_COMPANY_MISSING")
     return "Renseignez l’email DigiGo dans Paramètres DigiGo (société).";
   if (c === "MISSING_INVOICE_ID") return "Identifiant facture manquant.";
-  if (c === "SIGNATURE_CONTEXT_INSERT_FAILED")
-    return "Impossible d'initialiser le contexte de signature. Réessayez.";
 
   return raw;
 }
@@ -85,8 +86,9 @@ export default function InvoiceSignatureClient({
       const j = await r.json().catch(() => null);
 
       if (!r.ok || !j?.ok) {
-        const raw = s(j?.error || j?.message || "");
-        setMsg({ ok: false, text: mapError(raw) });
+        const code = s(j?.error || "");
+        const details = s(j?.message || "");
+        setMsg({ ok: false, text: mapError(code || details || "Erreur", details) });
         return;
       }
 
