@@ -10,13 +10,16 @@ function s(v: any) {
 }
 
 function getStored(key: string) {
+  let v = "";
   try {
-    return s(window.localStorage.getItem(key));
+    v = s(window.localStorage.getItem(key) || "");
   } catch {}
+  if (v) return v;
+
   try {
-    return s(window.sessionStorage.getItem(key));
+    v = s(window.sessionStorage.getItem(key) || "");
   } catch {}
-  return "";
+  return v;
 }
 
 function clearStored(keys: string[]) {
@@ -30,6 +33,15 @@ function clearStored(keys: string[]) {
   }
 }
 
+function extractInvoiceIdFromState(state: string) {
+  const st = s(state);
+  if (!st) return "";
+  const m = st.match(
+    /^([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\b/i
+  );
+  return m ? m[1] : "";
+}
+
 export default function Ui() {
   const router = useRouter();
   const params = useSearchParams();
@@ -39,10 +51,15 @@ export default function Ui() {
 
   useEffect(() => {
     const token = s(params.get("token"));
-    const code = s(params.get("code")); // fallback si DigiGo change
+    const code = s(params.get("code"));
+    const stateParam = s(params.get("state"));
+    const invoiceIdParam = s(params.get("invoice_id"));
+
     const invoiceId =
       getStored("digigo_invoice_id") ||
-      getStored("invoice_id");
+      getStored("invoice_id") ||
+      invoiceIdParam ||
+      extractInvoiceIdFromState(stateParam);
 
     const backUrl =
       getStored("digigo_back_url") ||
@@ -50,13 +67,13 @@ export default function Ui() {
 
     if (!token && !code) {
       setStatus("error");
-      setMessage("Retour DigiGo invalide (token manquant).");
+      setMessage("Retour DigiGo invalide (token/code manquant).");
       return;
     }
 
     if (!invoiceId) {
       setStatus("error");
-      setMessage("Contexte de signature introuvable (invoice_id manquant). Relancez la signature.");
+      setMessage("Contexte de signature introuvable (invoice_id manquant). Relancez la signature depuis la facture.");
       return;
     }
 
@@ -69,7 +86,7 @@ export default function Ui() {
             token,
             code,
             invoice_id: invoiceId,
-            state: getStored("digigo_state"),
+            state: getStored("digigo_state") || stateParam,
           }),
         });
 
@@ -77,24 +94,18 @@ export default function Ui() {
 
         if (!res.ok || !j?.ok) {
           setStatus("error");
-          setMessage(
-            s(j?.message || j?.error || "Échec de la finalisation DigiGo.")
-          );
+          setMessage(s(j?.message || j?.error || "Échec de la finalisation DigiGo."));
           return;
         }
 
         setStatus("success");
         setMessage("Signature finalisée avec succès.");
 
-        clearStored([
-          "digigo_invoice_id",
-          "digigo_state",
-          "digigo_back_url",
-        ]);
+        clearStored(["digigo_invoice_id", "invoice_id", "digigo_state", "digigo_back_url"]);
 
         setTimeout(() => {
           router.replace(backUrl);
-        }, 1200);
+        }, 800);
       } catch (e: any) {
         setStatus("error");
         setMessage(s(e?.message || "Erreur réseau."));
@@ -108,18 +119,14 @@ export default function Ui() {
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4">
       <div className="w-full max-w-lg rounded-2xl border bg-white/70 p-6 shadow">
-        <div className="text-xl font-semibold">
-          Finalisation de la signature
-        </div>
+        <div className="text-xl font-semibold">Finalisation de la signature</div>
 
         {status === "loading" && (
           <div className="mt-4">
             <div className="h-2 w-full bg-slate-200 rounded overflow-hidden">
               <div className="h-full w-1/2 bg-slate-700 animate-pulse" />
             </div>
-            <div className="text-sm text-slate-600 mt-3">
-              Traitement sécurisé en cours…
-            </div>
+            <div className="text-sm text-slate-600 mt-3">Traitement sécurisé en cours…</div>
           </div>
         )}
 
