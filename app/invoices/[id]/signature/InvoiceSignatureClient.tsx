@@ -1,52 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 function s(v: any) {
   return String(v ?? "").trim();
-}
-
-function mapError(codeOrMessage: string, details?: string) {
-  const raw = s(codeOrMessage);
-  if (!raw) return "Erreur DigiGo.";
-
-  const looksLikeCode = raw.length <= 60 && /^[A-Z0-9_]+$/.test(raw.replaceAll(" ", "_"));
-  if (!looksLikeCode) return raw;
-
-  const c = raw.toUpperCase();
-
-  if (c === "UNAUTHORIZED") return "Session expirée. Reconnectez-vous.";
-  if (c === "FORBIDDEN") return "Accès refusé.";
-  if (c === "INVOICE_NOT_FOUND") return "Facture introuvable.";
-  if (c === "INVALID_INVOICE_ID") return "Identifiant facture invalide (UUID).";
-  if (c === "INVOICE_READ_FAILED") return `Erreur lecture facture: ${s(details) || "échec"}`;
-  if (c === "COMPANY_NOT_FOUND") return "Société introuvable.";
-  if (c === "COMPANY_READ_FAILED") return `Erreur lecture société: ${s(details) || "échec"}`;
-  if (c === "TTN_NOT_CONFIGURED")
-    return "TTN n’est pas configuré. Ouvrez Paramètres TTN et configurez la signature DigiGo.";
-  if (c === "EMAIL_DIGIGO_COMPANY_MISSING")
-    return "Renseignez l’email DigiGo dans Paramètres DigiGo (société).";
-  if (c === "MISSING_INVOICE_ID") return "Identifiant facture manquant.";
-
-  return raw;
-}
-
-function Pill({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-700">
-      {children}
-    </span>
-  );
-}
-
-function setEverywhere(key: string, value: string) {
-  if (!value) return;
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {}
-  try {
-    window.sessionStorage.setItem(key, value);
-  } catch {}
 }
 
 export default function InvoiceSignatureClient({
@@ -54,115 +12,100 @@ export default function InvoiceSignatureClient({
   backUrl,
 }: {
   invoiceId: string;
-  backUrl: string;
+  backUrl?: string;
 }) {
-  const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const router = useRouter();
+  const sp = useSearchParams();
 
-  const startedOnce = useRef(false);
-  const abortRef = useRef<AbortController | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [errorText, setErrorText] = useState("");
 
-  function stopPending() {
-    abortRef.current?.abort();
-    abortRef.current = null;
-  }
+  const resolvedBack = useMemo(() => {
+    const b = s(sp.get("back"));
+    return b || s(backUrl) || "/invoices";
+  }, [sp, backUrl]);
 
-  async function startAndRedirect() {
-    stopPending();
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
+  const invoiceLabel = useMemo(() => s(invoiceId), [invoiceId]);
 
-    setMsg(null);
+  async function start() {
     setLoading(true);
+    setErrorText("");
 
     try {
-      const r = await fetch("/api/digigo/start", {
+      const res = await fetch("/api/signature/digigo/start", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ invoice_id: invoiceId }),
-        signal: ctrl.signal,
       });
 
-      const j = await r.json().catch(() => null);
+      const data = await res.json().catch(() => ({}));
 
-      if (!r.ok || !j?.ok) {
-        const code = s(j?.error || "");
-        const details = s(j?.message || "");
-        setMsg({ ok: false, text: mapError(code || details || "Erreur", details) });
+      if (!res.ok || !data?.ok) {
+        const msg = s(data?.message) || s(data?.error) || "UNKNOWN_ERROR";
+        setErrorText(msg);
+        setLoading(false);
         return;
       }
 
-      const authorizeUrl = s(j?.authorize_url || "");
-      if (!authorizeUrl) {
-        setMsg({ ok: false, text: "URL DigiGo manquante. Vérifiez la configuration." });
+      const url = s(data?.authorize_url);
+      if (!url) {
+        setErrorText("authorize_url manquant");
+        setLoading(false);
         return;
       }
 
-      const state = s(j?.state || "");
-      if (state) setEverywhere("digigo_state", state);
-      setEverywhere("digigo_invoice_id", invoiceId);
-      setEverywhere("digigo_back_url", backUrl);
-
-      window.location.href = authorizeUrl;
+      window.location.href = url;
     } catch (e: any) {
-      if (e?.name === "AbortError") return;
-      setMsg({ ok: false, text: e?.message || "Erreur réseau." });
-    } finally {
+      setErrorText(s(e?.message) || "UNKNOWN_ERROR");
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (startedOnce.current) return;
-    startedOnce.current = true;
-    startAndRedirect();
-    return () => stopPending();
+    start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [invoiceId]);
 
   return (
-    <div className="mx-auto w-full max-w-[760px]">
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="space-y-1">
-            <div className="text-lg font-semibold text-slate-900">Signature DigiGo</div>
-            <div className="text-sm text-slate-600">Vous allez être redirigé pour signer le hash TEIF.</div>
-          </div>
-          <Pill>Invoice: {invoiceId}</Pill>
+    <div className="rounded-2xl border bg-white p-5">
+      <div className="mb-3">
+        <div className="text-lg font-semibold">Signature DigiGo</div>
+        <div className="text-sm text-slate-600">
+          Vous allez être redirigé pour signer le hash TEIF.
         </div>
+      </div>
 
-        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-          {loading ? "Préparation de la signature…" : "Initialisation…"}
+      <div className="mb-4 inline-flex items-center rounded-full border px-3 py-1 text-xs text-slate-700">
+        Invoice: {invoiceLabel}
+      </div>
+
+      <div className="rounded-xl border bg-slate-50 px-4 py-3 text-sm text-slate-700">
+        {loading ? "Initialisation..." : "Prêt."}
+      </div>
+
+      {errorText ? (
+        <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {errorText}
         </div>
+      ) : null}
 
-        {msg && (
-          <div
-            className={[
-              "mt-4 rounded-xl border p-4 text-sm",
-              msg.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800",
-            ].join(" ")}
-          >
-            {msg.text}
-          </div>
-        )}
+      <div className="mt-4 flex gap-3">
+        <button
+          type="button"
+          onClick={start}
+          disabled={loading}
+          className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+        >
+          Relancer
+        </button>
 
-        <div className="mt-5 flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => startAndRedirect()}
-            disabled={loading}
-            className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Relancer
-          </button>
-
-          <a
-            href={backUrl}
-            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
-          >
-            Retour
-          </a>
-        </div>
+        <button
+          type="button"
+          onClick={() => router.push(resolvedBack)}
+          className="rounded-xl border px-4 py-2 text-sm font-semibold"
+        >
+          Retour
+        </button>
       </div>
     </div>
   );
