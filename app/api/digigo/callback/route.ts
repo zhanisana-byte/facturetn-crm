@@ -16,53 +16,45 @@ function decodeJwtPayload(token: string): any | null {
     const part = parts[1];
     const pad = part.length % 4 ? "=".repeat(4 - (part.length % 4)) : "";
     const b64 = (part + pad).replace(/-/g, "+").replace(/_/g, "/");
-    const json = Buffer.from(b64, "base64").toString("utf8");
-    return JSON.parse(json);
+    return JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
   } catch {
     return null;
   }
 }
 
+/**
+ * 🔑 RÉSOLUTION FINALE
+ * - indépendante de l’utilisateur
+ * - basée sur la SIGNATURE EN COURS (facture / société)
+ */
 async function resolveStateFromToken(token: string) {
   const payload = decodeJwtPayload(token);
-  const email = s(payload?.sub);
-  if (!email) return { ok: false as const, error: "TOKEN_SUB_MISSING" };
+  const digigoEmail = s(payload?.sub);
+  if (!digigoEmail) {
+    return { ok: false as const, error: "TOKEN_SUB_MISSING" };
+  }
 
   const service = createServiceClient();
 
-  const { data: ident, error: identErr } = await service
-    .from("user_digigo_identities")
-    .select("user_id")
-    .eq("email", email)
-    .limit(1)
-    .maybeSingle();
-
-  if (identErr) return { ok: false as const, error: "IDENTITY_LOOKUP_FAILED" };
-
-  const userId = s(ident?.user_id);
-  if (!userId) return { ok: false as const, error: "IDENTITY_NOT_FOUND" };
-
-  const { data: sig, error: sigErr } = await service
+  const { data: sig, error } = await service
     .from("invoice_signatures")
-    .select("invoice_id, meta, state, signed_at")
+    .select("invoice_id, company_id, meta, state, signed_at")
     .eq("provider", "digigo")
-    .eq("signer_user_id", userId)
-    // ✅ CORRECTION CRITIQUE : inclure l’état initial
     .in("state", ["pending", "pending_auth", "token_exchange"])
     .order("signed_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (sigErr) return { ok: false as const, error: "SIGNATURE_LOOKUP_FAILED" };
-
-  const invoice_id = s(sig?.invoice_id);
-  const metaState = s((sig as any)?.meta?.state);
-
-  if (!invoice_id) {
+  if (error || !sig) {
     return { ok: false as const, error: "PENDING_SIGNATURE_NOT_FOUND" };
   }
 
-  return { ok: true as const, invoice_id, state: metaState };
+  return {
+    ok: true as const,
+    invoice_id: s(sig.invoice_id),
+    company_id: s(sig.company_id),
+    state: s((sig as any)?.meta?.state),
+  };
 }
 
 export async function POST(req: Request) {
@@ -80,16 +72,22 @@ export async function POST(req: Request) {
   const oauthToken = code || token;
 
   let invoice_id = "";
-  if (state) invoice_id = s(state.split(".")[0]);
-  if (!invoice_id && invoice_id_from_body) invoice_id = invoice_id_from_body;
+  let company_id = "";
 
-  // ✅ Résolution automatique si DigiGo renvoie token seul
+  if (state) {
+    invoice_id = s(state.split(".")[0]);
+  }
+  if (!invoice_id && invoice_id_from_body) {
+    invoice_id = invoice_id_from_body;
+  }
+
   if (!state && token) {
     const resolved = await resolveStateFromToken(token);
     if (!resolved.ok) {
       return NextResponse.json({ ok: false, error: resolved.error }, { status: 400 });
     }
     invoice_id = resolved.invoice_id;
+    company_id = resolved.company_id;
     if (resolved.state) state = resolved.state;
   }
 
@@ -101,28 +99,16 @@ export async function POST(req: Request) {
 
   const { data: sig, error: sigErr } = await service
     .from("invoice_signatures")
-    .select("invoice_id, company_id, unsigned_hash, state, meta")
+    .select("invoice_id, company_id, unsigned_hash, meta, state")
     .eq("invoice_id", invoice_id)
     .maybeSingle();
 
-  if (sigErr) {
-    return NextResponse.json(
-      { ok: false, error: "DB_ERROR", message: s(sigErr.message) },
-      { status: 500 }
-    );
-  }
-
-  if (!sig) {
+  if (sigErr || !sig) {
     return NextResponse.json({ ok: false, error: "SIGNATURE_CONTEXT_NOT_FOUND" }, { status: 404 });
   }
 
-  const meta = (sig as any)?.meta ?? {};
+  const meta = (sig as any).meta ?? {};
   const metaState = s(meta.state);
-
-  // ✅ Évite faux STATE_MISMATCH (OAuth state ≠ DB state)
-  if (state && metaState && metaState !== state && metaState.length > 20) {
-    return NextResponse.json({ ok: false, error: "STATE_MISMATCH" }, { status: 400 });
-  }
 
   await service
     .from("invoice_signatures")
@@ -147,40 +133,24 @@ export async function POST(req: Request) {
         meta: {
           ...meta,
           state: state || metaState,
-          token_error: s(e?.message || "TOKEN_ERROR"),
+          token_error: s(e?.message),
           token_data: e?.data ?? null,
         },
       })
       .eq("invoice_id", invoice_id);
 
-    return NextResponse.json({ ok: false, error: s(e?.message || "TOKEN_ERROR") }, { status: 502 });
+    return NextResponse.json({ ok: false, error: "TOKEN_ERROR" }, { status: 502 });
   }
 
   const sad = s(sadResp?.sad);
   if (!sad) {
-    await service
-      .from("invoice_signatures")
-      .update({
-        state: "token_failed",
-        meta: { ...meta, state: state || metaState, token_error: "SAD_MISSING" },
-      })
-      .eq("invoice_id", invoice_id);
-
     return NextResponse.json({ ok: false, error: "SAD_MISSING" }, { status: 502 });
   }
 
   const credentialId = s(meta.credentialId);
-  const unsigned_hash = s((sig as any)?.unsigned_hash);
+  const unsigned_hash = s(sig.unsigned_hash);
 
   if (!credentialId || !unsigned_hash) {
-    await service
-      .from("invoice_signatures")
-      .update({
-        state: "sign_failed",
-        meta: { ...meta, state: state || metaState, sign_error: "MISSING_CONTEXT" },
-      })
-      .eq("invoice_id", invoice_id);
-
     return NextResponse.json({ ok: false, error: "MISSING_CONTEXT" }, { status: 400 });
   }
 
@@ -194,20 +164,7 @@ export async function POST(req: Request) {
       hashesBase64: [unsigned_hash],
     });
   } catch (e: any) {
-    await service
-      .from("invoice_signatures")
-      .update({
-        state: "sign_failed",
-        meta: {
-          ...meta,
-          state: state || metaState,
-          sign_error: s(e?.message || "SIGN_ERROR"),
-          sign_data: e?.data ?? null,
-        },
-      })
-      .eq("invoice_id", invoice_id);
-
-    return NextResponse.json({ ok: false, error: s(e?.message || "SIGN_ERROR") }, { status: 502 });
+    return NextResponse.json({ ok: false, error: "SIGN_ERROR" }, { status: 502 });
   }
 
   const signedValue =
@@ -221,7 +178,7 @@ export async function POST(req: Request) {
     .update({
       state: "signed",
       signed_hash: signedValue || null,
-      meta: { ...meta, state: state || metaState, digigo_sign: signResp, sad },
+      meta: { ...meta, digigo_sign: signResp, sad },
     })
     .eq("invoice_id", invoice_id);
 
