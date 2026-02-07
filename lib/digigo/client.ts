@@ -178,6 +178,9 @@ export function digigoAuthorizeUrl(input: {
   u.searchParams.set("numSignatures", String(input.numSignatures ?? 1));
   u.searchParams.set("hash", input.hashBase64);
 
+  // ✅ AJOUT IMPORTANT : state doit être renvoyé par DigiGo à la redirection
+  u.searchParams.set("state", input.state);
+
   return u.toString();
 }
 
@@ -198,6 +201,7 @@ export async function digigoExchangeTokenForSad(authorizationJwtTokenOrCode: str
   } else {
     jti = raw;
   }
+
   if (!jti) {
     const e: any = new Error("JWT_JTI_MISSING");
     e.data = payload;
