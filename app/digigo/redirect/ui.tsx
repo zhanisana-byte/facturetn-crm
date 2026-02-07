@@ -39,6 +39,7 @@ export default function Ui() {
   const token = useMemo(() => s(sp.get("token") || ""), [sp]);
   const code = useMemo(() => s(sp.get("code") || ""), [sp]);
   const stateFromUrl = useMemo(() => s(sp.get("state") || ""), [sp]);
+  const invoiceIdFromUrl = useMemo(() => s(sp.get("invoice_id") || ""), [sp]);
 
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
@@ -52,7 +53,7 @@ export default function Ui() {
     const storedBackUrl = getStored("digigo_back_url");
 
     const state = stateFromUrl || storedState;
-    const invoiceId = storedInvoiceId;
+    const invoiceId = storedInvoiceId || invoiceIdFromUrl;
 
     if (!token && !code) {
       setError("Retour DigiGo invalide.");
@@ -61,6 +62,11 @@ export default function Ui() {
 
     if (!state) {
       setError("State manquant. Relancez la signature.");
+      return;
+    }
+
+    if (!invoiceId) {
+      setError("Invoice manquante. Relancez la signature.");
       return;
     }
 
@@ -73,7 +79,7 @@ export default function Ui() {
             token: token || undefined,
             code: code || undefined,
             state,
-            invoice_id: invoiceId || undefined,
+            invoice_id: invoiceId,
           }),
         });
 
@@ -93,7 +99,7 @@ export default function Ui() {
         setError(s(e?.message || "Erreur réseau."));
       }
     })();
-  }, [token, code, stateFromUrl, router]);
+  }, [token, code, stateFromUrl, invoiceIdFromUrl, router]);
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4">
@@ -110,9 +116,7 @@ export default function Ui() {
             </div>
           </div>
         ) : (
-          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-            {error}
-          </div>
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>
         )}
       </div>
     </div>
