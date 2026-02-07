@@ -43,15 +43,9 @@ export default async function DigiGoSignaturePage({ params }: Props) {
     ? { ...cred, ws_password: undefined, ws_password_present: !!cred.ws_password }
     : null;
 
-  const { data: identity } = await supabase
-    .from("user_digigo_identities")
-    .select("phone,email,national_id,updated_at")
-    .eq("user_id", auth.user.id)
-    .maybeSingle();
-
   return (
     <div className="p-6">
-      <DigiGoSignatureClient company={company} initial={safeCred} identity={identity} />
+      <DigiGoSignatureClient company={company} initial={safeCred} />
     </div>
   );
 }
