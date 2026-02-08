@@ -390,10 +390,36 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "SIGNATURE_UPSERT_FAILED", message: upsertRes.error.message }, { status: 500 });
     }
 
-    return NextResponse.json(
+    const res = NextResponse.json(
       { ok: true, authorize_url, state, unsigned_hash, invoice_number: finalInvoiceNumber, environment: picked.env },
       { status: 200 }
     );
+
+    res.cookies.set("digigo_invoice_id", invoice_id, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 15 * 60,
+    });
+
+    res.cookies.set("digigo_back_url", backUrl || `/invoices/${invoice_id}`, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 15 * 60,
+    });
+
+    res.cookies.set("digigo_state", state, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 15 * 60,
+    });
+
+    return res;
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: "UNKNOWN_ERROR", message: e?.message || "Unknown error" }, { status: 500 });
   }
