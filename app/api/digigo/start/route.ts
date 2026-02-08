@@ -29,22 +29,18 @@ function isUuid(v: string) {
 function computeFromItems(items: any[]) {
   let ht = 0;
   let tva = 0;
-
   for (const it of items) {
     const qty = n(it.quantity ?? 0);
     const pu = n(it.unit_price_ht ?? 0);
     const vatPct = n(it.vat_pct ?? 0);
     const discPct = clampPct(n(it.discount_pct ?? 0));
-
     const base = qty * pu;
     const remise = discPct > 0 ? (base * discPct) / 100 : 0;
     const net = base - remise;
     const vat = (net * vatPct) / 100;
-
     ht += net;
     tva += vat;
   }
-
   return { ht, tva, ttc: ht + tva };
 }
 
@@ -77,7 +73,13 @@ export async function POST(req: Request) {
 
   const invoice: any = invRes.data;
 
-  const allowed = await canCompanyAction(supabase, invoice.company_id, "can_create_invoices");
+  const allowed = await canCompanyAction(
+    supabase,
+    auth.user.id,
+    invoice.company_id,
+    "can_create_invoices"
+  );
+
   if (!allowed) {
     return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
   }
@@ -91,9 +93,7 @@ export async function POST(req: Request) {
   if (!compRes.data) {
     return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
   }
-  const company = compRes.data;
 
-  // ======= DIGIGO CREDENTIAL (ROBUSTE) =======
   const credRes = await service
     .from("ttn_credentials")
     .select("signature_config, updated_at")
@@ -104,21 +104,16 @@ export async function POST(req: Request) {
 
   const cred = credRes.data?.[0];
   const signatureConfig: any = cred?.signature_config || {};
-
   const credentialId = s(
     signatureConfig.digigo_signer_email ??
-    signatureConfig.credentialId ??
-    signatureConfig.email ??
-    ""
+      signatureConfig.credentialId ??
+      signatureConfig.email ??
+      ""
   );
 
   if (!credentialId) {
-    return NextResponse.json(
-      { ok: false, error: "DIGIGO_NOT_CONFIGURED" },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, error: "DIGIGO_NOT_CONFIGURED" }, { status: 400 });
   }
-  // ==========================================
 
   const itemsRes = await service
     .from("invoice_items")
@@ -135,7 +130,7 @@ export async function POST(req: Request) {
       subtotal_ht: totals.ht,
       total_vat: totals.tva,
       total_ttc: totals.ttc,
-      company,
+      company: compRes.data,
     },
     items,
     ttn: {
