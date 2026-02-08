@@ -162,9 +162,7 @@ async function ensureInvoiceNumber(service: any, invoice: any) {
     }
   }
 
-  if (!nextNum) {
-    nextNum = Math.floor(Math.random() * 900000) + 100000;
-  }
+  if (!nextNum) nextNum = Math.floor(Math.random() * 900000) + 100000;
 
   const finalNumber = `${prefix}${sep}${sk}${sep}${pad(nextNum, padding)}`;
   return { invoice_number: finalNumber, numbering_rule_id: s(rule?.id || "") };
@@ -195,6 +193,11 @@ async function pickDigigoCredential(service: any, companyId: string, forcedEnv?:
   }
 
   return { env: "", credentialId: "" };
+}
+
+function expiresDatePlusDays(days: number) {
+  const ms = Date.now() + days * 24 * 60 * 60 * 1000;
+  return new Date(ms).toISOString().slice(0, 10); // YYYY-MM-DD (robuste même si colonne=DATE)
 }
 
 export async function POST(req: Request) {
@@ -338,8 +341,18 @@ export async function POST(req: Request) {
 
     const unsigned_hash = sha256Base64Utf8(unsigned_xml);
 
+    // ✅ Nouveau state unique
     const state = `${invoice_id}:${crypto.randomUUID()}`;
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+    // ✅ IMPORTANT: expires_at en format DATE +2 jours (évite expiration immédiate)
+    const expiresAt = expiresDatePlusDays(2);
+
+    // ✅ Nettoyer les anciennes sessions "pending" de cette facture (évite confusion)
+    await service
+      .from("digigo_sign_sessions")
+      .update({ status: "revoked" })
+      .eq("invoice_id", invoice_id)
+      .eq("status", "pending");
 
     const sessIns = await service
       .from("digigo_sign_sessions")
@@ -350,9 +363,10 @@ export async function POST(req: Request) {
         created_by: auth.user.id,
         back_url: backUrl || `/invoices/${invoice_id}`,
         expires_at: expiresAt,
+        status: "pending",
       })
       .select("id")
-      .maybeSingle();
+      .single();
 
     if (sessIns.error) {
       return NextResponse.json({ ok: false, error: "SESSION_CREATE_FAILED", message: sessIns.error.message }, { status: 500 });
@@ -382,9 +396,9 @@ export async function POST(req: Request) {
           signer_user_id: auth.user.id,
           meta: {
             credentialId: picked.credentialId,
-            state,
             environment: picked.env || undefined,
             session_id: sessIns.data?.id || null,
+            state,
           },
         },
         { onConflict: "invoice_id" }
@@ -401,12 +415,15 @@ export async function POST(req: Request) {
       { status: 200 }
     );
 
+    // Cookies (on laisse 2 jours pour être cohérent)
+    const maxAge = 2 * 24 * 60 * 60;
+
     res.cookies.set("digigo_invoice_id", invoice_id, {
       httpOnly: true,
       secure: true,
       sameSite: "lax",
       path: "/",
-      maxAge: 15 * 60,
+      maxAge,
     });
 
     res.cookies.set("digigo_back_url", backUrl || `/invoices/${invoice_id}`, {
@@ -414,7 +431,7 @@ export async function POST(req: Request) {
       secure: true,
       sameSite: "lax",
       path: "/",
-      maxAge: 15 * 60,
+      maxAge,
     });
 
     res.cookies.set("digigo_state", state, {
@@ -422,7 +439,7 @@ export async function POST(req: Request) {
       secure: true,
       sameSite: "lax",
       path: "/",
-      maxAge: 15 * 60,
+      maxAge,
     });
 
     return res;
