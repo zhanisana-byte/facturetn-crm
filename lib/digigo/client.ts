@@ -53,14 +53,18 @@ export function digigoAuthorizeUrl(input: {
   state: string;
 }) {
   const base = digigoBaseUrl();
-  const u = new URL(`${base}/oauth2/authorize`);
+
+  const u = new URL(`${base}/tunsign-proxy-webapp/oauth2/authorize`);
+
   u.searchParams.set("redirect_uri", digigoRedirectUri());
   u.searchParams.set("response_type", "code");
   u.searchParams.set("client_id", digigoClientId());
+
   u.searchParams.set("scope", "credential");
   u.searchParams.set("credentialId", input.credentialId);
   u.searchParams.set("numSignatures", String(input.numSignatures ?? 1));
   u.searchParams.set("hash", input.hashBase64);
   u.searchParams.set("state", input.state);
+
   return u.toString();
 }
