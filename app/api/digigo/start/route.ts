@@ -47,6 +47,7 @@ function computeFromItems(items: any[]) {
 export async function POST(req: Request) {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
+
   if (!auth?.user) {
     return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
   }
@@ -114,19 +115,25 @@ export async function POST(req: Request) {
   const items = itemsRes.data || [];
   const totals = computeFromItems(items);
 
+  const stampEnabled = !!invoice.stamp_enabled;
+  const stampAmount = stampEnabled ? n(invoice.stamp_amount ?? 0) : 0;
+  const total_ttc = totals.ttc + stampAmount;
+
   const unsigned_xml = buildTeifInvoiceXml({
     invoice: {
       ...invoice,
       subtotal_ht: totals.ht,
       total_vat: totals.tva,
-      total_ttc: totals.ttc,
+      total_ttc,
       company: compRes.data,
+      stamp_enabled: stampEnabled,
+      stamp_amount: stampAmount,
     },
     items,
     ttn: {
       settings: {
-        stampEnabled: !!invoice.stamp_enabled,
-        stampAmount: n(invoice.stamp_amount ?? 0),
+        stampEnabled,
+        stampAmount,
       },
     } as any,
   } as any);
@@ -134,18 +141,23 @@ export async function POST(req: Request) {
   const unsigned_hash = sha256Base64Utf8(unsigned_xml);
   const state = crypto.randomUUID();
   const expires_at = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  const backUrlFinal = back_url || `/invoices/${invoice_id}`;
 
-  const sess = await service.from("digigo_sign_sessions").insert({
-    state,
-    invoice_id,
-    company_id: invoice.company_id,
-    created_by: auth.user.id,
-    back_url: back_url || `/invoices/${invoice_id}`,
-    expires_at,
-    status: "pending",
-  });
+  const sessIns = await service
+    .from("digigo_sign_sessions")
+    .insert({
+      state,
+      invoice_id,
+      company_id: invoice.company_id,
+      created_by: auth.user.id,
+      back_url: backUrlFinal,
+      expires_at,
+      status: "pending",
+    })
+    .select("state")
+    .maybeSingle();
 
-  if (sess.error) {
+  if (sessIns.error) {
     return NextResponse.json({ ok: false, error: "SESSION_CREATE_FAILED" }, { status: 500 });
   }
 
@@ -176,7 +188,7 @@ export async function POST(req: Request) {
       invoice_id,
       state,
       authorize_url,
-      back_url: back_url || `/invoices/${invoice_id}`,
+      back_url: backUrlFinal,
     },
     { status: 200 }
   );
@@ -192,7 +204,7 @@ export async function POST(req: Request) {
     maxAge,
   });
 
-  res.cookies.set("digigo_back_url", back_url || `/invoices/${invoice_id}`, {
+  res.cookies.set("digigo_back_url", backUrlFinal, {
     httpOnly: true,
     secure,
     sameSite: "lax",
