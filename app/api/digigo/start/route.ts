@@ -137,7 +137,7 @@ async function ensureInvoiceNumber(service: any, invoice: any) {
 
   if (!nextNum) throw new Error("INVOICE_NUMBERING_FAILED");
 
-  const number = `${prefix}${sep}${scopeKey(resetScope)}${sep}${pad(nextNum, padding)}`;
+  const number = `${prefix}-${scopeKey(resetScope)}-${pad(nextNum, padding)}`;
 
   await service.from("invoices").update({ invoice_number: number, numbering_rule_id: rule.id }).eq("id", invoice.id);
 
@@ -156,9 +156,7 @@ export async function POST(req: Request) {
     const invoice_id = s(body.invoice_id || body.invoiceId);
     const backUrl = s(body.back_url || body.backUrl || "");
 
-    if (!invoice_id || !isUuid(invoice_id)) {
-      return NextResponse.json({ ok: false, error: "INVALID_INVOICE_ID" }, { status: 400 });
-    }
+    if (!invoice_id || !isUuid(invoice_id)) return NextResponse.json({ ok: false, error: "INVALID_INVOICE_ID" }, { status: 400 });
 
     const invRes = await service.from("invoices").select("*").eq("id", invoice_id).single();
     if (invRes.error || !invRes.data) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
@@ -214,9 +212,7 @@ export async function POST(req: Request) {
       },
     });
 
-    if (!unsigned_xml || !unsigned_xml.includes("<")) {
-      return NextResponse.json({ ok: false, error: "TEIF_BUILD_FAILED" }, { status: 400 });
-    }
+    if (!unsigned_xml || !unsigned_xml.includes("<")) return NextResponse.json({ ok: false, error: "TEIF_BUILD_FAILED" }, { status: 400 });
 
     const unsigned_hash = sha256Base64Utf8(unsigned_xml);
 
@@ -237,11 +233,44 @@ export async function POST(req: Request) {
       .select("id")
       .maybeSingle();
 
-    if (sessIns.error) {
-      return NextResponse.json({ ok: false, error: "SESSION_CREATE_FAILED", message: sessIns.error.message }, { status: 500 });
-    }
+    if (sessIns.error) return NextResponse.json({ ok: false, error: "SESSION_CREATE_FAILED", message: sessIns.error.message }, { status: 500 });
 
     let authorize_url = "";
     try {
       authorize_url = digigoAuthorizeUrl({ credentialId, hashBase64: unsigned_hash, numSignatures: 1, state });
-    } catch (e
+    } catch (e: any) {
+      return NextResponse.json({ ok: false, error: "DIGIGO_AUTHORIZE_URL_FAILED", message: s(e?.message || e) }, { status: 500 });
+    }
+
+    const upsertRes = await service
+      .from("invoice_signatures")
+      .upsert(
+        {
+          invoice_id,
+          provider: "digigo",
+          state: "pending",
+          unsigned_hash,
+          unsigned_xml,
+          signer_user_id: auth.user.id,
+          meta: { credentialId, state, environment: envPicked || undefined, session_id: sessIns.data?.id || null },
+        },
+        { onConflict: "invoice_id" }
+      )
+      .select("id")
+      .single();
+
+    if (upsertRes.error) return NextResponse.json({ ok: false, error: "SIGNATURE_UPSERT_FAILED", message: upsertRes.error.message }, { status: 500 });
+
+    const res = NextResponse.json({ ok: true, authorize_url, state, unsigned_hash, invoice_number: finalInvoiceNumber, environment: envPicked }, { status: 200 });
+
+    const maxAge = SESSION_TTL_MINUTES * 60;
+
+    res.cookies.set("digigo_invoice_id", invoice_id, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge });
+    res.cookies.set("digigo_back_url", backUrl || `/invoices/${invoice_id}`, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge });
+    res.cookies.set("digigo_state", state, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge });
+
+    return res;
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: "UNKNOWN_ERROR", message: e?.message || "Unknown error" }, { status: 500 });
+  }
+}
