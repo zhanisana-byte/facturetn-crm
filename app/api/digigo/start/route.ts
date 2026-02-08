@@ -31,15 +31,13 @@ function computeFromItems(items: any[]) {
   let tva = 0;
 
   for (const it of items) {
-    const qty = n(it.quantity ?? it.qty ?? 0);
-    const pu = n(it.unit_price_ht ?? it.unit_price ?? it.price ?? 0);
-    const vatPct = n(it.vat_pct ?? it.vatPct ?? it.vat ?? 0);
-
-    const discPct = clampPct(n(it.discount_pct ?? it.discountPct ?? 0));
-    const discAmt = n(it.discount_amount ?? it.discountAmount ?? 0);
+    const qty = n(it.quantity ?? 0);
+    const pu = n(it.unit_price_ht ?? 0);
+    const vatPct = n(it.vat_pct ?? 0);
+    const discPct = clampPct(n(it.discount_pct ?? 0));
 
     const base = qty * pu;
-    const remise = discAmt > 0 ? discAmt : discPct > 0 ? (base * discPct) / 100 : 0;
+    const remise = discPct > 0 ? (base * discPct) / 100 : 0;
     const lineHt = Math.max(0, base - remise);
 
     ht += lineHt;
@@ -56,86 +54,15 @@ async function canSignInvoice(supabase: any, userId: string, companyId: string) 
   return false;
 }
 
-function scopeKey(resetScope: string) {
-  const d = new Date();
-  const yyyy = String(d.getFullYear());
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  if (resetScope === "month") return `${yyyy}-${mm}`;
-  if (resetScope === "none") return "global";
-  return yyyy;
-}
-
-function pad(num: number, width: number) {
-  const sNum = String(num);
-  return sNum.length >= width ? sNum : "0".repeat(width - sNum.length) + sNum;
-}
-
-async function ensureInvoiceNumber(service: any, invoice: any) {
-  if (invoice.invoice_number) {
-    return { invoice_number: invoice.invoice_number, numbering_rule_id: invoice.numbering_rule_id };
-  }
-
-  const ruleRes = await service
-    .from("invoice_numbering_rules")
-    .select("*")
-    .eq("company_id", invoice.company_id)
-    .eq("is_default", true)
-    .maybeSingle();
-
-  const rule = ruleRes.data;
-  if (!rule) throw new Error("NO_NUMBERING_RULE");
-
-  const sk = scopeKey(rule.reset_scope);
-  let nextNum = 0;
-
-  for (let i = 0; i < 5; i++) {
-    const cRes = await service
-      .from("invoice_counters")
-      .select("*")
-      .eq("company_id", invoice.company_id)
-      .eq("rule_id", rule.id)
-      .eq("scope_key", sk)
-      .maybeSingle();
-
-    if (!cRes.data) {
-      await service.from("invoice_counters").insert({
-        company_id: invoice.company_id,
-        rule_id: rule.id,
-        scope_key: sk,
-        last_number: 0,
-      });
-    }
-
-    const upd = await service
-      .from("invoice_counters")
-      .update({ last_number: (cRes.data?.last_number ?? 0) + 1 })
-      .eq("company_id", invoice.company_id)
-      .eq("rule_id", rule.id)
-      .eq("scope_key", sk)
-      .select("*")
-      .maybeSingle();
-
-    nextNum = upd.data?.last_number ?? 0;
-    if (nextNum > 0) break;
-  }
-
-  const number = `${rule.prefix}-${scopeKey(rule.reset_scope)}-${pad(nextNum, rule.seq_padding)}`;
-
-  await service
-    .from("invoices")
-    .update({ invoice_number: number, numbering_rule_id: rule.id })
-    .eq("id", invoice.id);
-
-  return { invoice_number: number, numbering_rule_id: rule.id };
-}
-
 export async function POST(req: Request) {
   try {
     const supabase = await createClient();
     const service = createServiceClient();
 
     const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+    if (!auth?.user) {
+      return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+    }
 
     const body = await req.json();
     const invoice_id = s(body.invoice_id);
@@ -146,16 +73,20 @@ export async function POST(req: Request) {
     }
 
     const invRes = await service.from("invoices").select("*").eq("id", invoice_id).single();
+    if (!invRes.data) {
+      return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
+    }
     const invoice = invRes.data;
-    if (!invoice) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
     if (!(await canSignInvoice(supabase, auth.user.id, invoice.company_id))) {
       return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
     }
 
     const compRes = await service.from("companies").select("*").eq("id", invoice.company_id).single();
+    if (!compRes.data) {
+      return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
+    }
     const company = compRes.data;
-    if (!company) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
 
     const credRes = await service
       .from("ttn_credentials")
@@ -169,12 +100,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "DIGIGO_NOT_CONFIGURED" }, { status: 400 });
     }
 
-    const ensured = await ensureInvoiceNumber(service, invoice);
+    const itemsRes = await service
+      .from("invoice_items")
+      .select("*")
+      .eq("invoice_id", invoice_id)
+      .order("line_no");
 
-    const itemsRes = await service.from("invoice_items").select("*").eq("invoice_id", invoice_id).order("line_no");
     const items = itemsRes.data ?? [];
-
     const totals = computeFromItems(items);
+
     const stamp_enabled = Boolean(invoice.stamp_enabled);
     const stamp_amount = n(invoice.stamp_amount);
 
@@ -189,7 +123,6 @@ export async function POST(req: Request) {
         ttc: totals.ttc,
         stampEnabled: stamp_enabled,
         stampAmount: stamp_amount,
-        net_to_pay: totals.ttc + (stamp_enabled ? stamp_amount : 0),
       },
     });
 
@@ -197,7 +130,7 @@ export async function POST(req: Request) {
     const state = crypto.randomUUID();
     const expires_at = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
-    const sess = await service.from("digigo_sign_sessions").insert({
+    await service.from("digigo_sign_sessions").insert({
       state,
       invoice_id,
       company_id: invoice.company_id,
@@ -205,8 +138,6 @@ export async function POST(req: Request) {
       back_url: back_url || `/invoices/${invoice_id}`,
       expires_at,
     });
-
-    if (sess.error) throw sess.error;
 
     const authorize_url = digigoAuthorizeUrl({
       credentialId,
@@ -229,7 +160,7 @@ export async function POST(req: Request) {
       ok: true,
       authorize_url,
       state,
-      invoice_number: ensured.invoice_number,
+      invoice_number: invoice.invoice_number,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: "SERVER_ERROR", message: s(e?.message) }, { status: 500 });
