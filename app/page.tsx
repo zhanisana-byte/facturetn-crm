@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export default async function Page() {
   return (
     <>
-      {/* 🔴 REDIRECTION DIGIGO (OBLIGATOIRE) */}
+      {/* REDIRECTION DIGIGO (OBLIGATOIRE) */}
       <DigigoRootRedirect />
 
       <AuthShell
