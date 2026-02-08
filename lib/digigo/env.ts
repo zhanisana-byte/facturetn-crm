@@ -1,5 +1,6 @@
 export {
   digigoBaseUrl,
+  digigoProxyBaseUrl,
   digigoClientId,
   digigoClientSecret,
   digigoRedirectUri,
