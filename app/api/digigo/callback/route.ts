@@ -50,7 +50,6 @@ function verifyJwtRS256(jwt: string, certPem: string) {
 
 async function httpsPostJson(urlStr: string, body: any, allowInsecure: boolean) {
   const url = new URL(urlStr);
-
   const payload = Buffer.from(JSON.stringify(body ?? {}), "utf8");
 
   const options: https.RequestOptions = {
@@ -82,9 +81,7 @@ async function httpsPostJson(urlStr: string, body: any, allowInsecure: boolean) 
     });
 
     req.on("error", (err) => reject(err));
-    req.on("timeout", () => {
-      req.destroy(new Error("HTTPS_TIMEOUT"));
-    });
+    req.on("timeout", () => req.destroy(new Error("HTTPS_TIMEOUT")));
 
     req.write(payload);
     req.end();
@@ -102,23 +99,37 @@ export async function POST(req: Request) {
     const state = s(body.state);
     const invoiceIdFromBody = s(body.invoice_id);
 
+    if (!token && !state && !invoiceIdFromBody) {
+      return NextResponse.json({ ok: false, error: "BAD_RETURN" }, { status: 400 });
+    }
+
     const svc = createServiceClient();
 
+    // ===========================
+    // SOURCE DE VÉRITÉ: SESSION
+    // ===========================
     let invoice_id = "";
     let back_url = "";
 
     if (state) {
       const sessRes = await svc.from("digigo_sign_sessions").select("*").eq("state", state).maybeSingle();
-      if (!sessRes.data) return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 400 });
-
       const session: any = sessRes.data;
-      if (new Date(session.expires_at).getTime() < Date.now()) {
+
+      if (!session) return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 400 });
+
+      const exp = new Date(session.expires_at).getTime();
+      if (Number.isFinite(exp) && exp < Date.now()) {
         await svc.from("digigo_sign_sessions").update({ status: "expired" }).eq("id", session.id);
         return NextResponse.json({ ok: false, error: "SESSION_EXPIRED" }, { status: 410 });
       }
 
       invoice_id = s(session.invoice_id);
       back_url = s(session.back_url) || (invoice_id ? `/invoices/${invoice_id}` : "/");
+
+      // Si déjà traité, on renvoie OK
+      if (s(session.status) === "done") {
+        return NextResponse.json({ ok: true, invoice_id, redirect: back_url }, { status: 200 });
+      }
     } else {
       if (!invoiceIdFromBody || !isUuid(invoiceIdFromBody)) {
         return NextResponse.json({ ok: false, error: "MISSING_CONTEXT" }, { status: 400 });
@@ -127,26 +138,31 @@ export async function POST(req: Request) {
       back_url = invoice_id ? `/invoices/${invoice_id}` : "/";
     }
 
+    // ===========================
+    // SIGNATURE CONTEXT
+    // ===========================
     const sigRes = await svc.from("invoice_signatures").select("*").eq("invoice_id", invoice_id).maybeSingle();
     const sigRow: any = sigRes.data;
-    if (!sigRow) return NextResponse.json({ ok: false, error: "SIGN_CTX_NOT_FOUND" }, { status: 400 });
-
-    const meta = sigRow?.meta && typeof sigRow.meta === "object" ? sigRow.meta : {};
-    const expectedState = s(meta?.state || "");
-    const credentialId = s(meta?.credentialId || "");
-
-    if (state && expectedState && state !== expectedState) {
-      await svc.from("digigo_sign_sessions").update({ status: "failed" }).eq("state", state);
-      return NextResponse.json({ ok: false, error: "STATE_MISMATCH" }, { status: 400 });
+    if (!sigRow) {
+      if (state) await svc.from("digigo_sign_sessions").update({ status: "failed" }).eq("state", state);
+      return NextResponse.json({ ok: false, error: "SIGN_CTX_NOT_FOUND" }, { status: 400 });
     }
 
+    const meta = sigRow?.meta && typeof sigRow.meta === "object" ? sigRow.meta : {};
+    const credentialId = s(meta?.credentialId || "");
     if (!credentialId) {
-      await svc.from("digigo_sign_sessions").update({ status: "failed" }).eq("state", state);
+      if (state) await svc.from("digigo_sign_sessions").update({ status: "failed" }).eq("state", state);
       return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
     }
 
-    if (!token) return NextResponse.json({ ok: false, error: "TOKEN_MISSING" }, { status: 400 });
+    if (!token) {
+      if (state) await svc.from("digigo_sign_sessions").update({ status: "failed" }).eq("state", state);
+      return NextResponse.json({ ok: false, error: "TOKEN_MISSING" }, { status: 400 });
+    }
 
+    // ===========================
+    // DIGIGO CODE (JTI)
+    // ===========================
     let payload: any;
     try {
       payload = verifyJwtRS256(token, NDCA_JWT_VERIFY_CERT_PEM);
@@ -158,6 +174,9 @@ export async function POST(req: Request) {
     const jti = s(payload?.jti || "");
     if (!jti) return NextResponse.json({ ok: false, error: "JWT_NO_JTI" }, { status: 400 });
 
+    // ===========================
+    // ENV
+    // ===========================
     const base = digigoBaseUrl().replace(/\/$/, "");
     const clientId = digigoClientId();
     const clientSecret = digigoClientSecret();
@@ -169,6 +188,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "DIGIGO_ENV_MISSING" }, { status: 500 });
     }
 
+    // ===========================
+    // TOKEN EXCHANGE
+    // ===========================
     const tokenUrl =
       `${base}/tunsign-proxy-webapp/services/v1/oauth2/token/` +
       `${encodeURIComponent(clientId)}/` +
@@ -194,14 +216,20 @@ export async function POST(req: Request) {
 
     const sad = s(tok.json?.sad || tok.json?.SAD || "");
     if (!sad) {
+      if (state) await svc.from("digigo_sign_sessions").update({ status: "failed" }).eq("state", state);
       return NextResponse.json({ ok: false, error: "SAD_MISSING", details: tok.text }, { status: 400 });
     }
 
+    // ===========================
+    // SIGN HASH
+    // ===========================
     const unsigned_xml = s(sigRow?.unsigned_xml || "");
-    if (!unsigned_xml) return NextResponse.json({ ok: false, error: "XML_MISSING" }, { status: 400 });
+    if (!unsigned_xml) {
+      if (state) await svc.from("digigo_sign_sessions").update({ status: "failed" }).eq("state", state);
+      return NextResponse.json({ ok: false, error: "XML_MISSING" }, { status: 400 });
+    }
 
     const hashBase64 = sha256Base64Utf8(unsigned_xml);
-
     const hashAlgo = "SHA256";
     const signAlgo = "RS256";
 
@@ -230,10 +258,18 @@ export async function POST(req: Request) {
     }
 
     const value = sign.json?.value;
-    const signatureValue = Array.isArray(value) ? s(value[0] || "") : s(sign.json?.signature || sign.json?.signatureValue || sign.json?.value || "");
+    const signatureValue = Array.isArray(value)
+      ? s(value[0] || "")
+      : s(sign.json?.signature || sign.json?.signatureValue || sign.json?.value || "");
 
-    if (!signatureValue) return NextResponse.json({ ok: false, error: "SIGNATURE_MISSING", details: sign.text }, { status: 400 });
+    if (!signatureValue) {
+      if (state) await svc.from("digigo_sign_sessions").update({ status: "failed" }).eq("state", state);
+      return NextResponse.json({ ok: false, error: "SIGNATURE_MISSING", details: sign.text }, { status: 400 });
+    }
 
+    // ===========================
+    // INJECT SIGNATURE INTO XML
+    // ===========================
     const signed_xml = injectSignatureIntoTeifXml(unsigned_xml, signatureValue);
     const signed_hash = sha256Base64Utf8(signed_xml);
 
