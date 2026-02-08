@@ -131,9 +131,7 @@ async function ensureInvoiceNumber(service: any, invoice: any) {
         .select("*")
         .single();
 
-      if (ins.error) {
-        continue;
-      }
+      if (ins.error) continue;
     }
 
     const cRes2 = await service
@@ -173,7 +171,7 @@ async function ensureInvoiceNumber(service: any, invoice: any) {
 }
 
 async function pickDigigoCredential(service: any, companyId: string, forcedEnv?: string) {
-  const envs = forcedEnv ? [forcedEnv] : ["production", "test"];
+  const envs = forcedEnv ? [forcedEnv] : ["test", "production"];
 
   for (const env of envs) {
     const r = await service
@@ -332,12 +330,15 @@ export async function POST(req: Request) {
         purpose: "ttn",
       });
     } catch (e: any) {
-      return NextResponse.json({ ok: false, error: "TEIF_BUILD_FAILED", message: friendlyTeifError(e?.message || String(e)) }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "TEIF_BUILD_FAILED", message: friendlyTeifError(e?.message || String(e)) },
+        { status: 400 }
+      );
     }
 
     const unsigned_hash = sha256Base64Utf8(unsigned_xml);
 
-    const state = crypto.randomUUID();
+    const state = `${invoice_id}:${crypto.randomUUID()}`;
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
     const sessIns = await service
@@ -379,7 +380,12 @@ export async function POST(req: Request) {
           unsigned_hash,
           unsigned_xml,
           signer_user_id: auth.user.id,
-          meta: { credentialId: picked.credentialId, state, environment: picked.env || undefined, session_id: sessIns.data?.id || null },
+          meta: {
+            credentialId: picked.credentialId,
+            state,
+            environment: picked.env || undefined,
+            session_id: sessIns.data?.id || null,
+          },
         },
         { onConflict: "invoice_id" }
       )
