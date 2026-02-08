@@ -6,18 +6,22 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-export default function DigigoSignButton({ invoiceId, backUrl }: { invoiceId: string; backUrl?: string }) {
+export default function DigigoSignButton({
+  invoiceId,
+  backUrl,
+}: {
+  invoiceId: string;
+  backUrl?: string;
+}) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
   function setEverywhere(key: string, value: string) {
     const v = s(value);
     if (!v) return;
-
     try {
       window.localStorage.setItem(key, v);
     } catch {}
-
     try {
       window.sessionStorage.setItem(key, v);
     } catch {}
@@ -38,15 +42,23 @@ export default function DigigoSignButton({ invoiceId, backUrl }: { invoiceId: st
     setErr("");
     setLoading(true);
 
+    const inv = s(invoiceId);
+    if (!inv) {
+      setErr("ID facture manquant.");
+      setLoading(false);
+      return;
+    }
+
     clearEverywhere(["digigo_state", "digigo_invoice_id", "digigo_back_url"]);
 
-    const safeBackUrl = s(backUrl) || `/invoices/${encodeURIComponent(invoiceId)}`;
+    const safeBackUrl = s(backUrl) || `/invoices/${encodeURIComponent(inv)}`;
 
     try {
       const r = await fetch("/api/digigo/start", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ invoice_id: invoiceId }),
+        body: JSON.stringify({ invoice_id: inv, back_url: safeBackUrl }),
+        cache: "no-store",
       });
 
       const j = await r.json().catch(() => ({}));
@@ -57,8 +69,13 @@ export default function DigigoSignButton({ invoiceId, backUrl }: { invoiceId: st
       }
 
       const state = s(j?.state || "");
-      setEverywhere("digigo_invoice_id", invoiceId);
-      if (state) setEverywhere("digigo_state", state);
+      if (!state) {
+        setErr("State manquant.");
+        return;
+      }
+
+      setEverywhere("digigo_invoice_id", inv);
+      setEverywhere("digigo_state", state);
       setEverywhere("digigo_back_url", safeBackUrl);
 
       window.location.href = String(j.authorize_url);
@@ -71,12 +88,19 @@ export default function DigigoSignButton({ invoiceId, backUrl }: { invoiceId: st
 
   return (
     <div className="space-y-2">
-      <button className="ftn-btn w-full sm:w-auto" type="button" onClick={start} disabled={loading}>
+      <button
+        className="ftn-btn w-full sm:w-auto"
+        type="button"
+        onClick={start}
+        disabled={loading}
+      >
         {loading ? "Redirection…" : "Signer avec DigiGo"}
       </button>
 
       {err ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{err}</div>
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+          {err}
+        </div>
       ) : null}
     </div>
   );
