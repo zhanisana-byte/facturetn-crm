@@ -1,11 +1,36 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+"use client";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+
+type Status = "loading" | "success" | "error";
 
 function s(v: any) {
   return String(v ?? "").trim();
+}
+
+function getStored(key: string) {
+  let v = "";
+  try {
+    v = s(window.localStorage.getItem(key) || "");
+  } catch {}
+  if (v) return v;
+
+  try {
+    v = s(window.sessionStorage.getItem(key) || "");
+  } catch {}
+  return v;
+}
+
+function clearStored(keys: string[]) {
+  for (const k of keys) {
+    try {
+      window.localStorage.removeItem(k);
+    } catch {}
+    try {
+      window.sessionStorage.removeItem(k);
+    } catch {}
+  }
 }
 
 function extractInvoiceIdFromState(state: string) {
@@ -17,90 +42,118 @@ function extractInvoiceIdFromState(state: string) {
   return m ? m[1] : "";
 }
 
-export async function POST(req: Request) {
-  try {
-    const body = await req.json().catch(() => ({}));
+export default function Ui() {
+  const router = useRouter();
+  const params = useSearchParams();
 
-    const token = s(body?.token);
-    const code = s(body?.code);
-    const state = s(body?.state);
-    let invoiceId = s(body?.invoice_id);
+  const [status, setStatus] = useState<Status>("loading");
+  const [message, setMessage] = useState("");
+  const [details, setDetails] = useState("");
+
+  useEffect(() => {
+    const token = s(params.get("token"));
+    const code = s(params.get("code"));
+
+    const stateFromUrl = s(params.get("state"));
+    const stateStored = getStored("digigo_state");
+    const state = stateFromUrl || stateStored;
+
+    const invoiceIdParam = s(params.get("invoice_id"));
+    const invoiceId =
+      getStored("digigo_invoice_id") ||
+      getStored("invoice_id") ||
+      invoiceIdParam ||
+      (state ? extractInvoiceIdFromState(state) : "");
+
+    const backUrl =
+      getStored("digigo_back_url") || (invoiceId ? `/invoices/${invoiceId}` : "/");
 
     if (!token && !code) {
-      return NextResponse.json(
-        { ok: false, message: "Retour DigiGo invalide (token/code manquant)." },
-        { status: 400 }
-      );
-    }
-
-    if (!invoiceId && state) {
-      invoiceId = extractInvoiceIdFromState(state);
+      setStatus("error");
+      setMessage("Retour DigiGo invalide (token/code manquant).");
+      return;
     }
 
     if (!invoiceId) {
-      return NextResponse.json(
-        { ok: false, message: "Contexte introuvable (invoice_id manquant). Relance la signature depuis la facture." },
-        { status: 400 }
+      setStatus("error");
+      setMessage(
+        "Contexte introuvable (invoice_id manquant). Relancez la signature depuis la facture."
       );
+      setDetails(
+        "Astuce: lance toujours la signature depuis la facture pour stocker invoice_id/back_url avant la redirection."
+      );
+      return;
     }
 
-    const supabase = await createClient();
+    async function finalize() {
+      try {
+        const payload: any = {
+          token,
+          code,
+          invoice_id: invoiceId,
+        };
+        if (state) payload.state = state;
 
-    // (Optionnel) Vérifier que l'utilisateur est connecté
-    const {
-      data: { user },
-      error: authErr,
-    } = await supabase.auth.getUser();
+        const res = await fetch("/api/digigo/callback", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
 
-    if (authErr || !user) {
-      return NextResponse.json(
-        { ok: false, message: "Session expirée. Reconnecte-toi puis relance la signature." },
-        { status: 401 }
-      );
+        const j = await res.json().catch(() => ({}));
+
+        if (!res.ok || !j?.ok) {
+          setStatus("error");
+          setMessage(s(j?.message || j?.error || "Échec de la finalisation DigiGo."));
+          return;
+        }
+
+        setStatus("success");
+        setMessage("Signature finalisée avec succès.");
+
+        clearStored(["digigo_invoice_id", "invoice_id", "digigo_state", "digigo_back_url"]);
+
+        const redir = s(j?.redirect || "");
+        setTimeout(() => {
+          router.replace(redir || backUrl);
+        }, 600);
+      } catch (e: any) {
+        setStatus("error");
+        setMessage(s(e?.message || "Erreur réseau."));
+      }
     }
 
-    // Vérifier que la facture existe et appartient au bon périmètre (à adapter à ton schéma)
-    const { data: invoice, error: invErr } = await supabase
-      .from("invoices")
-      .select("id, company_id")
-      .eq("id", invoiceId)
-      .maybeSingle();
+    finalize();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    if (invErr || !invoice) {
-      return NextResponse.json(
-        { ok: false, message: "Facture introuvable." },
-        { status: 404 }
-      );
-    }
+  return (
+    <div className="min-h-[70vh] flex items-center justify-center px-4">
+      <div className="w-full max-w-lg rounded-2xl border bg-white/70 p-6 shadow">
+        <div className="text-xl font-semibold">Finalisation de la signature</div>
 
-    // TODO: ici tu mets TA logique réelle :
-    // - échanger code->token si tu utilises code
-    // - appeler endpoint DigiGo pour finaliser la signature
-    // - enregistrer le résultat (signature, statut, token, etc.)
-    //
-    // IMPORTANT: ne bloque pas si state est vide.
-    // Si tu veux, tu peux juste le log/stocke.
+        {status === "loading" && (
+          <div className="mt-4">
+            <div className="h-2 w-full bg-slate-200 rounded overflow-hidden">
+              <div className="h-full w-1/2 bg-slate-700 animate-pulse" />
+            </div>
+            <div className="text-sm text-slate-600 mt-3">Traitement sécurisé en cours…</div>
+          </div>
+        )}
 
-    // Exemple minimal: marquer facture comme "signed_pending" ou "signed"
-    await supabase
-      .from("invoices")
-      .update({
-        signature_provider: "digigo",
-        signature_status: "signed",
-        digigo_token: token || null,
-        digigo_state: state || null,
-        signed_at: new Date().toISOString(),
-      })
-      .eq("id", invoiceId);
+        {status === "error" && (
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <div>{message}</div>
+            {details ? <div className="mt-2 text-xs text-red-700/80">{details}</div> : null}
+          </div>
+        )}
 
-    return NextResponse.json({
-      ok: true,
-      redirect: `/invoices/${invoiceId}`,
-    });
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, message: s(e?.message || "Erreur serveur.") },
-      { status: 500 }
-    );
-  }
+        {status === "success" && (
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
+            {message}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
