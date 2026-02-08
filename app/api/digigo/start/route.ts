@@ -35,9 +35,7 @@ function computeFromItems(items: any[]) {
     const pu = n(it.unit_price_ht ?? it.unit_price ?? it.price ?? 0);
     const vatPct = n(it.vat_pct ?? it.vatPct ?? it.tva_pct ?? it.tvaPct ?? it.vat ?? 0);
 
-    const discPct = clampPct(
-      n(it.discount_pct ?? it.discountPct ?? it.remise_pct ?? it.remisePct ?? it.discount ?? 0)
-    );
+    const discPct = clampPct(n(it.discount_pct ?? it.discountPct ?? it.remise_pct ?? it.remisePct ?? it.discount ?? 0));
     const discAmt = n(it.discount_amount ?? it.discountAmount ?? it.remise_amount ?? it.remiseAmount ?? 0);
 
     const base = qty * pu;
@@ -69,13 +67,140 @@ async function canSignInvoice(supabase: any, userId: string, companyId: string) 
   const b = await canCompanyAction(supabase, userId, companyId, "submit_ttn");
   if (b) return true;
   const c = await canCompanyAction(supabase, userId, companyId, "create_invoices");
-  if (c) return true;
-  return false;
+  return c;
+}
+
+function scopeKey(resetScope: string) {
+  const d = new Date();
+  const yyyy = String(d.getFullYear());
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+
+  const rs = String(resetScope || "year").toLowerCase();
+  if (rs === "month") return `${yyyy}-${mm}`;
+  if (rs === "none") return `global`;
+  return yyyy;
+}
+
+function pad(num: number, width: number) {
+  const sNum = String(num);
+  if (sNum.length >= width) return sNum;
+  return "0".repeat(width - sNum.length) + sNum;
+}
+
+async function ensureInvoiceNumber(service: any, invoice: any) {
+  const invNumber = s(invoice?.invoice_number);
+  if (invNumber) return { invoice_number: invNumber, numbering_rule_id: s(invoice?.numbering_rule_id) || "" };
+
+  const companyId = s(invoice?.company_id);
+  if (!companyId) throw new Error("INVOICE_NO_COMPANY");
+
+  const ruleRes = await service
+    .from("invoice_numbering_rules")
+    .select("*")
+    .eq("company_id", companyId)
+    .eq("is_default", true)
+    .maybeSingle();
+
+  if (ruleRes.error) throw new Error(ruleRes.error.message);
+  const rule = ruleRes.data;
+
+  const prefix = s(rule?.prefix || "FV");
+  const sep = s(rule?.separator || "-");
+  const padding = Number(rule?.seq_padding ?? 6) || 6;
+  const resetScope = s(rule?.reset_scope || "year");
+  const sk = scopeKey(resetScope);
+
+  let nextNum = 0;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const cRes = await service
+      .from("invoice_counters")
+      .select("*")
+      .eq("company_id", companyId)
+      .eq("rule_id", rule.id)
+      .eq("scope_key", sk)
+      .maybeSingle();
+
+    if (cRes.error) throw new Error(cRes.error.message);
+
+    if (!cRes.data) {
+      const ins = await service
+        .from("invoice_counters")
+        .insert({
+          company_id: companyId,
+          rule_id: rule.id,
+          scope_key: sk,
+          last_number: 0,
+        })
+        .select("*")
+        .single();
+
+      if (ins.error) continue;
+    }
+
+    const cRes2 = await service
+      .from("invoice_counters")
+      .select("*")
+      .eq("company_id", companyId)
+      .eq("rule_id", rule.id)
+      .eq("scope_key", sk)
+      .single();
+
+    if (cRes2.error) throw new Error(cRes2.error.message);
+
+    const counter = cRes2.data;
+    const last = Number(counter?.last_number ?? 0) || 0;
+    const wanted = last + 1;
+
+    const upd = await service
+      .from("invoice_counters")
+      .update({ last_number: wanted, updated_at: new Date().toISOString() })
+      .eq("id", counter.id)
+      .eq("last_number", last)
+      .select("id")
+      .maybeSingle();
+
+    if (!upd.error && upd.data) {
+      nextNum = wanted;
+      break;
+    }
+  }
+
+  if (!nextNum) nextNum = Math.floor(Math.random() * 900000) + 100000;
+
+  const finalNumber = `${prefix}${sep}${sk}${sep}${pad(nextNum, padding)}`;
+  return { invoice_number: finalNumber, numbering_rule_id: s(rule?.id || "") };
+}
+
+async function pickDigigoCredential(service: any, companyId: string, forcedEnv?: string) {
+  const envs = forcedEnv ? [forcedEnv] : ["test", "production"];
+
+  for (const env of envs) {
+    const r = await service
+      .from("ttn_credentials")
+      .select("signature_provider, signature_config, cert_email, environment")
+      .eq("company_id", companyId)
+      .eq("environment", env)
+      .maybeSingle();
+
+    if (r.error) throw new Error(r.error.message);
+    if (!r.data) continue;
+
+    const provider = s(r.data.signature_provider || "none");
+    if (provider !== "digigo") continue;
+
+    const cfg = r.data.signature_config && typeof r.data.signature_config === "object" ? r.data.signature_config : {};
+    const credentialId = s((cfg as any)?.digigo_signer_email || r.data.cert_email || "");
+    if (!credentialId) continue;
+
+    return { env, credentialId };
+  }
+
+  return { env: "", credentialId: "" };
 }
 
 function expiresDatePlusDays(days: number) {
   const ms = Date.now() + days * 24 * 60 * 60 * 1000;
-  return new Date(ms).toISOString();
+  return new Date(ms).toISOString(); // ✅ ISO (évite SESSION_EXPIRED à cause d’un parsing date)
 }
 
 export async function POST(req: Request) {
@@ -84,95 +209,124 @@ export async function POST(req: Request) {
     const service = createServiceClient();
 
     const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) {
-      return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
-    }
+    if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
     const body = await req.json().catch(() => ({}));
-    const invoice_id = s(body.invoice_id || body.invoiceId);
-    const backUrl = s(body.back_url || body.backUrl || "");
+    const invoice_id = s(body?.invoice_id ?? body?.invoiceId ?? body?.id);
+    const askedEnv = s(body?.environment);
+    const backUrl = s(body?.back_url ?? body?.backUrl ?? "");
 
-    if (!invoice_id || !isUuid(invoice_id)) {
-      return NextResponse.json({ ok: false, error: "INVALID_INVOICE_ID" }, { status: 400 });
-    }
-
-    const invRes = await service.from("invoices").select("*").eq("id", invoice_id).single();
-    if (invRes.error || !invRes.data) {
-      return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
-    }
-    const invoice: any = invRes.data;
-
-    if (!s(invoice.invoice_number)) {
-      return NextResponse.json({ ok: false, error: "INVOICE_NUMBER_MISSING" }, { status: 400 });
-    }
-
-    const company_id = s(invoice.company_id);
-    if (!company_id || !isUuid(company_id)) {
-      return NextResponse.json({ ok: false, error: "COMPANY_ID_MISSING" }, { status: 400 });
-    }
-
-    const allowed = await canSignInvoice(supabase, auth.user.id, company_id);
-    if (!allowed) {
-      return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
-    }
-
-    const compRes = await service.from("companies").select("*").eq("id", company_id).single();
-    if (compRes.error || !compRes.data) {
-      return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
-    }
-
-    const credRes = await service
-      .from("ttn_credentials")
-      .select("id,environment,signature_provider,signature_config,is_active,company_id")
-      .eq("company_id", company_id)
-      .eq("is_active", true)
-      .maybeSingle();
-
-    if (credRes.error) {
+    if (!invoice_id) return NextResponse.json({ ok: false, error: "MISSING_INVOICE_ID" }, { status: 400 });
+    if (!isUuid(invoice_id)) {
       return NextResponse.json(
-        { ok: false, error: "TTN_CREDENTIALS_READ_FAILED", message: credRes.error.message },
-        { status: 500 }
+        { ok: false, error: "INVALID_INVOICE_ID", message: "invoice_id doit être un UUID." },
+        { status: 400 }
       );
     }
-    if (!credRes.data) {
-      return NextResponse.json({ ok: false, error: "TTN_CREDENTIALS_MISSING" }, { status: 400 });
+
+    const invRes = await service.from("invoices").select("*").eq("id", invoice_id).maybeSingle();
+    if (invRes.error) {
+      return NextResponse.json({ ok: false, error: "INVOICE_READ_FAILED", message: invRes.error.message }, { status: 500 });
+    }
+    const invoice: any = invRes.data;
+    if (!invoice) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
+
+    const company_id = s(invoice?.company_id);
+    if (!company_id) return NextResponse.json({ ok: false, error: "INVOICE_NO_COMPANY" }, { status: 400 });
+
+    const allowed = await canSignInvoice(supabase, auth.user.id, company_id);
+    if (!allowed) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+
+    const compRes = await service.from("companies").select("*").eq("id", company_id).maybeSingle();
+    if (compRes.error) {
+      return NextResponse.json({ ok: false, error: "COMPANY_READ_FAILED", message: compRes.error.message }, { status: 500 });
+    }
+    const company: any = compRes.data;
+    if (!company) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
+
+    const picked = await pickDigigoCredential(service, company_id, askedEnv || undefined);
+    if (!picked.credentialId) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "EMAIL_DIGIGO_COMPANY_MISSING",
+          message: "Renseignez l’email DigiGo dans Paramètres DigiGo (société).",
+        },
+        { status: 400 }
+      );
     }
 
-    const cred: any = credRes.data;
-    const signature_config: any = cred.signature_config ?? {};
-    const configured = !!signature_config?.digigo_configured;
-    const signer_email = s(signature_config?.digigo_signer_email);
+    let finalInvoiceNumber = s(invoice?.invoice_number);
+    let finalRuleId = s(invoice?.numbering_rule_id);
 
-    if (!configured || !signer_email) {
-      return NextResponse.json({ ok: false, error: "DIGIGO_NOT_CONFIGURED" }, { status: 400 });
+    if (!finalInvoiceNumber) {
+      const ensured = await ensureInvoiceNumber(service, invoice);
+      finalInvoiceNumber = ensured.invoice_number;
+      finalRuleId = ensured.numbering_rule_id;
+
+      const up = await service
+        .from("invoices")
+        .update({
+          invoice_number: finalInvoiceNumber,
+          numbering_rule_id: finalRuleId || invoice?.numbering_rule_id || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", invoice_id)
+        .select("id")
+        .maybeSingle();
+
+      if (up.error) {
+        return NextResponse.json({ ok: false, error: "INVOICE_NUMBER_UPDATE_FAILED", message: up.error.message }, { status: 500 });
+      }
     }
 
-    const itemsRes = await service
+    const itRes = await service
       .from("invoice_items")
       .select("*")
       .eq("invoice_id", invoice_id)
-      .order("position", { ascending: true });
+      .order("line_no", { ascending: true });
 
-    if (itemsRes.error) {
-      return NextResponse.json({ ok: false, error: "ITEMS_READ_FAILED", message: itemsRes.error.message }, { status: 500 });
+    if (itRes.error) {
+      return NextResponse.json({ ok: false, error: "ITEMS_READ_FAILED", message: itRes.error.message }, { status: 500 });
     }
 
-    const items = itemsRes.data ?? [];
-    const computed = computeFromItems(items);
+    const items = itRes.data ?? [];
+    const calc = computeFromItems(items);
 
-    const ht = n(invoice.total_ht ?? computed.ht);
-    const tva = n(invoice.total_tva ?? computed.tva);
-    const ttc = n(invoice.total_ttc ?? computed.ttc);
+    const stampEnabled = Boolean(invoice?.stamp_enabled);
+    const stampAmount = n(invoice?.stamp_amount);
 
-    const stampEnabled = Boolean(invoice.stamp_enabled ?? invoice.stampEnabled ?? false);
-    const stampAmount = n(invoice.stamp_amount ?? invoice.stampAmount ?? 0);
+    const ht = calc.ht;
+    const tva = calc.tva;
+    const ttc = calc.ttc + (stampEnabled ? stampAmount : 0);
 
-    let xmlBuild: any;
+    let unsigned_xml = "";
     try {
-      xmlBuild = await buildTeifInvoiceXml({
-        invoice,
-        company: compRes.data,
-        items,
+      unsigned_xml = buildTeifInvoiceXml({
+        invoiceId: invoice_id,
+        company: {
+          name: s(company?.company_name ?? ""),
+          taxId: s(company?.tax_id ?? company?.taxId ?? ""),
+          address: s(company?.address ?? ""),
+          city: s(company?.city ?? ""),
+          postalCode: s(company?.postal_code ?? company?.zip ?? ""),
+          country: s(company?.country ?? "TN"),
+        },
+        invoice: {
+          documentType: s(invoice?.document_type ?? "facture"),
+          number: finalInvoiceNumber,
+          issueDate: s(invoice?.issue_date ?? ""),
+          dueDate: s(invoice?.due_date ?? ""),
+          currency: s(invoice?.currency ?? "TND"),
+
+          customerName: s(invoice?.customer_name ?? ""),
+          customerTaxId: s(invoice?.customer_tax_id ?? ""),
+          customerEmail: s(invoice?.customer_email ?? ""),
+          customerPhone: s(invoice?.customer_phone ?? ""),
+          customerAddress: s(invoice?.customer_address ?? ""),
+
+          notes: s(invoice?.notes ?? invoice?.note ?? ""),
+        },
         totals: {
           ht,
           tva,
@@ -180,36 +334,28 @@ export async function POST(req: Request) {
           stampEnabled,
           stampAmount,
         },
+        items: items.map((it: any) => ({
+          description: s(it.description ?? ""),
+          qty: n(it.quantity ?? 1),
+          price: n(it.unit_price_ht ?? it.unit_price ?? 0),
+          vat: n(it.vat_pct ?? it.vatPct ?? 0),
+          discount: n(it.discount_pct ?? it.discountPct ?? 0),
+        })),
+        purpose: "ttn",
       });
     } catch (e: any) {
-      xmlBuild = { ok: false, error: s(e?.message || e) };
-    }
-
-    if (!xmlBuild?.ok) {
       return NextResponse.json(
-        { ok: false, error: "TEIF_BUILD_FAILED", message: friendlyTeifError(s(xmlBuild?.error)) },
+        { ok: false, error: "TEIF_BUILD_FAILED", message: friendlyTeifError(e?.message || String(e)) },
         { status: 400 }
       );
     }
 
-    const unsigned_xml = s(xmlBuild.xml);
-    if (!unsigned_xml) {
-      return NextResponse.json({ ok: false, error: "TEIF_EMPTY" }, { status: 400 });
-    }
-
     const unsigned_hash = sha256Base64Utf8(unsigned_xml);
-    if (!unsigned_hash) {
-      return NextResponse.json({ ok: false, error: "HASH_FAILED" }, { status: 500 });
-    }
 
     const state = `${invoice_id}:${crypto.randomUUID()}`;
     const expiresAt = expiresDatePlusDays(2);
 
-    await service
-      .from("digigo_sign_sessions")
-      .update({ status: "revoked" })
-      .eq("invoice_id", invoice_id)
-      .eq("status", "pending");
+    await service.from("digigo_sign_sessions").update({ status: "revoked" }).eq("invoice_id", invoice_id).eq("status", "pending");
 
     const sessIns = await service
       .from("digigo_sign_sessions")
@@ -232,30 +378,74 @@ export async function POST(req: Request) {
     let authorize_url = "";
     try {
       authorize_url = digigoAuthorizeUrl({
-        signerEmail: signer_email,
+        credentialId: picked.credentialId,
+        hashBase64: unsigned_hash,
+        numSignatures: 1,
         state,
-        documentHash: unsigned_hash,
       });
     } catch (e: any) {
-      return NextResponse.json({ ok: false, error: "AUTHORIZE_URL_FAILED", message: s(e?.message || e) }, { status: 500 });
+      return NextResponse.json({ ok: false, error: "DIGIGO_AUTHORIZE_URL_FAILED", message: s(e?.message || e) }, { status: 500 });
     }
 
-    await service
-      .from("invoices")
-      .update({
-        signature_status: "pending",
-        signature_provider: "digigo",
-        unsigned_xml,
-        unsigned_hash,
-        signer_email,
-      })
-      .eq("id", invoice_id);
+    const upsertRes = await service
+      .from("invoice_signatures")
+      .upsert(
+        {
+          invoice_id,
+          provider: "digigo",
+          state: "pending",
+          unsigned_hash,
+          unsigned_xml,
+          signer_user_id: auth.user.id,
+          meta: {
+            credentialId: picked.credentialId,
+            environment: picked.env || undefined,
+            session_id: sessIns.data?.id || null,
+            state,
+          },
+        },
+        { onConflict: "invoice_id" }
+      )
+      .select("id")
+      .single();
 
-    return NextResponse.json({ ok: true, state, authorize_url }, { status: 200 });
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: "SERVER_CRASH", message: "Erreur serveur (digigo start).", details: s(e?.message || e) },
-      { status: 500 }
+    if (upsertRes.error) {
+      return NextResponse.json({ ok: false, error: "SIGNATURE_UPSERT_FAILED", message: upsertRes.error.message }, { status: 500 });
+    }
+
+    const res = NextResponse.json(
+      { ok: true, authorize_url, state, unsigned_hash, invoice_number: finalInvoiceNumber, environment: picked.env },
+      { status: 200 }
     );
+
+    const maxAge = 2 * 24 * 60 * 60;
+
+    res.cookies.set("digigo_invoice_id", invoice_id, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge,
+    });
+
+    res.cookies.set("digigo_back_url", backUrl || `/invoices/${invoice_id}`, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge,
+    });
+
+    res.cookies.set("digigo_state", state, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge,
+    });
+
+    return res;
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: "UNKNOWN_ERROR", message: e?.message || "Unknown error" }, { status: 500 });
   }
 }
