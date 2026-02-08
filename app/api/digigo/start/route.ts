@@ -61,12 +61,7 @@ export async function POST(req: Request) {
 
   const service = createServiceClient();
 
-  const invRes = await service
-    .from("invoices")
-    .select("*")
-    .eq("id", invoice_id)
-    .maybeSingle();
-
+  const invRes = await service.from("invoices").select("*").eq("id", invoice_id).maybeSingle();
   if (!invRes.data) {
     return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
   }
@@ -77,19 +72,14 @@ export async function POST(req: Request) {
     supabase,
     auth.user.id,
     invoice.company_id,
-    "can_create_invoices"
+    "create_invoices" as any
   );
 
   if (!allowed) {
     return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
   }
 
-  const compRes = await service
-    .from("companies")
-    .select("*")
-    .eq("id", invoice.company_id)
-    .single();
-
+  const compRes = await service.from("companies").select("*").eq("id", invoice.company_id).single();
   if (!compRes.data) {
     return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
   }
