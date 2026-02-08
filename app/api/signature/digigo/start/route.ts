@@ -17,7 +17,7 @@ function n(v: any) {
   return Number.isFinite(x) ? x : 0;
 }
 function isUuid(v: string) {
-  return /^[0-9a-f-]{36}$/i.test(v);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
 
 export async function POST(req: Request) {
@@ -32,6 +32,7 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const invoice_id = s(body.invoice_id || body.invoiceId);
+
     if (!invoice_id || !isUuid(invoice_id)) {
       return NextResponse.json({ ok: false, error: "INVALID_INVOICE_ID" }, { status: 400 });
     }
@@ -44,10 +45,7 @@ export async function POST(req: Request) {
     const invoice = invRes.data;
 
     if (!invoice.invoice_number) {
-      return NextResponse.json(
-        { ok: false, error: "INVOICE_NUMBER_MISSING" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "INVOICE_NUMBER_MISSING" }, { status: 400 });
     }
 
     const company_id = s(invoice.company_id);
@@ -85,54 +83,83 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "DIGIGO_EMAIL_MISSING" }, { status: 400 });
     }
 
-    const itemsRes = await service
-      .from("invoice_items")
-      .select("*")
+    const sigRes = await service
+      .from("invoice_signatures")
+      .select("state, unsigned_xml, unsigned_hash")
       .eq("invoice_id", invoice_id)
-      .order("line_no");
+      .maybeSingle();
 
-    if (!itemsRes.data || itemsRes.data.length === 0) {
-      return NextResponse.json({ ok: false, error: "NO_ITEMS" }, { status: 400 });
+    let unsigned_xml = "";
+    let hash = "";
+
+    if (sigRes.data && (sigRes.data.state === "pending" || sigRes.data.state === "signed")) {
+      unsigned_xml = s(sigRes.data.unsigned_xml);
+      hash = s(sigRes.data.unsigned_hash);
+
+      if (!unsigned_xml || !hash) {
+        return NextResponse.json({ ok: false, error: "XML_FROZEN_BUT_MISSING" }, { status: 500 });
+      }
+    } else {
+      const itemsRes = await service
+        .from("invoice_items")
+        .select("*")
+        .eq("invoice_id", invoice_id)
+        .order("line_no");
+
+      if (!itemsRes.data || itemsRes.data.length === 0) {
+        return NextResponse.json({ ok: false, error: "NO_ITEMS" }, { status: 400 });
+      }
+
+      unsigned_xml = buildTeifInvoiceXml({
+        invoiceId: invoice_id,
+        company: {
+          name: s(compRes.data.company_name),
+          taxId: s(compRes.data.tax_id),
+          address: s(compRes.data.address),
+          city: s(compRes.data.city),
+          postalCode: s(compRes.data.postal_code),
+          country: "TN",
+        },
+        invoice: {
+          documentType: invoice.document_type,
+          number: invoice.invoice_number,
+          issueDate: invoice.issue_date,
+          dueDate: invoice.due_date,
+          currency: invoice.currency,
+          customerName: invoice.customer_name,
+          customerTaxId: invoice.customer_tax_id,
+          customerEmail: invoice.customer_email,
+          customerAddress: invoice.customer_address,
+        },
+        totals: {
+          ht: n(invoice.subtotal_ht),
+          tva: n(invoice.total_vat),
+          ttc: n(invoice.total_ttc),
+          stampEnabled: invoice.stamp_enabled,
+          stampAmount: n(invoice.stamp_amount),
+        },
+        items: itemsRes.data.map((it: any) => ({
+          description: it.description,
+          qty: n(it.quantity),
+          price: n(it.unit_price_ht),
+          vat: n(it.vat_pct),
+        })),
+        purpose: "ttn",
+      });
+
+      hash = sha256Base64Utf8(unsigned_xml);
+
+      await service.from("invoice_signatures").upsert({
+        invoice_id,
+        provider: "digigo",
+        state: "pending",
+        unsigned_xml,
+        unsigned_hash: hash,
+        signer_user_id: auth.user.id,
+        meta: { credentialId, environment: "test" },
+      });
     }
 
-    const unsigned_xml = buildTeifInvoiceXml({
-      invoiceId: invoice_id,
-      company: {
-        name: s(compRes.data.company_name),
-        taxId: s(compRes.data.tax_id),
-        address: s(compRes.data.address),
-        city: s(compRes.data.city),
-        postalCode: s(compRes.data.postal_code),
-        country: "TN",
-      },
-      invoice: {
-        documentType: invoice.document_type,
-        number: invoice.invoice_number,
-        issueDate: invoice.issue_date,
-        dueDate: invoice.due_date,
-        currency: invoice.currency,
-        customerName: invoice.customer_name,
-        customerTaxId: invoice.customer_tax_id,
-        customerEmail: invoice.customer_email,
-        customerAddress: invoice.customer_address,
-      },
-      totals: {
-        ht: n(invoice.subtotal_ht),
-        tva: n(invoice.total_vat),
-        ttc: n(invoice.total_ttc),
-        stampEnabled: invoice.stamp_enabled,
-        stampAmount: n(invoice.stamp_amount),
-      },
-      items: itemsRes.data.map((it: any) => ({
-        description: it.description,
-        qty: n(it.quantity),
-        price: n(it.unit_price_ht),
-        vat: n(it.vat_pct),
-      })),
-      purpose: "ttn",
-    });
-
-    const hash = sha256Base64Utf8(unsigned_xml);
     const state = `${invoice_id}.${crypto.randomBytes(8).toString("hex")}`;
 
     const authorize_url = digigoAuthorizeUrl({
@@ -140,23 +167,6 @@ export async function POST(req: Request) {
       hashBase64: hash,
       numSignatures: 1,
       state,
-    });
-
-    if (!authorize_url) {
-      return NextResponse.json(
-        { ok: false, error: "DIGIGO_URL_GENERATION_FAILED" },
-        { status: 500 }
-      );
-    }
-
-    await service.from("invoice_signatures").upsert({
-      invoice_id,
-      provider: "digigo",
-      state: "pending",
-      unsigned_xml,
-      unsigned_hash: hash,
-      signer_user_id: auth.user.id,
-      meta: { credentialId, state, environment: "test" },
     });
 
     return NextResponse.json({ ok: true, authorize_url });
