@@ -7,16 +7,58 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
+function getStored(key: string) {
+  let v = "";
+  try {
+    v = s(window.localStorage.getItem(key) || "");
+  } catch {}
+  if (v) return v;
+  try {
+    v = s(window.sessionStorage.getItem(key) || "");
+  } catch {}
+  return v;
+}
+
+function clearStored(keys: string[]) {
+  for (const k of keys) {
+    try {
+      window.localStorage.removeItem(k);
+    } catch {}
+    try {
+      window.sessionStorage.removeItem(k);
+    } catch {}
+  }
+}
+
 type ApiOk = { ok: true; invoice_id?: string; redirect?: string };
-type ApiErr = { ok: false; error?: string; message?: string; details?: any; status?: number; body?: any };
+type ApiErr = {
+  ok: false;
+  error?: string;
+  message?: string;
+  details?: any;
+  status?: number;
+  body?: any;
+};
 
 export default function DigigoRedirectClient() {
   const sp = useSearchParams();
   const router = useRouter();
 
-  const token = useMemo(() => s(sp.get("token") || ""), [sp]);
-  const state = useMemo(() => s(sp.get("state") || ""), [sp]);
-  const invoice_id = useMemo(() => s(sp.get("invoice_id") || ""), [sp]);
+  const tokenUrl = useMemo(() => s(sp.get("token") || ""), [sp]);
+  const codeUrl = useMemo(() => s(sp.get("code") || ""), [sp]);
+  const stateUrl = useMemo(() => s(sp.get("state") || ""), [sp]);
+  const invoiceUrl = useMemo(() => s(sp.get("invoice_id") || ""), [sp]);
+
+  const tokenStored = useMemo(() => getStored("digigo_token"), []);
+  const stateStored = useMemo(() => getStored("digigo_state"), []);
+  const invoiceStored = useMemo(() => getStored("digigo_invoice_id"), []);
+  const backStored = useMemo(() => getStored("digigo_back_url"), []);
+
+  const token = useMemo(() => tokenUrl || tokenStored, [tokenUrl, tokenStored]);
+  const code = useMemo(() => codeUrl, [codeUrl]);
+  const state = useMemo(() => stateUrl || stateStored, [stateUrl, stateStored]);
+  const invoice_id = useMemo(() => invoiceStored || invoiceUrl, [invoiceStored, invoiceUrl]);
+  const back_url = useMemo(() => backStored, [backStored]);
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<ApiErr | null>(null);
@@ -28,7 +70,7 @@ export default function DigigoRedirectClient() {
       setLoading(true);
       setErr(null);
 
-      if (!token && !state && !invoice_id) {
+      if (!token && !code && !state && !invoice_id) {
         setLoading(false);
         setErr({ ok: false, error: "MISSING_PARAMS", message: "Paramètres manquants dans l’URL." });
         return;
@@ -38,7 +80,7 @@ export default function DigigoRedirectClient() {
         const r = await fetch("/api/digigo/callback", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, state, invoice_id }),
+          body: JSON.stringify({ token, code, state, invoice_id, back_url }),
           cache: "no-store",
         });
 
@@ -66,13 +108,18 @@ export default function DigigoRedirectClient() {
 
         const ok = json as ApiOk;
         const redir = s(ok.redirect || "");
+        const inv = s(ok.invoice_id || invoice_id || "");
+
+        clearStored(["digigo_state", "digigo_invoice_id", "digigo_back_url", "digigo_token"]);
 
         setLoading(false);
 
         if (redir) {
           router.replace(redir);
+        } else if (inv) {
+          router.replace(`/invoices/${inv}`);
         } else {
-          router.replace(invoice_id ? `/invoices/${invoice_id}` : "/");
+          router.replace("/");
         }
       } catch (e: any) {
         if (cancelled) return;
@@ -85,7 +132,7 @@ export default function DigigoRedirectClient() {
     return () => {
       cancelled = true;
     };
-  }, [token, state, invoice_id, router]);
+  }, [token, code, state, invoice_id, back_url, router]);
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4">
@@ -106,9 +153,13 @@ export default function DigigoRedirectClient() {
             <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
               <div className="font-semibold">{err.message || "Échec de la finalisation DigiGo."}</div>
               <div className="text-sm mt-2">
-                <div><span className="font-medium">Erreur:</span> {err.error || "UNKNOWN"}</div>
+                <div>
+                  <span className="font-medium">Erreur:</span> {err.error || "UNKNOWN"}
+                </div>
                 {typeof err.status === "number" && (
-                  <div><span className="font-medium">HTTP:</span> {err.status}</div>
+                  <div>
+                    <span className="font-medium">HTTP:</span> {err.status}
+                  </div>
                 )}
               </div>
               {err.details ? (
