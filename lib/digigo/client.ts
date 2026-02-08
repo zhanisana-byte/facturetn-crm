@@ -37,8 +37,9 @@ export function ttnProxyUrl() {
 function buildAgent() {
   const proxy = ttnProxyUrl();
   if (proxy) return new HttpsProxyAgent(proxy);
-  if (digigoAllowInsecure())
+  if (digigoAllowInsecure()) {
     return new https.Agent({ rejectUnauthorized: false });
+  }
   return undefined;
 }
 
@@ -56,9 +57,9 @@ export function digigoAuthorizeUrl(input: {
 
   const u = new URL(`${base}/tunsign-proxy-webapp/oauth2/authorize`);
 
-  u.searchParams.set("redirect_uri", digigoRedirectUri());
-  u.searchParams.set("response_type", "code");
-  u.searchParams.set("client_id", digigoClientId());
+  u.searchParams.set("redirectUri", digigoRedirectUri());
+  u.searchParams.set("responseType", "code");
+  u.searchParams.set("clientId", digigoClientId());
 
   u.searchParams.set("scope", "credential");
   u.searchParams.set("credentialId", input.credentialId);
