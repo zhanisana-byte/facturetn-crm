@@ -39,7 +39,6 @@ function computeFromItems(items: any[]) {
     const base = qty * pu;
     const remise = discPct > 0 ? (base * discPct) / 100 : 0;
     const net = base - remise;
-
     const vat = (net * vatPct) / 100;
 
     ht += net;
@@ -94,25 +93,32 @@ export async function POST(req: Request) {
   }
   const company = compRes.data;
 
+  // ======= DIGIGO CREDENTIAL (ROBUSTE) =======
   const credRes = await service
     .from("ttn_credentials")
-    .select("*")
+    .select("signature_config, updated_at")
     .eq("company_id", invoice.company_id)
     .eq("is_active", true)
-    .maybeSingle();
+    .order("updated_at", { ascending: false })
+    .limit(1);
 
-  const signatureConfig: any = credRes.data?.signature_config || {};
-  const credentialId = s(signatureConfig.digigo_signer_email || signatureConfig.credentialId || signatureConfig.email);
+  const cred = credRes.data?.[0];
+  const signatureConfig: any = cred?.signature_config || {};
+
+  const credentialId = s(
+    signatureConfig.digigo_signer_email ??
+    signatureConfig.credentialId ??
+    signatureConfig.email ??
+    ""
+  );
+
   if (!credentialId) {
     return NextResponse.json(
-      {
-        ok: false,
-        error: "DIGIGO_NOT_CONFIGURED",
-        message: "Email DigiGo (credentialId) manquant dans ttn_credentials.signature_config.",
-      },
+      { ok: false, error: "DIGIGO_NOT_CONFIGURED" },
       { status: 400 }
     );
   }
+  // ==========================================
 
   const itemsRes = await service
     .from("invoice_items")
@@ -121,7 +127,6 @@ export async function POST(req: Request) {
     .order("line_no", { ascending: true });
 
   const items = itemsRes.data || [];
-
   const totals = computeFromItems(items);
 
   const unsigned_xml = buildTeifInvoiceXml({
@@ -155,7 +160,7 @@ export async function POST(req: Request) {
   });
 
   if (sess.error) {
-    return NextResponse.json({ ok: false, error: "SESSION_CREATE_FAILED", message: s(sess.error.message) }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "SESSION_CREATE_FAILED" }, { status: 500 });
   }
 
   const authorize_url = digigoAuthorizeUrl({
@@ -176,7 +181,7 @@ export async function POST(req: Request) {
   });
 
   if (up.error) {
-    return NextResponse.json({ ok: false, error: "SIGNATURE_UPSERT_FAILED", message: s(up.error.message) }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "SIGNATURE_UPSERT_FAILED" }, { status: 500 });
   }
 
   return NextResponse.json(
