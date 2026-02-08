@@ -1,3 +1,5 @@
+import crypto from "crypto";
+
 function env(name: string, fallback = "") {
   return String(process.env[name] ?? fallback).trim();
 }
@@ -32,4 +34,45 @@ export function digigoAllowInsecure() {
 
 export function ttnProxyUrl() {
   return env("TTN_PROXY_URL");
+}
+
+export function sha256Base64Utf8(input: string): string {
+  return crypto.createHash("sha256").update(input, "utf8").digest("base64");
+}
+
+type DigigoAuthorizeArgs = {
+  credentialId: string;
+  hashBase64: string;
+  numSignatures?: number;
+  state?: string;
+};
+
+export function digigoAuthorizeUrl(args: DigigoAuthorizeArgs): string {
+  const redirectUri = digigoRedirectUri();
+  const clientId = digigoClientId();
+
+  const credentialId = String(args.credentialId || "").trim();
+  const hash = String(args.hashBase64 || "").trim();
+  const numSignatures = Number.isFinite(args.numSignatures as number)
+    ? String(args.numSignatures)
+    : "1";
+
+  if (!redirectUri) throw new Error("DIGIGO_REDIRECT_URI missing");
+  if (!clientId) throw new Error("DIGIGO_CLIENT_ID missing");
+  if (!credentialId) throw new Error("credentialId missing");
+  if (!hash) throw new Error("hashBase64 missing");
+
+  const u = new URL(`${digigoProxyBaseUrl()}/oauth2/authorize`);
+
+  u.searchParams.set("redirectUri", redirectUri);
+  u.searchParams.set("responseType", "code");
+  u.searchParams.set("scope", "credential");
+  u.searchParams.set("credentialId", credentialId);
+  u.searchParams.set("clientId", clientId);
+  u.searchParams.set("numSignatures", numSignatures);
+  u.searchParams.set("hash", hash);
+
+  if (args.state) u.searchParams.set("state", String(args.state));
+
+  return u.toString();
 }
