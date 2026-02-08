@@ -33,13 +33,13 @@ function clearStored(keys: string[]) {
   }
 }
 
-async function getCtxFromCookie() {
-  const r = await fetch("/api/digigo/context", { method: "GET" });
-  const j = await r.json().catch(() => ({}));
-  return {
-    invoice_id: s(j?.invoice_id || ""),
-    back_url: s(j?.back_url || ""),
-  };
+function extractInvoiceIdFromState(state: string) {
+  const st = s(state);
+  if (!st) return "";
+  const m = st.match(
+    /^([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\b/i
+  );
+  return m ? m[1] : "";
 }
 
 export default function Ui() {
@@ -55,38 +55,33 @@ export default function Ui() {
     const code = s(params.get("code"));
 
     const stateFromUrl = s(params.get("state"));
-    let state = stateFromUrl || getStored("digigo_state");
+    const stateStored = getStored("digigo_state");
+    const state = stateFromUrl || stateStored;
 
-    let invoiceId =
+    const invoiceIdParam = s(params.get("invoice_id"));
+    const invoiceId =
+      invoiceIdParam ||
       getStored("digigo_invoice_id") ||
       getStored("invoice_id") ||
-      s(params.get("invoice_id"));
+      (state ? extractInvoiceIdFromState(state) : "");
 
-    let backUrl =
+    const backUrl =
       getStored("digigo_back_url") || (invoiceId ? `/invoices/${invoiceId}` : "/");
 
-    async function run() {
-      if (!token && !code) {
-        setStatus("error");
-        setMessage("Retour DigiGo invalide (token/code manquant).");
-        return;
-      }
+    if (!token && !code) {
+      setStatus("error");
+      setMessage("Retour DigiGo invalide (token/code manquant).");
+      return;
+    }
 
-      if (!invoiceId) {
-        try {
-          const ctx = await getCtxFromCookie();
-          if (ctx.invoice_id) invoiceId = ctx.invoice_id;
-          if (ctx.back_url) backUrl = ctx.back_url;
-        } catch {}
-      }
+    if (!state && !invoiceId) {
+      setStatus("error");
+      setMessage("Contexte manquant (state/invoice_id). Relance la signature depuis la facture.");
+      setDetails("Ne teste pas en ouvrant /digigo/redirect manuellement. Utilise le bouton 'Signer avec DigiGo'.");
+      return;
+    }
 
-      if (!state && !invoiceId) {
-        setStatus("error");
-        setMessage("Contexte introuvable (state + invoice_id manquants).");
-        setDetails("Relance la signature depuis la facture (bouton “Signer avec DigiGo”).");
-        return;
-      }
-
+    async function finalize() {
       try {
         const payload: any = { token, code };
         if (state) payload.state = state;
@@ -121,8 +116,9 @@ export default function Ui() {
       }
     }
 
-    run();
-  }, [params, router]);
+    finalize();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4">
