@@ -115,7 +115,6 @@ export async function POST(req: Request) {
     const unsigned_xml = buildTeifInvoiceXml({
       invoice,
       company,
-      customer: null,
       items,
       totals: {
         ht: totals.ht,
@@ -124,13 +123,13 @@ export async function POST(req: Request) {
         stampEnabled: stamp_enabled,
         stampAmount: stamp_amount,
       },
-    });
+    } as any);
 
     const unsigned_hash = sha256Base64Utf8(unsigned_xml);
     const state = crypto.randomUUID();
     const expires_at = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
-    await service.from("digigo_sign_sessions").insert({
+    const sess = await service.from("digigo_sign_sessions").insert({
       state,
       invoice_id,
       company_id: invoice.company_id,
@@ -139,6 +138,10 @@ export async function POST(req: Request) {
       expires_at,
     });
 
+    if (sess.error) {
+      return NextResponse.json({ ok: false, error: "SESSION_CREATE_FAILED", message: s(sess.error.message) }, { status: 500 });
+    }
+
     const authorize_url = digigoAuthorizeUrl({
       credentialId,
       hashBase64: unsigned_hash,
@@ -146,7 +149,7 @@ export async function POST(req: Request) {
       state,
     });
 
-    await service.from("invoice_signatures").upsert({
+    const up = await service.from("invoice_signatures").upsert({
       invoice_id,
       provider: "digigo",
       state: "pending",
@@ -156,12 +159,19 @@ export async function POST(req: Request) {
       meta: { credentialId, state },
     });
 
-    return NextResponse.json({
-      ok: true,
-      authorize_url,
-      state,
-      invoice_number: invoice.invoice_number,
-    });
+    if (up.error) {
+      return NextResponse.json({ ok: false, error: "SIGNATURE_UPSERT_FAILED", message: s(up.error.message) }, { status: 500 });
+    }
+
+    return NextResponse.json(
+      {
+        ok: true,
+        authorize_url,
+        state,
+        invoice_number: s(invoice.invoice_number),
+      },
+      { status: 200 }
+    );
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: "SERVER_ERROR", message: s(e?.message) }, { status: 500 });
   }
