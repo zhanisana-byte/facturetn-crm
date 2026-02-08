@@ -129,7 +129,10 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (credRes.error) {
-      return NextResponse.json({ ok: false, error: "TTN_CREDENTIALS_READ_FAILED", message: credRes.error.message }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: "TTN_CREDENTIALS_READ_FAILED", message: credRes.error.message },
+        { status: 500 }
+      );
     }
     if (!credRes.data) {
       return NextResponse.json({ ok: false, error: "TTN_CREDENTIALS_MISSING" }, { status: 400 });
@@ -169,7 +172,6 @@ export async function POST(req: Request) {
       xmlBuild = await buildTeifInvoiceXml({
         invoice,
         company: compRes.data,
-        customer: null,
         items,
         totals: {
           ht,
