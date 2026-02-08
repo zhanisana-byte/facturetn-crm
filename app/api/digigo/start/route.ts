@@ -50,14 +50,6 @@ function computeFromItems(items: any[]) {
   return { ht, tva, ttc };
 }
 
-function friendlyTeifError(msg: string) {
-  const m = s(msg);
-  if (!m) return "Erreur TEIF.";
-  if (m.toLowerCase().includes("max size")) return "TEIF trop volumineux.";
-  if (m.toLowerCase().includes("minimum")) return "TEIF incomplet (champs obligatoires manquants).";
-  return m;
-}
-
 async function canSignInvoice(supabase: any, userId: string, companyId: string) {
   const a = await canCompanyAction(supabase, userId, companyId, "validate_invoices");
   if (a) return true;
@@ -71,7 +63,6 @@ function scopeKey(resetScope: string) {
   const d = new Date();
   const yyyy = String(d.getFullYear());
   const mm = String(d.getMonth() + 1).padStart(2, "0");
-
   const rs = String(resetScope || "year").toLowerCase();
   if (rs === "month") return `${yyyy}-${mm}`;
   if (rs === "none") return `global`;
@@ -148,10 +139,7 @@ async function ensureInvoiceNumber(service: any, invoice: any) {
 
   const number = `${prefix}${sep}${scopeKey(resetScope)}${sep}${pad(nextNum, padding)}`;
 
-  await service
-    .from("invoices")
-    .update({ invoice_number: number, numbering_rule_id: rule.id })
-    .eq("id", invoice.id);
+  await service.from("invoices").update({ invoice_number: number, numbering_rule_id: rule.id }).eq("id", invoice.id);
 
   return { invoice_number: number, numbering_rule_id: rule.id };
 }
@@ -162,9 +150,7 @@ export async function POST(req: Request) {
     const service = createServiceClient();
 
     const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) {
-      return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
-    }
+    if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
     const body = await req.json().catch(() => ({}));
     const invoice_id = s(body.invoice_id || body.invoiceId);
@@ -175,12 +161,9 @@ export async function POST(req: Request) {
     }
 
     const invRes = await service.from("invoices").select("*").eq("id", invoice_id).single();
-    if (invRes.error || !invRes.data) {
-      return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
-    }
+    if (invRes.error || !invRes.data) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
     const invoice = invRes.data;
-
     const company_id = s(invoice.company_id);
     if (!company_id) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
 
@@ -188,9 +171,7 @@ export async function POST(req: Request) {
     if (!allowed) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
 
     const compRes = await service.from("companies").select("*").eq("id", company_id).single();
-    if (!compRes.data) {
-      return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
-    }
+    if (compRes.error || !compRes.data) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
 
     const credRes = await service
       .from("ttn_credentials")
@@ -204,17 +185,12 @@ export async function POST(req: Request) {
     const envPicked = s((credRes.data as any)?.environment || picked?.environment || "");
 
     if (!credentialId) {
-      return NextResponse.json(
-        { ok: false, error: "DIGIGO_NOT_CONFIGURED", message: "DigiGo non configuré (credentialId manquant)." },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "DIGIGO_NOT_CONFIGURED", message: "credentialId manquant" }, { status: 400 });
     }
 
     const ensured = await ensureInvoiceNumber(service, invoice);
     const finalInvoiceNumber = s(ensured.invoice_number);
-    if (!finalInvoiceNumber) {
-      return NextResponse.json({ ok: false, error: "INVOICE_NUMBER_MISSING" }, { status: 400 });
-    }
+    if (!finalInvoiceNumber) return NextResponse.json({ ok: false, error: "INVOICE_NUMBER_MISSING" }, { status: 400 });
 
     const itemsRes = await service.from("invoice_items").select("*").eq("invoice_id", invoice_id).order("line_no");
     const items = itemsRes.data || [];
@@ -239,12 +215,11 @@ export async function POST(req: Request) {
     });
 
     if (!unsigned_xml || !unsigned_xml.includes("<")) {
-      return NextResponse.json({ ok: false, error: "TEIF_BUILD_FAILED", message: "TEIF invalide." }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "TEIF_BUILD_FAILED" }, { status: 400 });
     }
 
     const unsigned_hash = sha256Base64Utf8(unsigned_xml);
 
-    // ✅ TTL session = 30 minutes (modifie ici si tu veux)
     const SESSION_TTL_MINUTES = 30;
     const state = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + SESSION_TTL_MINUTES * 60 * 1000).toISOString();
@@ -268,75 +243,5 @@ export async function POST(req: Request) {
 
     let authorize_url = "";
     try {
-      authorize_url = digigoAuthorizeUrl({
-        credentialId,
-        hashBase64: unsigned_hash,
-        numSignatures: 1,
-        state,
-      });
-    } catch (e: any) {
-      return NextResponse.json({ ok: false, error: "DIGIGO_AUTHORIZE_URL_FAILED", message: s(e?.message || e) }, { status: 500 });
-    }
-
-    const upsertRes = await service
-      .from("invoice_signatures")
-      .upsert(
-        {
-          invoice_id,
-          provider: "digigo",
-          state: "pending",
-          unsigned_hash,
-          unsigned_xml,
-          signer_user_id: auth.user.id,
-          meta: {
-            credentialId,
-            state,
-            environment: envPicked || undefined,
-            session_id: sessIns.data?.id || null,
-          },
-        },
-        { onConflict: "invoice_id" }
-      )
-      .select("id")
-      .single();
-
-    if (upsertRes.error) {
-      return NextResponse.json({ ok: false, error: "SIGNATURE_UPSERT_FAILED", message: upsertRes.error.message }, { status: 500 });
-    }
-
-    const res = NextResponse.json(
-      { ok: true, authorize_url, state, unsigned_hash, invoice_number: finalInvoiceNumber, environment: envPicked },
-      { status: 200 }
-    );
-
-    const maxAge = SESSION_TTL_MINUTES * 60;
-
-    res.cookies.set("digigo_invoice_id", invoice_id, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge,
-    });
-
-    res.cookies.set("digigo_back_url", backUrl || `/invoices/${invoice_id}`, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge,
-    });
-
-    res.cookies.set("digigo_state", state, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge,
-    });
-
-    return res;
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: "UNKNOWN_ERROR", message: e?.message || "Unknown error" }, { status: 500 });
-  }
-}
+      authorize_url = digigoAuthorizeUrl({ credentialId, hashBase64: unsigned_hash, numSignatures: 1, state });
+    } catch (e
