@@ -9,39 +9,6 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function getStored(key: string) {
-  let v = "";
-  try {
-    v = s(window.localStorage.getItem(key) || "");
-  } catch {}
-  if (v) return v;
-
-  try {
-    v = s(window.sessionStorage.getItem(key) || "");
-  } catch {}
-  return v;
-}
-
-function clearStored(keys: string[]) {
-  for (const k of keys) {
-    try {
-      window.localStorage.removeItem(k);
-    } catch {}
-    try {
-      window.sessionStorage.removeItem(k);
-    } catch {}
-  }
-}
-
-function extractInvoiceIdFromState(state: string) {
-  const st = s(state);
-  if (!st) return "";
-  const m = st.match(
-    /^([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\b/i
-  );
-  return m ? m[1] : "";
-}
-
 export default function Ui() {
   const router = useRouter();
   const params = useSearchParams();
@@ -53,17 +20,6 @@ export default function Ui() {
     const token = s(params.get("token"));
     const code = s(params.get("code"));
     const stateParam = s(params.get("state"));
-    const invoiceIdParam = s(params.get("invoice_id"));
-
-    const invoiceId =
-      getStored("digigo_invoice_id") ||
-      getStored("invoice_id") ||
-      invoiceIdParam ||
-      extractInvoiceIdFromState(stateParam);
-
-    const backUrl =
-      getStored("digigo_back_url") ||
-      (invoiceId ? `/invoices/${invoiceId}` : "/");
 
     if (!token && !code) {
       setStatus("error");
@@ -71,9 +27,9 @@ export default function Ui() {
       return;
     }
 
-    if (!invoiceId) {
+    if (!stateParam) {
       setStatus("error");
-      setMessage("Contexte de signature introuvable (invoice_id manquant). Relancez la signature depuis la facture.");
+      setMessage("Retour DigiGo invalide (state manquant).");
       return;
     }
 
@@ -85,8 +41,7 @@ export default function Ui() {
           body: JSON.stringify({
             token,
             code,
-            invoice_id: invoiceId,
-            state: getStored("digigo_state") || stateParam,
+            state: stateParam,
           }),
         });
 
@@ -98,14 +53,13 @@ export default function Ui() {
           return;
         }
 
+        const redirect = s(j?.redirect || "");
         setStatus("success");
         setMessage("Signature finalisée avec succès.");
 
-        clearStored(["digigo_invoice_id", "invoice_id", "digigo_state", "digigo_back_url"]);
-
         setTimeout(() => {
-          router.replace(backUrl);
-        }, 800);
+          router.replace(redirect || "/");
+        }, 600);
       } catch (e: any) {
         setStatus("error");
         setMessage(s(e?.message || "Erreur réseau."));
@@ -113,8 +67,7 @@ export default function Ui() {
     }
 
     finalize();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [params, router]);
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4">
