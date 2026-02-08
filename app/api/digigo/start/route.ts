@@ -142,6 +142,7 @@ export async function POST(req: Request) {
     created_by: auth.user.id,
     back_url: back_url || `/invoices/${invoice_id}`,
     expires_at,
+    status: "pending",
   });
 
   if (sess.error) {
@@ -169,7 +170,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "SIGNATURE_UPSERT_FAILED" }, { status: 500 });
   }
 
-  return NextResponse.json(
+  const res = NextResponse.json(
     {
       ok: true,
       invoice_id,
@@ -179,4 +180,33 @@ export async function POST(req: Request) {
     },
     { status: 200 }
   );
+
+  const secure = process.env.NODE_ENV === "production";
+  const maxAge = 60 * 30;
+
+  res.cookies.set("digigo_invoice_id", invoice_id, {
+    httpOnly: true,
+    secure,
+    sameSite: "lax",
+    path: "/",
+    maxAge,
+  });
+
+  res.cookies.set("digigo_back_url", back_url || `/invoices/${invoice_id}`, {
+    httpOnly: true,
+    secure,
+    sameSite: "lax",
+    path: "/",
+    maxAge,
+  });
+
+  res.cookies.set("digigo_state", state, {
+    httpOnly: true,
+    secure,
+    sameSite: "lax",
+    path: "/",
+    maxAge,
+  });
+
+  return res;
 }
