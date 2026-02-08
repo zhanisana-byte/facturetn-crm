@@ -107,7 +107,6 @@ async function ensureInvoiceNumber(service: any, invoice: any) {
   const resetScope = s(rule?.reset_scope || "year");
   const sk = scopeKey(resetScope);
 
-  // pessimistic retry for concurrency (simple, sufficient for now)
   let nextNum = 0;
   for (let attempt = 0; attempt < 6; attempt++) {
     const cRes = await service
@@ -133,7 +132,6 @@ async function ensureInvoiceNumber(service: any, invoice: any) {
         .single();
 
       if (ins.error) {
-        // race insert -> retry
         continue;
       }
     }
@@ -167,12 +165,10 @@ async function ensureInvoiceNumber(service: any, invoice: any) {
   }
 
   if (!nextNum) {
-    // fallback: avoid blocking signature; still non-empty
     nextNum = Math.floor(Math.random() * 900000) + 100000;
   }
 
   const finalNumber = `${prefix}${sep}${sk}${sep}${pad(nextNum, padding)}`;
-
   return { invoice_number: finalNumber, numbering_rule_id: s(rule?.id || "") };
 }
 
@@ -214,10 +210,14 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const invoice_id = s(body?.invoice_id ?? body?.invoiceId ?? body?.id);
     const askedEnv = s(body?.environment);
+    const backUrl = s(body?.back_url ?? body?.backUrl ?? "");
 
     if (!invoice_id) return NextResponse.json({ ok: false, error: "MISSING_INVOICE_ID" }, { status: 400 });
     if (!isUuid(invoice_id)) {
-      return NextResponse.json({ ok: false, error: "INVALID_INVOICE_ID", message: "invoice_id doit être un UUID." }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "INVALID_INVOICE_ID", message: "invoice_id doit être un UUID." },
+        { status: 400 }
+      );
     }
 
     const invRes = await service.from("invoices").select("*").eq("id", invoice_id).maybeSingle();
@@ -240,7 +240,6 @@ export async function POST(req: Request) {
     const company = compRes.data;
     if (!company) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
 
-    // ✅ pick DigiGo signer email from configured env (production preferred, but only if complete)
     const picked = await pickDigigoCredential(service, company_id, askedEnv || undefined);
     if (!picked.credentialId) {
       return NextResponse.json(
@@ -249,7 +248,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ ensure invoice_number exists (strict TEIF needs it)
     let finalInvoiceNumber = s((invoice as any)?.invoice_number);
     let finalRuleId = s((invoice as any)?.numbering_rule_id);
 
@@ -334,15 +332,30 @@ export async function POST(req: Request) {
         purpose: "ttn",
       });
     } catch (e: any) {
-      return NextResponse.json(
-        { ok: false, error: "TEIF_BUILD_FAILED", message: friendlyTeifError(e?.message || String(e)) },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "TEIF_BUILD_FAILED", message: friendlyTeifError(e?.message || String(e)) }, { status: 400 });
     }
 
     const unsigned_hash = sha256Base64Utf8(unsigned_xml);
-    const nonce = crypto.randomBytes(16).toString("hex");
-    const stateStr = `${invoice_id}.${nonce}`;
+
+    const state = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+    const sessIns = await service
+      .from("digigo_sign_sessions")
+      .insert({
+        state,
+        invoice_id,
+        company_id,
+        created_by: auth.user.id,
+        back_url: backUrl || `/invoices/${invoice_id}`,
+        expires_at: expiresAt,
+      })
+      .select("id")
+      .maybeSingle();
+
+    if (sessIns.error) {
+      return NextResponse.json({ ok: false, error: "SESSION_CREATE_FAILED", message: sessIns.error.message }, { status: 500 });
+    }
 
     let authorize_url = "";
     try {
@@ -350,7 +363,7 @@ export async function POST(req: Request) {
         credentialId: picked.credentialId,
         hashBase64: unsigned_hash,
         numSignatures: 1,
-        state: stateStr,
+        state,
       });
     } catch (e: any) {
       return NextResponse.json({ ok: false, error: "DIGIGO_AUTHORIZE_URL_FAILED", message: s(e?.message || e) }, { status: 500 });
@@ -366,7 +379,7 @@ export async function POST(req: Request) {
           unsigned_hash,
           unsigned_xml,
           signer_user_id: auth.user.id,
-          meta: { credentialId: picked.credentialId, state: stateStr, environment: picked.env || undefined },
+          meta: { credentialId: picked.credentialId, state, environment: picked.env || undefined, session_id: sessIns.data?.id || null },
         },
         { onConflict: "invoice_id" }
       )
@@ -378,7 +391,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json(
-      { ok: true, authorize_url, state: stateStr, unsigned_hash, invoice_number: finalInvoiceNumber, environment: picked.env },
+      { ok: true, authorize_url, state, unsigned_hash, invoice_number: finalInvoiceNumber, environment: picked.env },
       { status: 200 }
     );
   } catch (e: any) {
