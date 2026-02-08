@@ -12,11 +12,9 @@ export default function DigigoSignButton({ invoiceId }: { invoiceId: string }) {
 
   function setEverywhere(key: string, value: string) {
     if (!value) return;
-
     try {
       window.localStorage.setItem(key, value);
     } catch {}
-
     try {
       window.sessionStorage.setItem(key, value);
     } catch {}
@@ -37,13 +35,15 @@ export default function DigigoSignButton({ invoiceId }: { invoiceId: string }) {
     setErr("");
     setLoading(true);
 
-    clearEverywhere(["digigo_state", "digigo_invoice_id", "digigo_back_url"]);
+    clearEverywhere(["digigo_state", "digigo_invoice_id", "digigo_back_url", "invoice_id"]);
 
     try {
+      const backUrl = `/invoices/${invoiceId}`;
+
       const r = await fetch("/api/digigo/start", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ invoice_id: invoiceId }),
+        body: JSON.stringify({ invoice_id: invoiceId, back_url: backUrl }),
       });
 
       const j = await r.json().catch(() => ({}));
@@ -55,7 +55,10 @@ export default function DigigoSignButton({ invoiceId }: { invoiceId: string }) {
 
       const state = s(j?.state || "");
       if (state) setEverywhere("digigo_state", state);
+
       setEverywhere("digigo_invoice_id", invoiceId);
+      setEverywhere("invoice_id", invoiceId);
+      setEverywhere("digigo_back_url", backUrl);
 
       window.location.href = String(j.authorize_url);
     } catch (e: any) {
@@ -72,7 +75,9 @@ export default function DigigoSignButton({ invoiceId }: { invoiceId: string }) {
       </button>
 
       {err ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{err}</div>
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+          {err}
+        </div>
       ) : null}
     </div>
   );
