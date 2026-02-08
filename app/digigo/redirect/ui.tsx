@@ -1,149 +1,122 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-
-type Status = "loading" | "success" | "error";
 
 function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function getStored(key: string) {
-  let v = "";
-  try {
-    v = s(window.localStorage.getItem(key) || "");
-  } catch {}
-  if (v) return v;
+type ApiOk = { ok: true; invoice_id?: string; redirect?: string };
+type ApiErr = { ok: false; error?: string; message?: string; details?: any; status?: number; body?: any };
 
-  try {
-    v = s(window.sessionStorage.getItem(key) || "");
-  } catch {}
-  return v;
-}
-
-function clearStored(keys: string[]) {
-  for (const k of keys) {
-    try {
-      window.localStorage.removeItem(k);
-    } catch {}
-    try {
-      window.sessionStorage.removeItem(k);
-    } catch {}
-  }
-}
-
-function extractInvoiceIdFromState(state: string) {
-  const st = s(state);
-  if (!st) return "";
-  const m = st.match(
-    /^([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\b/i
-  );
-  return m ? m[1] : "";
-}
-
-export default function Ui() {
+export default function DigigoRedirectClient() {
+  const sp = useSearchParams();
   const router = useRouter();
-  const params = useSearchParams();
 
-  const [status, setStatus] = useState<Status>("loading");
-  const [message, setMessage] = useState("");
-  const [details, setDetails] = useState("");
+  const token = useMemo(() => s(sp.get("token") || ""), [sp]);
+  const state = useMemo(() => s(sp.get("state") || ""), [sp]);
+  const invoice_id = useMemo(() => s(sp.get("invoice_id") || ""), [sp]);
+
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<ApiErr | null>(null);
 
   useEffect(() => {
-    const token = s(params.get("token"));
-    const code = s(params.get("code"));
+    let cancelled = false;
 
-    const stateFromUrl = s(params.get("state"));
-    const stateStored = getStored("digigo_state");
-    const state = stateFromUrl || stateStored;
+    async function run() {
+      setLoading(true);
+      setErr(null);
 
-    const invoiceIdParam = s(params.get("invoice_id"));
-    const invoiceId =
-      invoiceIdParam ||
-      getStored("digigo_invoice_id") ||
-      getStored("invoice_id") ||
-      (state ? extractInvoiceIdFromState(state) : "");
+      if (!token && !state && !invoice_id) {
+        setLoading(false);
+        setErr({ ok: false, error: "MISSING_PARAMS", message: "Paramètres manquants dans l’URL." });
+        return;
+      }
 
-    const backUrl =
-      getStored("digigo_back_url") || (invoiceId ? `/invoices/${invoiceId}` : "/");
-
-    if (!token && !code) {
-      setStatus("error");
-      setMessage("Retour DigiGo invalide (token/code manquant).");
-      return;
-    }
-
-    if (!state && !invoiceId) {
-      setStatus("error");
-      setMessage("Contexte manquant (state/invoice_id). Relance la signature depuis la facture.");
-      setDetails("Ne teste pas en ouvrant /digigo/redirect manuellement. Utilise le bouton 'Signer avec DigiGo'.");
-      return;
-    }
-
-    async function finalize() {
       try {
-        const payload: any = { token, code };
-        if (state) payload.state = state;
-        if (!state && invoiceId) payload.invoice_id = invoiceId;
-
-        const res = await fetch("/api/digigo/callback", {
+        const r = await fetch("/api/digigo/callback", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ token, state, invoice_id }),
+          cache: "no-store",
         });
 
-        const j = await res.json().catch(() => ({}));
+        const text = await r.text();
+        let json: any = {};
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = { ok: false, error: "NON_JSON_RESPONSE", body: text, status: r.status };
+        }
 
-        if (!res.ok || !j?.ok) {
-          setStatus("error");
-          setMessage(s(j?.message || j?.error || "Échec de la finalisation DigiGo."));
+        if (cancelled) return;
+
+        if (!r.ok || !json?.ok) {
+          setLoading(false);
+          setErr({
+            ok: false,
+            error: s(json?.error || `HTTP_${r.status}`),
+            message: s(json?.message || "Échec de la finalisation DigiGo."),
+            details: json?.details ?? json?.body ?? text,
+            status: r.status,
+          });
           return;
         }
 
-        setStatus("success");
-        setMessage("Signature finalisée avec succès.");
+        const ok = json as ApiOk;
+        const redir = s(ok.redirect || "");
 
-        clearStored(["digigo_invoice_id", "invoice_id", "digigo_state", "digigo_back_url"]);
+        setLoading(false);
 
-        const redir = s(j?.redirect || "");
-        setTimeout(() => {
-          router.replace(redir || backUrl);
-        }, 600);
+        if (redir) {
+          router.replace(redir);
+        } else {
+          router.replace(invoice_id ? `/invoices/${invoice_id}` : "/");
+        }
       } catch (e: any) {
-        setStatus("error");
-        setMessage(s(e?.message || "Erreur réseau."));
+        if (cancelled) return;
+        setLoading(false);
+        setErr({ ok: false, error: "FETCH_FAILED", message: "Erreur réseau.", details: s(e?.message || e) });
       }
     }
 
-    finalize();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, state, invoice_id, router]);
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4">
       <div className="w-full max-w-lg rounded-2xl border bg-white/70 p-6 shadow">
         <div className="text-xl font-semibold">Finalisation de la signature</div>
 
-        {status === "loading" && (
+        {loading && (
           <div className="mt-4">
             <div className="h-2 w-full bg-slate-200 rounded overflow-hidden">
-              <div className="h-full w-1/2 bg-slate-700 animate-pulse" />
+              <div className="h-full w-1/2 bg-slate-700 animate-pulse"></div>
             </div>
             <div className="text-sm text-slate-600 mt-3">Traitement sécurisé en cours…</div>
           </div>
         )}
 
-        {status === "error" && (
-          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            <div>{message}</div>
-            {details ? <div className="mt-2 text-xs text-red-700/80">{details}</div> : null}
-          </div>
-        )}
-
-        {status === "success" && (
-          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
-            {message}
+        {!loading && err && (
+          <div className="mt-4">
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
+              <div className="font-semibold">{err.message || "Échec de la finalisation DigiGo."}</div>
+              <div className="text-sm mt-2">
+                <div><span className="font-medium">Erreur:</span> {err.error || "UNKNOWN"}</div>
+                {typeof err.status === "number" && (
+                  <div><span className="font-medium">HTTP:</span> {err.status}</div>
+                )}
+              </div>
+              {err.details ? (
+                <pre className="mt-3 whitespace-pre-wrap break-words text-xs text-red-800/90 bg-white/50 border border-red-200 rounded-lg p-3">
+{typeof err.details === "string" ? err.details : JSON.stringify(err.details, null, 2)}
+                </pre>
+              ) : null}
+            </div>
           </div>
         )}
       </div>
