@@ -118,6 +118,26 @@ export async function POST(req: Request) {
   const meta = (sigRow as any)?.meta && typeof (sigRow as any).meta === "object" ? (sigRow as any).meta : {};
   const expectedState = s(meta?.state || "");
 
+  let credentialId = s(meta?.credentialId || meta?.digigo_signer_email || "");
+  if (!credentialId) {
+    const invRes = await svc.from("invoices").select("company_id").eq("id", invoice_id).maybeSingle();
+    const company_id = s(invRes.data?.company_id || "");
+    if (company_id) {
+      const credRes = await svc
+        .from("ttn_credentials")
+        .select("signature_config")
+        .eq("company_id", company_id)
+        .eq("is_active", true)
+        .maybeSingle();
+      const sc: any = credRes.data?.signature_config || {};
+      credentialId = s(sc.digigo_signer_email || sc.credentialId || sc.email || "");
+    }
+  }
+  if (!credentialId) {
+    if (state) await svc.from("digigo_sign_sessions").update({ status: "failed" }).eq("state", state);
+    return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING", message: "Email DigiGo (credentialId) introuvable." }, { status: 400 });
+  }
+
   if (state && expectedState && state !== expectedState) {
     if (state) await svc.from("digigo_sign_sessions").update({ status: "failed" }).eq("state", state);
     return NextResponse.json({ ok: false, error: "STATE_MISMATCH", message: "State invalide." }, { status: 400 });
@@ -167,9 +187,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "DIGIGO_ENV_MISSING", message: "Variables DigiGo manquantes." }, { status: 500 });
   }
 
-  const tokenUrl = `${base}/oauth2/token/${encodeURIComponent(clientId)}/${encodeURIComponent(grantType)}/${encodeURIComponent(
-    clientSecret
-  )}/${encodeURIComponent(digigoCode)}`;
+  const tokenUrl = `${base}/tunsign-proxy-webapp/services/v1/oauth2/token/${encodeURIComponent(clientId)}/${encodeURIComponent(
+    grantType
+  )}/${encodeURIComponent(clientSecret)}/${encodeURIComponent(digigoCode)}`;
 
   const { r: rTok, t: tokText, j: tokJson } = await postJson(tokenUrl, { redirectUri });
 
@@ -200,14 +220,14 @@ export async function POST(req: Request) {
 
   const hashBase64 = sha256Base64Utf8(unsigned_xml);
 
-  const signUrlPrimary = `${base}/signatures/signHash`;
-  const signUrlFallback = `${base}/signature/signHash`;
+  const hashAlgo = "SHA256";
+  const signAlgo = "RS256";
 
-  let signResp = await postJson(signUrlPrimary, { sad, hash: hashBase64, hashAlgo: "SHA256", signAlgo: "RS256" });
+  const signUrl = `${base}/tunsign-proxy-webapp/services/v1/signatures/signHash/${encodeURIComponent(clientId)}/${encodeURIComponent(
+    credentialId
+  )}/${encodeURIComponent(sad)}/${encodeURIComponent(hashAlgo)}/${encodeURIComponent(signAlgo)}`;
 
-  if (!signResp.r.ok) {
-    signResp = await postJson(signUrlFallback, { sad, hash: hashBase64, hashAlgo: "SHA256", signAlgo: "RS256" });
-  }
+  const signResp = await postJson(signUrl, { hash: [hashBase64] });
 
   if (!signResp.r.ok) {
     await svc
@@ -220,7 +240,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "SIGNHASH_FAILED", message: "Signature hash échouée." }, { status: 400 });
   }
 
-  const signatureValue = s(signResp.j?.signature || signResp.j?.signatureValue || signResp.j?.value || "");
+  const valueField: any = signResp.j?.value ?? signResp.j?.signature ?? signResp.j?.signatureValue;
+  const signatureValue = s(Array.isArray(valueField) ? valueField[0] : valueField || "");
+
   if (!signatureValue) {
     await svc.from("invoice_signatures").update({ state: "failed", meta: { ...meta, sign_body: signResp.t } }).eq("invoice_id", invoice_id);
     if (state) await svc.from("digigo_sign_sessions").update({ status: "failed" }).eq("state", state);
