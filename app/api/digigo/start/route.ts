@@ -35,7 +35,9 @@ function computeFromItems(items: any[]) {
     const pu = n(it.unit_price_ht ?? it.unit_price ?? it.price ?? 0);
     const vatPct = n(it.vat_pct ?? it.vatPct ?? it.tva_pct ?? it.tvaPct ?? it.vat ?? 0);
 
-    const discPct = clampPct(n(it.discount_pct ?? it.discountPct ?? it.remise_pct ?? it.remisePct ?? it.discount ?? 0));
+    const discPct = clampPct(
+      n(it.discount_pct ?? it.discountPct ?? it.remise_pct ?? it.remisePct ?? it.discount ?? 0)
+    );
     const discAmt = n(it.discount_amount ?? it.discountAmount ?? it.remise_amount ?? it.remiseAmount ?? 0);
 
     const base = qty * pu;
@@ -53,8 +55,11 @@ function computeFromItems(items: any[]) {
 function friendlyTeifError(msg: string) {
   const m = s(msg);
   if (!m) return "Erreur TEIF.";
-  if (m.toLowerCase().includes("max size")) return "TEIF trop volumineux.";
-  if (m.toLowerCase().includes("minimum")) return "TEIF incomplet (champs obligatoires manquants).";
+  const low = m.toLowerCase();
+  if (low.includes("max size")) return "TEIF trop volumineux.";
+  if (low.includes("minimum") || low.includes("required") || low.includes("oblig")) {
+    return "TEIF incomplet (champs obligatoires manquants).";
+  }
   return m;
 }
 
@@ -71,22 +76,6 @@ async function canSignInvoice(supabase: any, userId: string, companyId: string) 
 function expiresDatePlusDays(days: number) {
   const ms = Date.now() + days * 24 * 60 * 60 * 1000;
   return new Date(ms).toISOString();
-}
-
-function envFromCompanySettingsRow(row: any) {
-  const env = s(row?.environment || row?.env || "");
-  const credentialId = s(row?.credential_id || row?.credentialId || "");
-  return { env, credentialId };
-}
-
-function pickTtnCredential(settings: any) {
-  const rows = Array.isArray(settings) ? settings : settings ? [settings] : [];
-  for (const r of rows) {
-    const { env, credentialId } = envFromCompanySettingsRow(r);
-    if (!env || !credentialId) continue;
-    return { env, credentialId };
-  }
-  return { env: "", credentialId: "" };
 }
 
 export async function POST(req: Request) {
@@ -111,22 +100,24 @@ export async function POST(req: Request) {
     if (invRes.error || !invRes.data) {
       return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
     }
+    const invoice: any = invRes.data;
 
-    const invoice = invRes.data;
-
-    if (!invoice.invoice_number) {
+    if (!s(invoice.invoice_number)) {
       return NextResponse.json({ ok: false, error: "INVOICE_NUMBER_MISSING" }, { status: 400 });
     }
 
     const company_id = s(invoice.company_id);
-    const allowed = await canSignInvoice(supabase, auth.user.id, company_id);
+    if (!company_id || !isUuid(company_id)) {
+      return NextResponse.json({ ok: false, error: "COMPANY_ID_MISSING" }, { status: 400 });
+    }
 
+    const allowed = await canSignInvoice(supabase, auth.user.id, company_id);
     if (!allowed) {
       return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
     }
 
     const compRes = await service.from("companies").select("*").eq("id", company_id).single();
-    if (!compRes.data) {
+    if (compRes.error || !compRes.data) {
       return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
     }
 
@@ -137,12 +128,15 @@ export async function POST(req: Request) {
       .eq("is_active", true)
       .maybeSingle();
 
+    if (credRes.error) {
+      return NextResponse.json({ ok: false, error: "TTN_CREDENTIALS_READ_FAILED", message: credRes.error.message }, { status: 500 });
+    }
     if (!credRes.data) {
       return NextResponse.json({ ok: false, error: "TTN_CREDENTIALS_MISSING" }, { status: 400 });
     }
 
-    const cred = credRes.data;
-    const signature_config = (cred as any).signature_config ?? {};
+    const cred: any = credRes.data;
+    const signature_config: any = cred.signature_config ?? {};
     const configured = !!signature_config?.digigo_configured;
     const signer_email = s(signature_config?.digigo_signer_email);
 
@@ -150,32 +144,61 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "DIGIGO_NOT_CONFIGURED" }, { status: 400 });
     }
 
-    const itemsRes = await service.from("invoice_items").select("*").eq("invoice_id", invoice_id).order("position", { ascending: true });
-    const items = itemsRes.data ?? [];
+    const itemsRes = await service
+      .from("invoice_items")
+      .select("*")
+      .eq("invoice_id", invoice_id)
+      .order("position", { ascending: true });
 
+    if (itemsRes.error) {
+      return NextResponse.json({ ok: false, error: "ITEMS_READ_FAILED", message: itemsRes.error.message }, { status: 500 });
+    }
+
+    const items = itemsRes.data ?? [];
     const computed = computeFromItems(items);
 
-    const xmlRes = await buildTeifInvoiceXml({
-      invoice,
-      company: compRes.data,
-      customer: null,
-      items,
-      totals: {
-        total_ht: n(invoice.total_ht ?? computed.ht),
-        total_tva: n(invoice.total_tva ?? computed.tva),
-        total_ttc: n(invoice.total_ttc ?? computed.ttc),
-      },
-    }).catch((e: any) => ({ ok: false, error: s(e?.message || e) }));
+    const ht = n(invoice.total_ht ?? computed.ht);
+    const tva = n(invoice.total_tva ?? computed.tva);
+    const ttc = n(invoice.total_ttc ?? computed.ttc);
 
-    if (!(xmlRes as any)?.ok) {
+    const stampEnabled = Boolean(invoice.stamp_enabled ?? invoice.stampEnabled ?? false);
+    const stampAmount = n(invoice.stamp_amount ?? invoice.stampAmount ?? 0);
+
+    let xmlBuild: any;
+    try {
+      xmlBuild = await buildTeifInvoiceXml({
+        invoice,
+        company: compRes.data,
+        customer: null,
+        items,
+        totals: {
+          ht,
+          tva,
+          ttc,
+          stampEnabled,
+          stampAmount,
+        },
+      });
+    } catch (e: any) {
+      xmlBuild = { ok: false, error: s(e?.message || e) };
+    }
+
+    if (!xmlBuild?.ok) {
       return NextResponse.json(
-        { ok: false, error: "TEIF_BUILD_FAILED", message: friendlyTeifError(s((xmlRes as any)?.error)) },
+        { ok: false, error: "TEIF_BUILD_FAILED", message: friendlyTeifError(s(xmlBuild?.error)) },
         { status: 400 }
       );
     }
 
-    const unsigned_xml = (xmlRes as any).xml as string;
+    const unsigned_xml = s(xmlBuild.xml);
+    if (!unsigned_xml) {
+      return NextResponse.json({ ok: false, error: "TEIF_EMPTY" }, { status: 400 });
+    }
+
     const unsigned_hash = sha256Base64Utf8(unsigned_xml);
+    if (!unsigned_hash) {
+      return NextResponse.json({ ok: false, error: "HASH_FAILED" }, { status: 500 });
+    }
 
     const state = `${invoice_id}:${crypto.randomUUID()}`;
     const expiresAt = expiresDatePlusDays(2);
@@ -229,7 +252,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, state, authorize_url }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: "SERVER_CRASH", message: "Erreur serveur (start).", details: s(e?.message || e) },
+      { ok: false, error: "SERVER_CRASH", message: "Erreur serveur (digigo start).", details: s(e?.message || e) },
       { status: 500 }
     );
   }
