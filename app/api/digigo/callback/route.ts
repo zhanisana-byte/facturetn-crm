@@ -5,6 +5,13 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { digigoAllowInsecure } from "@/lib/digigo/env";
 import { NDCA_JWT_VERIFY_CERT_PEM } from "@/lib/digigo/certs";
+import {
+  digigoProxyBaseUrl,
+  digigoClientId,
+  digigoClientSecret,
+  digigoGrantType,
+  digigoRedirectUri,
+} from "@/lib/digigo/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -90,143 +97,216 @@ async function resolveContextFromInvoice(svc: any, invoiceId: string) {
   return { state, invoice_id, back_url, session_id: s(session.id) };
 }
 
-export async function POST(req: Request) {
+async function digigoGetSadFromCode(code: string) {
+  const clientId = digigoClientId();
+  const clientSecret = digigoClientSecret();
+  const grantType = digigoGrantType();
+  const redirectUri = digigoRedirectUri();
+
+  if (!clientId) throw new Error("DIGIGO_CLIENT_ID_MISSING");
+  if (!clientSecret) throw new Error("DIGIGO_CLIENT_SECRET_MISSING");
+  if (!redirectUri) throw new Error("DIGIGO_REDIRECT_URI_MISSING");
+
+  const url = `${digigoProxyBaseUrl()}/services/v1/oauth2/token/${encodeURIComponent(clientId)}/${encodeURIComponent(
+    grantType || "authorization_code"
+  )}/${encodeURIComponent(clientSecret)}/${encodeURIComponent(code)}`;
+
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ redirectUri }),
+  });
+
+  const txt = await r.text().catch(() => "");
+  let j: any = null;
   try {
-    const supabase = await createClient();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) {
-      return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
-    }
+    j = txt ? JSON.parse(txt) : null;
+  } catch {
+    j = null;
+  }
 
-    const svc = createServiceClient();
-    const body = await req.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new Error(`DIGIGO_TOKEN_FAILED:${r.status}:${txt || ""}`);
+  }
 
-    const token = s(body.token);
-    const code = s(body.code);
-    const stateIn = s(body.state);
-    const invoiceIdIn = s(body.invoice_id);
-    const backUrlIn = s(body.back_url);
+  const sad = s(j?.sad || "");
+  if (!sad) throw new Error("DIGIGO_SAD_MISSING");
+  return { sad, raw: j };
+}
 
-    if (!token && !code) {
-      return NextResponse.json({ ok: false, error: "BAD_RETURN", message: "Retour DigiGo invalide." }, { status: 400 });
-    }
+async function digigoSignHash(credentialId: string, sad: string, hashB64: string) {
+  const clientId = digigoClientId();
+  if (!clientId) throw new Error("DIGIGO_CLIENT_ID_MISSING");
 
-    const c = await cookies();
-    const stateCookie = s(c.get("digigo_state")?.value || "");
-    const invoiceCookie = s(c.get("digigo_invoice_id")?.value || "");
-    const backCookie = s(c.get("digigo_back_url")?.value || "");
+  const hashAlgo = s(process.env.DIGIGO_HASH_ALGO_OID || "2.16.840.1.101.3.4.2.1");
+  const signAlgo = s(process.env.DIGIGO_SIGN_ALGO_OID || "1.2.840.113549.1.1.11");
 
-    const stateTry = stateIn || stateCookie;
-    const invoiceTry = invoiceIdIn || invoiceCookie;
+  const url = `${digigoProxyBaseUrl()}/services/v1/signatures/signHash/${encodeURIComponent(clientId)}/${encodeURIComponent(
+    credentialId
+  )}/${encodeURIComponent(sad)}/${encodeURIComponent(hashAlgo)}/${encodeURIComponent(signAlgo)}`;
 
-    let ctx: { state: string; invoice_id: string; back_url: string; session_id: string } | null = null;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ hash: [hashB64] }),
+  });
 
-    if (stateTry) {
-      ctx = await resolveContextFromState(svc, stateTry);
-    } else if (invoiceTry) {
-      ctx = await resolveContextFromInvoice(svc, invoiceTry);
-    } else {
-      throw new Error("MISSING_CONTEXT");
-    }
+  const txt = await r.text().catch(() => "");
+  let j: any = null;
+  try {
+    j = txt ? JSON.parse(txt) : null;
+  } catch {
+    j = null;
+  }
 
-    const finalBackUrl = s(backUrlIn) || ctx.back_url || backCookie || (ctx.invoice_id ? `/invoices/${ctx.invoice_id}` : "/");
+  if (!r.ok) {
+    throw new Error(`DIGIGO_SIGN_FAILED:${r.status}:${txt || ""}`);
+  }
 
-    const sigRes = await svc.from("invoice_signatures").select("*").eq("invoice_id", ctx.invoice_id).maybeSingle();
-    if (!sigRes.data) {
-      await svc.from("digigo_sign_sessions").update({ status: "failed" }).eq("id", ctx.session_id);
-      return NextResponse.json({ ok: false, error: "SIGN_CTX_NOT_FOUND" }, { status: 400 });
-    }
+  const arr = Array.isArray(j?.value) ? j.value : [];
+  const signedHashB64 = s(arr?.[0] || "");
+  const algorithm = s(j?.algorithm || "");
 
-    const sigRow: any = sigRes.data;
-    const meta = sigRow?.meta && typeof sigRow.meta === "object" ? sigRow.meta : {};
-    const expectedState = s(meta?.state || "");
+  if (!signedHashB64) throw new Error("DIGIGO_SIGN_EMPTY");
+  return { signedHashB64, algorithm, raw: j };
+}
 
-    if (expectedState && ctx.state && expectedState !== ctx.state) {
-      await svc.from("digigo_sign_sessions").update({ status: "failed" }).eq("id", ctx.session_id);
-      return NextResponse.json({ ok: false, error: "STATE_MISMATCH", message: "State invalide." }, { status: 400 });
-    }
+export async function POST(req: Request) {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
 
-    if (token) {
-      let payload: any;
-      try {
-        payload = verifyJwtRS256(token, NDCA_JWT_VERIFY_CERT_PEM);
-      } catch {
-        if (digigoAllowInsecure()) {
-          payload = decodeJwtNoVerify(token).payload;
-        } else {
-          await svc.from("digigo_sign_sessions").update({ status: "failed" }).eq("id", ctx.session_id);
-          return NextResponse.json({ ok: false, error: "JWT_INVALID", message: "Token JWT invalide." }, { status: 400 });
-        }
+  if (!auth?.user) {
+    return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+  }
+
+  const svc = createServiceClient();
+  const body = await req.json().catch(() => ({}));
+
+  const token = s(body.token);
+  const codeIn = s(body.code);
+  const stateIn = s(body.state);
+  const invoiceIdIn = s(body.invoice_id);
+  const backUrlIn = s(body.back_url);
+
+  const c = cookies();
+  const stateCookie = s(c.get("digigo_state")?.value || "");
+  const invoiceCookie = s(c.get("digigo_invoice_id")?.value || "");
+  const backCookie = s(c.get("digigo_back_url")?.value || "");
+
+  const stateTry = stateIn || stateCookie;
+  const invoiceTry = invoiceIdIn || invoiceCookie;
+
+  let ctx: { state: string; invoice_id: string; back_url: string; session_id: string } | null = null;
+
+  if (stateTry) ctx = await resolveContextFromState(svc, stateTry);
+  else if (invoiceTry) ctx = await resolveContextFromInvoice(svc, invoiceTry);
+  else return NextResponse.json({ ok: false, error: "MISSING_CONTEXT" }, { status: 400 });
+
+  const finalBackUrl =
+    s(backUrlIn) || ctx.back_url || backCookie || (ctx.invoice_id ? `/invoices/${ctx.invoice_id}` : "/");
+
+  const sigRes = await svc.from("invoice_signatures").select("*").eq("invoice_id", ctx.invoice_id).maybeSingle();
+  if (!sigRes.data) {
+    await svc.from("digigo_sign_sessions").update({ status: "failed", error_message: "SIGN_CTX_NOT_FOUND" }).eq("id", ctx.session_id);
+    await svc.from("invoices").update({ signature_status: "failed" }).eq("id", ctx.invoice_id);
+    return NextResponse.json({ ok: false, error: "SIGN_CTX_NOT_FOUND" }, { status: 400 });
+  }
+
+  const sigRow: any = sigRes.data;
+  const meta = sigRow?.meta && typeof sigRow.meta === "object" ? sigRow.meta : {};
+  const expectedState = s(meta?.state || "");
+
+  if (expectedState && ctx.state && expectedState !== ctx.state) {
+    await svc.from("digigo_sign_sessions").update({ status: "failed", error_message: "STATE_MISMATCH" }).eq("id", ctx.session_id);
+    await svc.from("invoice_signatures").update({ state: "failed", error_message: "STATE_MISMATCH" }).eq("invoice_id", ctx.invoice_id);
+    await svc.from("invoices").update({ signature_status: "failed" }).eq("id", ctx.invoice_id);
+    return NextResponse.json({ ok: false, error: "STATE_MISMATCH" }, { status: 400 });
+  }
+
+  const unsigned_hash = s(sigRow?.unsigned_hash || "");
+  const unsigned_xml = s(sigRow?.unsigned_xml || "");
+  const credentialId = s(meta?.credentialId || "");
+
+  if (!unsigned_hash || !credentialId) {
+    await svc.from("digigo_sign_sessions").update({ status: "failed", error_message: "MISSING_SIGN_DATA" }).eq("id", ctx.session_id);
+    await svc.from("invoice_signatures").update({ state: "failed", error_message: "MISSING_SIGN_DATA" }).eq("invoice_id", ctx.invoice_id);
+    await svc.from("invoices").update({ signature_status: "failed" }).eq("id", ctx.invoice_id);
+    return NextResponse.json({ ok: false, error: "MISSING_SIGN_DATA" }, { status: 400 });
+  }
+
+  let jwtPayload: any = null;
+  let code = s(codeIn);
+
+  if (token) {
+    try {
+      jwtPayload = verifyJwtRS256(token, NDCA_JWT_VERIFY_CERT_PEM);
+    } catch {
+      if (digigoAllowInsecure()) jwtPayload = decodeJwtNoVerify(token).payload;
+      else {
+        await svc.from("digigo_sign_sessions").update({ status: "failed", error_message: "JWT_INVALID" }).eq("id", ctx.session_id);
+        await svc.from("invoice_signatures").update({ state: "failed", error_message: "JWT_INVALID" }).eq("invoice_id", ctx.invoice_id);
+        await svc.from("invoices").update({ signature_status: "failed" }).eq("id", ctx.invoice_id);
+        return NextResponse.json({ ok: false, error: "JWT_INVALID" }, { status: 400 });
       }
-
-      const subject = s(payload?.sub || "");
-      const jti = s(payload?.jti || "");
-      const exp = Number(payload?.exp || 0);
-
-      const unsigned_xml = s(sigRow?.unsigned_xml || "");
-      const unsigned_hash = s(sigRow?.unsigned_hash || "");
-
-      const updSig = await svc
-        .from("invoice_signatures")
-        .update({
-          state: "signed",
-          signed_at: new Date().toISOString(),
-          meta: {
-            ...meta,
-            digigo_token_sub: subject,
-            digigo_token_jti: jti,
-            digigo_token_exp: exp,
-            digigo_token_present: true,
-          },
-          signed_xml: sigRow?.signed_xml || unsigned_xml,
-          signed_hash: sigRow?.signed_hash || unsigned_hash,
-        })
-        .eq("invoice_id", ctx.invoice_id);
-
-      if (updSig.error) {
-        await svc.from("digigo_sign_sessions").update({ status: "failed" }).eq("id", ctx.session_id);
-        return NextResponse.json({ ok: false, error: "SIGNATURE_UPDATE_FAILED" }, { status: 500 });
-      }
-
-      await svc.from("invoices").update({ signature_status: "signed" }).eq("id", ctx.invoice_id);
-      await svc.from("digigo_sign_sessions").update({ status: "done" }).eq("id", ctx.session_id);
-
-      const res = NextResponse.json({ ok: true, invoice_id: ctx.invoice_id, redirect: finalBackUrl }, { status: 200 });
-
-      res.cookies.set("digigo_state", "", { path: "/", maxAge: 0 });
-      res.cookies.set("digigo_invoice_id", "", { path: "/", maxAge: 0 });
-      res.cookies.set("digigo_back_url", "", { path: "/", maxAge: 0 });
-
-      return res;
     }
+    code = s(jwtPayload?.jti || "");
+    if (!code) {
+      await svc.from("digigo_sign_sessions").update({ status: "failed", error_message: "MISSING_JTI" }).eq("id", ctx.session_id);
+      await svc.from("invoice_signatures").update({ state: "failed", error_message: "MISSING_JTI" }).eq("invoice_id", ctx.invoice_id);
+      await svc.from("invoices").update({ signature_status: "failed" }).eq("id", ctx.invoice_id);
+      return NextResponse.json({ ok: false, error: "MISSING_JTI" }, { status: 400 });
+    }
+  }
+
+  if (!code) {
+    await svc.from("digigo_sign_sessions").update({ status: "failed", error_message: "MISSING_CODE" }).eq("id", ctx.session_id);
+    await svc.from("invoice_signatures").update({ state: "failed", error_message: "MISSING_CODE" }).eq("invoice_id", ctx.invoice_id);
+    await svc.from("invoices").update({ signature_status: "failed" }).eq("id", ctx.invoice_id);
+    return NextResponse.json({ ok: false, error: "MISSING_CODE" }, { status: 400 });
+  }
+
+  try {
+    const { sad, raw: tokenRaw } = await digigoGetSadFromCode(code);
+    const { signedHashB64, algorithm, raw: signRaw } = await digigoSignHash(credentialId, sad, unsigned_hash);
 
     await svc
       .from("invoice_signatures")
       .update({
-        state: "failed",
-        meta: { ...meta, code_received: true },
-        error_message: "OAUTH_CODE_NOT_SUPPORTED_IN_PROXY",
+        state: "signed",
+        signed_at: new Date().toISOString(),
+        signed_hash: signedHashB64,
+        signed_xml: unsigned_xml || null,
+        session_id: ctx.session_id,
+        error_message: null,
+        meta: {
+          ...meta,
+          digigo_token_present: !!token,
+          digigo_token_jti: s(jwtPayload?.jti || ""),
+          digigo_token_sub: s(jwtPayload?.sub || ""),
+          digigo_token_exp: Number(jwtPayload?.exp || 0),
+          digigo_sad: sad,
+          digigo_token_response: tokenRaw,
+          digigo_sign_response: signRaw,
+          digigo_sign_algorithm: algorithm,
+        },
       })
       .eq("invoice_id", ctx.invoice_id);
 
-    await svc.from("digigo_sign_sessions").update({ status: "failed" }).eq("id", ctx.session_id);
+    await svc.from("digigo_sign_sessions").update({ status: "done", error_message: null }).eq("id", ctx.session_id);
+    await svc.from("invoices").update({ signature_status: "signed", ttn_signed: true }).eq("id", ctx.invoice_id);
 
-    return NextResponse.json(
-      { ok: false, error: "OAUTH_CODE_NOT_SUPPORTED", message: "Ce mode proxy attend token=JWT, pas code." },
-      { status: 400 }
-    );
+    const res = NextResponse.json({ ok: true, invoice_id: ctx.invoice_id, redirect: finalBackUrl }, { status: 200 });
+
+    res.cookies.set("digigo_state", "", { path: "/", maxAge: 0 });
+    res.cookies.set("digigo_invoice_id", "", { path: "/", maxAge: 0 });
+    res.cookies.set("digigo_back_url", "", { path: "/", maxAge: 0 });
+
+    return res;
   } catch (e: any) {
-    const msg = String(e?.message || e || "");
-    const map: Record<string, { status: number; error: string; message: string }> = {
-      MISSING_STATE: { status: 400, error: "MISSING_STATE", message: "State manquant." },
-      SESSION_NOT_FOUND: { status: 400, error: "SESSION_NOT_FOUND", message: "Session introuvable." },
-      SESSION_EXPIRED: { status: 410, error: "SESSION_EXPIRED", message: "Session expirée. Relance la signature depuis la facture." },
-      MISSING_CONTEXT: { status: 400, error: "MISSING_CONTEXT", message: "Contexte manquant (state/invoice_id)." },
-      BAD_JWT: { status: 400, error: "BAD_JWT", message: "Token JWT invalide." },
-      JWT_VERIFY_FAILED: { status: 400, error: "JWT_INVALID", message: "Token JWT invalide." },
-    };
-    const hit = map[msg];
-    if (hit) return NextResponse.json({ ok: false, error: hit.error, message: hit.message }, { status: hit.status });
-    return NextResponse.json({ ok: false, error: "CALLBACK_FATAL", message: "Erreur serveur.", details: msg }, { status: 500 });
+    const details = String(e?.message || e || "");
+    await svc.from("digigo_sign_sessions").update({ status: "failed", error_message: details }).eq("id", ctx.session_id);
+    await svc.from("invoice_signatures").update({ state: "failed", error_message: details, session_id: ctx.session_id }).eq("invoice_id", ctx.invoice_id);
+    await svc.from("invoices").update({ signature_status: "failed", ttn_last_error: details }).eq("id", ctx.invoice_id);
+    return NextResponse.json({ ok: false, error: "DIGIGO_FLOW_FAILED", details }, { status: 400 });
   }
 }
