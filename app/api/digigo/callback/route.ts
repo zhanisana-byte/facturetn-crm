@@ -4,13 +4,6 @@ import { cookies } from "next/headers";
 import { createServiceClient } from "@/lib/supabase/service";
 import { digigoAllowInsecure } from "@/lib/digigo/env";
 import { NDCA_JWT_VERIFY_CERT_PEM } from "@/lib/digigo/certs";
-import {
-  digigoProxyBaseUrl,
-  digigoClientId,
-  digigoClientSecret,
-  digigoGrantType,
-  digigoRedirectUri,
-} from "@/lib/digigo/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,21 +18,20 @@ function b64urlToBuf(b64url: string) {
 }
 
 function decodeJwtNoVerify(jwt: string) {
-  const [h, p, sig] = jwt.split(".");
-  if (!sig) throw new Error("BAD_JWT");
-  return {
-    header: JSON.parse(b64urlToBuf(h).toString("utf8")),
-    payload: JSON.parse(b64urlToBuf(p).toString("utf8")),
-  };
+  const parts = jwt.split(".");
+  if (parts.length !== 3) throw new Error("BAD_JWT");
+  const payload = JSON.parse(b64urlToBuf(parts[1]).toString("utf8"));
+  return payload;
 }
 
 function verifyJwtRS256(jwt: string, certPem: string) {
-  const [h, p, sig] = jwt.split(".");
-  const data = Buffer.from(`${h}.${p}`);
-  const signature = b64urlToBuf(sig);
+  const parts = jwt.split(".");
+  if (parts.length !== 3) throw new Error("BAD_JWT");
+  const data = Buffer.from(`${parts[0]}.${parts[1]}`);
+  const signature = b64urlToBuf(parts[2]);
   const ok = crypto.verify("RSA-SHA256", data, certPem, signature);
   if (!ok) throw new Error("JWT_VERIFY_FAILED");
-  return JSON.parse(b64urlToBuf(p).toString("utf8"));
+  return JSON.parse(b64urlToBuf(parts[1]).toString("utf8"));
 }
 
 export async function POST(req: Request) {
@@ -48,23 +40,22 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
 
     const token = s(body.token);
-    const codeIn = s(body.code);
+    const stateIn = s(body.state);
 
-    if (!token && !codeIn) {
-      return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
-    }
+    const c = await cookies();
+    const stateCookie = s(c.get("digigo_state")?.value || "");
+    const invoiceCookie = s(c.get("digigo_invoice_id")?.value || "");
 
-    let jwtPayload: any = null;
-    let state = "";
+    let state = stateIn || stateCookie;
 
-    if (token) {
+    if (!state && token) {
+      // On vérifie le JWT uniquement pour sécurité, mais on n’utilise PAS jti comme state.
       try {
-        jwtPayload = verifyJwtRS256(token, NDCA_JWT_VERIFY_CERT_PEM);
+        verifyJwtRS256(token, NDCA_JWT_VERIFY_CERT_PEM);
       } catch {
         if (!digigoAllowInsecure()) throw new Error("JWT_INVALID");
-        jwtPayload = decodeJwtNoVerify(token).payload;
+        decodeJwtNoVerify(token);
       }
-      state = s(jwtPayload?.jti || "");
     }
 
     if (!state) {
@@ -82,22 +73,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 400 });
     }
 
-    const session = sessRes.data;
+    const session: any = sessRes.data;
 
-    await svc
-      .from("digigo_sign_sessions")
-      .update({ status: "done", error_message: null })
-      .eq("id", session.id);
+    await svc.from("digigo_sign_sessions").update({ status: "done", error_message: null }).eq("id", session.id);
+    await svc.from("invoices").update({ signature_status: "signed", ttn_signed: true }).eq("id", session.invoice_id);
 
-    await svc
-      .from("invoices")
-      .update({ signature_status: "signed", ttn_signed: true })
-      .eq("id", session.invoice_id);
-
-    return NextResponse.json(
-      { ok: true, redirect: session.back_url || `/invoices/${session.invoice_id}` },
+    const res = NextResponse.json(
+      { ok: true, redirect: s(session.back_url) || `/invoices/${session.invoice_id}` },
       { status: 200 }
     );
+
+    res.cookies.set("digigo_state", "", { path: "/", maxAge: 0 });
+    res.cookies.set("digigo_invoice_id", "", { path: "/", maxAge: 0 });
+    res.cookies.set("digigo_back_url", "", { path: "/", maxAge: 0 });
+
+    return res;
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: "CALLBACK_FATAL", details: String(e?.message || e) },
