@@ -14,12 +14,11 @@ export default function DigigoRedirectClient() {
   const token = useMemo(() => s(sp.get("token") || ""), [sp]);
   const code = useMemo(() => s(sp.get("code") || ""), [sp]);
   const state = useMemo(() => s(sp.get("state") || ""), [sp]);
-
   const invoice_id = useMemo(() => s(sp.get("invoice_id") || ""), [sp]);
   const back_url = useMemo(() => s(sp.get("back") || ""), [sp]);
 
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<{ title: string; details?: string } | null>(null);
+  const [err, setErr] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -36,15 +35,24 @@ export default function DigigoRedirectClient() {
           credentials: "include",
         });
 
-        const j = await r.json().catch(() => null);
-        if (!r.ok || !j?.ok) throw new Error(s(j?.details || j?.error || `HTTP_${r.status}`));
+        const txt = await r.text().catch(() => "");
+        let j: any = null;
+        try {
+          j = txt ? JSON.parse(txt) : null;
+        } catch {
+          j = null;
+        }
+
+        if (!r.ok || !j?.ok) {
+          const details = s(j?.details || j?.error || txt || `HTTP_${r.status}`);
+          throw new Error(`${r.status} ${details}`);
+        }
 
         const redirect = s(j?.redirect || "/");
         if (mounted) router.replace(redirect);
       } catch (e: any) {
-        const d = s(e?.message || e || "");
         if (mounted) {
-          setErr({ title: "Erreur serveur.", details: d });
+          setErr(s(e?.message || e || "Erreur"));
           setLoading(false);
         }
       }
@@ -67,10 +75,10 @@ export default function DigigoRedirectClient() {
           </div>
         ) : null}
 
-        {err ? (
+        {!loading && err ? (
           <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-700">
-            <div className="font-semibold">{err.title}</div>
-            {err.details ? <div className="mt-2 text-sm break-words">{err.details}</div> : null}
+            <div className="font-semibold">Erreur</div>
+            <div className="mt-2 text-sm break-words whitespace-pre-wrap">{err}</div>
           </div>
         ) : null}
       </div>
