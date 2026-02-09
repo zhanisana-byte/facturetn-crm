@@ -175,7 +175,8 @@ export async function POST(req: Request) {
     const invoiceIdIn = s(body.invoice_id);
     const backUrlIn = s(body.back_url);
 
-    const c = cookies();
+    // ✅ FIX Next.js 15: cookies() peut être async -> il faut await
+    const c = await cookies();
     const stateCookie = s(c.get("digigo_state")?.value || "");
     const invoiceCookie = s(c.get("digigo_invoice_id")?.value || "");
     const backCookie = s(c.get("digigo_back_url")?.value || "");
@@ -194,7 +195,10 @@ export async function POST(req: Request) {
 
     const sigRes = await svc.from("invoice_signatures").select("*").eq("invoice_id", ctx.invoice_id).maybeSingle();
     if (!sigRes.data) {
-      await svc.from("digigo_sign_sessions").update({ status: "failed", error_message: "SIGN_CTX_NOT_FOUND" }).eq("id", ctx.session_id);
+      await svc
+        .from("digigo_sign_sessions")
+        .update({ status: "failed", error_message: "SIGN_CTX_NOT_FOUND" })
+        .eq("id", ctx.session_id);
       await svc.from("invoices").update({ signature_status: "failed" }).eq("id", ctx.invoice_id);
       return NextResponse.json({ ok: false, error: "SIGN_CTX_NOT_FOUND" }, { status: 400 });
     }
@@ -204,8 +208,14 @@ export async function POST(req: Request) {
     const expectedState = s(meta?.state || "");
 
     if (expectedState && ctx.state && expectedState !== ctx.state) {
-      await svc.from("digigo_sign_sessions").update({ status: "failed", error_message: "STATE_MISMATCH" }).eq("id", ctx.session_id);
-      await svc.from("invoice_signatures").update({ state: "failed", error_message: "STATE_MISMATCH" }).eq("invoice_id", ctx.invoice_id);
+      await svc
+        .from("digigo_sign_sessions")
+        .update({ status: "failed", error_message: "STATE_MISMATCH" })
+        .eq("id", ctx.session_id);
+      await svc
+        .from("invoice_signatures")
+        .update({ state: "failed", error_message: "STATE_MISMATCH" })
+        .eq("invoice_id", ctx.invoice_id);
       await svc.from("invoices").update({ signature_status: "failed" }).eq("id", ctx.invoice_id);
       return NextResponse.json({ ok: false, error: "STATE_MISMATCH" }, { status: 400 });
     }
@@ -215,8 +225,14 @@ export async function POST(req: Request) {
     const credentialId = s(meta?.credentialId || "");
 
     if (!unsigned_hash || !credentialId) {
-      await svc.from("digigo_sign_sessions").update({ status: "failed", error_message: "MISSING_SIGN_DATA" }).eq("id", ctx.session_id);
-      await svc.from("invoice_signatures").update({ state: "failed", error_message: "MISSING_SIGN_DATA" }).eq("invoice_id", ctx.invoice_id);
+      await svc
+        .from("digigo_sign_sessions")
+        .update({ status: "failed", error_message: "MISSING_SIGN_DATA" })
+        .eq("id", ctx.session_id);
+      await svc
+        .from("invoice_signatures")
+        .update({ state: "failed", error_message: "MISSING_SIGN_DATA" })
+        .eq("invoice_id", ctx.invoice_id);
       await svc.from("invoices").update({ signature_status: "failed" }).eq("id", ctx.invoice_id);
       return NextResponse.json({ ok: false, error: "MISSING_SIGN_DATA" }, { status: 400 });
     }
@@ -230,8 +246,14 @@ export async function POST(req: Request) {
       } catch {
         if (digigoAllowInsecure()) jwtPayload = decodeJwtNoVerify(token).payload;
         else {
-          await svc.from("digigo_sign_sessions").update({ status: "failed", error_message: "JWT_INVALID" }).eq("id", ctx.session_id);
-          await svc.from("invoice_signatures").update({ state: "failed", error_message: "JWT_INVALID" }).eq("invoice_id", ctx.invoice_id);
+          await svc
+            .from("digigo_sign_sessions")
+            .update({ status: "failed", error_message: "JWT_INVALID" })
+            .eq("id", ctx.session_id);
+          await svc
+            .from("invoice_signatures")
+            .update({ state: "failed", error_message: "JWT_INVALID" })
+            .eq("invoice_id", ctx.invoice_id);
           await svc.from("invoices").update({ signature_status: "failed" }).eq("id", ctx.invoice_id);
           return NextResponse.json({ ok: false, error: "JWT_INVALID" }, { status: 400 });
         }
@@ -239,16 +261,28 @@ export async function POST(req: Request) {
 
       code = s(jwtPayload?.jti || "");
       if (!code) {
-        await svc.from("digigo_sign_sessions").update({ status: "failed", error_message: "MISSING_JTI" }).eq("id", ctx.session_id);
-        await svc.from("invoice_signatures").update({ state: "failed", error_message: "MISSING_JTI" }).eq("invoice_id", ctx.invoice_id);
+        await svc
+          .from("digigo_sign_sessions")
+          .update({ status: "failed", error_message: "MISSING_JTI" })
+          .eq("id", ctx.session_id);
+        await svc
+          .from("invoice_signatures")
+          .update({ state: "failed", error_message: "MISSING_JTI" })
+          .eq("invoice_id", ctx.invoice_id);
         await svc.from("invoices").update({ signature_status: "failed" }).eq("id", ctx.invoice_id);
         return NextResponse.json({ ok: false, error: "MISSING_JTI" }, { status: 400 });
       }
     }
 
     if (!code) {
-      await svc.from("digigo_sign_sessions").update({ status: "failed", error_message: "MISSING_CODE" }).eq("id", ctx.session_id);
-      await svc.from("invoice_signatures").update({ state: "failed", error_message: "MISSING_CODE" }).eq("invoice_id", ctx.invoice_id);
+      await svc
+        .from("digigo_sign_sessions")
+        .update({ status: "failed", error_message: "MISSING_CODE" })
+        .eq("id", ctx.session_id);
+      await svc
+        .from("invoice_signatures")
+        .update({ state: "failed", error_message: "MISSING_CODE" })
+        .eq("invoice_id", ctx.invoice_id);
       await svc.from("invoices").update({ signature_status: "failed" }).eq("id", ctx.invoice_id);
       return NextResponse.json({ ok: false, error: "MISSING_CODE" }, { status: 400 });
     }
