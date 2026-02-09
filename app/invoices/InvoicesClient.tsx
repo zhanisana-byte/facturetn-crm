@@ -1,669 +1,219 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-type Company = { id: string; name: string };
-type AppUser = { id: string; full_name: string | null; email: string | null };
-
-type InvoiceRow = {
+type Invoice = {
   id: string;
-  company_id: string;
-
-  created_at: string | null;
   issue_date: string | null;
-
-  invoice_number: string | null;
-  unique_reference: string | null;
-
-  document_type: string | null;
-  invoice_mode: string | null;
-
-  total_ttc: number | null;
+  signature_status: string | null;
+  signed_at: string | null;
   currency: string | null;
+  timbre: number | null;
 
   customer_name: string | null;
   customer_email: string | null;
   customer_phone: string | null;
   customer_tax_id: string | null;
+  customer_address: string | null;
 
-  created_by_user_id: string | null;
-
-  signature_status: string | null;
-  signed_at: string | null;
-
-  ttn_status: string | null;
+  company_name: string | null;
+  company_tax_id: string | null;
+  company_address: string | null;
 };
 
-function fmt3(v: any) {
+type Line = {
+  id: string;
+  description: string | null;
+  qty: number | null;
+  unit_price_ht: number | null;
+  discount: number | null;
+  vat_rate: number | null;
+};
+
+function n(v: any) {
   const x = Number(v ?? 0);
-  const n = Number.isFinite(x) ? x : 0;
-  return (Math.round(n * 1000) / 1000).toFixed(3);
+  return Number.isFinite(x) ? x : 0;
 }
 
-function docTypeLabel(r: InvoiceRow) {
-  const t = (r.document_type || "facture").toLowerCase();
-  if (t === "devis") return "Devis";
-  if (t === "avoir") return "Avoir";
-  return "Facture";
+function fmt(v: any) {
+  return n(v).toFixed(3);
 }
 
-function modeLabel(r: InvoiceRow) {
-  const m = (r.invoice_mode || "normale").toLowerCase();
-  return m === "permanente" ? "Permanente" : "Normale";
-}
+function calcTotals(lines: Line[], timbre: any) {
+  let totalHT = 0;
+  let totalTVA = 0;
 
-function ttnLabel(r: InvoiceRow) {
-  const s = (r.ttn_status || "not_sent").toLowerCase();
-  if (s === "accepted") return "Acceptée";
-  if (s === "submitted") return "Soumise";
-  if (s === "scheduled") return "Planifiée";
-  if (s === "rejected") return "Rejetée";
-  if (s === "canceled") return "Annulée";
-  return "Non envoyée";
-}
-
-function isSigned(r: InvoiceRow) {
-  const st = (r.signature_status || "").toLowerCase();
-  return st === "signed" || !!r.signed_at;
-}
-
-function sigLabel(r: InvoiceRow) {
-  return isSigned(r) ? "Signée" : "Non signée";
-}
-
-function fmtDate(d?: string | null) {
-  if (!d) return "";
-  try {
-    const dt = new Date(d);
-    if (Number.isNaN(dt.getTime())) return String(d);
-    return dt.toLocaleDateString();
-  } catch {
-    return String(d);
+  for (const l of lines) {
+    const base = Math.max(0, n(l.qty) * n(l.unit_price_ht) - n(l.discount));
+    totalHT += base;
+    totalTVA += base * (n(l.vat_rate) / 100);
   }
+
+  const stamp = n(timbre);
+  const totalTTC = totalHT + totalTVA + stamp;
+
+  return { totalHT, totalTVA, stamp, totalTTC };
 }
 
-export default function InvoicesClient({ companies }: { companies: Company[] }) {
+export default function InvoiceClient() {
   const supabase = useMemo(() => createClient(), []);
-  const [rows, setRows] = useState<InvoiceRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const params = useParams();
+  const id = params?.id as string;
 
-  const [usersMap, setUsersMap] = useState<Map<string, AppUser>>(new Map());
+  const [invoice, setInvoice] = useState<Invoice | null>(null);
+  const [lines, setLines] = useState<Line[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [companyId, setCompanyId] = useState<string>("all");
-  const [type, setType] = useState<string>("all");
-  const [mode, setMode] = useState<string>("all");
-  const [sig, setSig] = useState<string>("all");
-  const [ttn, setTtn] = useState<string>("all");
-  const [createdBy, setCreatedBy] = useState<string>("all");
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
 
-  const [addedFrom, setAddedFrom] = useState<string>("");
-  const [addedTo, setAddedTo] = useState<string>("");
-
-  const [clientQ, setClientQ] = useState("");
-  const [q, setQ] = useState("");
-
-  const [page, setPage] = useState(1);
-  const pageSize = 25;
-
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [deleting, setDeleting] = useState(false);
-
-  const companyName = useMemo(() => new Map(companies.map((c) => [c.id, c.name])), [companies]);
-
-  async function load() {
-    setLoading(true);
-    setErr(null);
-    try {
-      const { data: inv, error: invErr } = await supabase
+      const { data: inv } = await supabase
         .from("invoices")
-        .select(
-          [
-            "id",
-            "company_id",
-            "created_at",
-            "issue_date",
-            "invoice_number",
-            "unique_reference",
-            "document_type",
-            "invoice_mode",
-            "total_ttc",
-            "currency",
-            "customer_name",
-            "customer_email",
-            "customer_phone",
-            "customer_tax_id",
-            "created_by_user_id",
-            "signature_status",
-            "ttn_status",
-          ].join(","),
-        )
-        .order("created_at", { ascending: false })
-        .limit(1500);
+        .select(`
+          id, issue_date, signature_status, signed_at, currency, timbre,
+          customer_name, customer_email, customer_phone, customer_tax_id, customer_address,
+          company_name, company_tax_id, company_address
+        `)
+        .eq("id", id)
+        .single();
 
-      if (invErr) throw invErr;
+      const { data: lns } = await supabase
+        .from("invoice_lines")
+        .select("id, description, qty, unit_price_ht, discount, vat_rate")
+        .eq("invoice_id", id)
+        .order("id");
 
-      const invoices = (inv ?? []) as InvoiceRow[];
-
-      const invIds = Array.from(new Set(invoices.map((x) => x.id).filter(Boolean))) as string[];
-      if (invIds.length) {
-        const { data: sigs, error: sigErr } = await supabase
-          .from("invoice_signatures")
-          .select("invoice_id,signed_at")
-          .in("invoice_id", invIds);
-
-        if (sigErr) throw sigErr;
-
-        const sigMap = new Map<string, string | null>();
-        for (const s of (sigs ?? []) as any[]) sigMap.set(String(s.invoice_id), s.signed_at ?? null);
-        for (const r of invoices) (r as any).signed_at = sigMap.get(r.id) ?? null;
-      }
-
-      setRows(invoices);
-      setSelected(new Set());
-
-      const ids = Array.from(new Set(invoices.map((x) => x.created_by_user_id).filter(Boolean))) as string[];
-      if (!ids.length) {
-        setUsersMap(new Map());
-        return;
-      }
-
-      const { data: u, error: uErr } = await supabase.from("app_users").select("id,full_name,email").in("id", ids);
-      if (uErr) throw uErr;
-
-      const map = new Map<string, AppUser>();
-      for (const it of (u ?? []) as any[]) map.set(it.id, it);
-      setUsersMap(map);
-    } catch (e: any) {
-      setErr(e?.message ?? "Erreur chargement.");
-    } finally {
+      setInvoice(inv as Invoice);
+      setLines((lns ?? []) as Line[]);
       setLoading(false);
     }
-  }
 
-  useEffect(() => {
     load();
-  }, []);
+  }, [id, supabase]);
 
-  const createdByOptions = useMemo(() => {
-    const list: { id: string; label: string }[] = [];
-    usersMap.forEach((u, id) => list.push({ id, label: u.full_name || u.email || id }));
-    return list.sort((a, b) => a.label.localeCompare(b.label));
-  }, [usersMap]);
+  if (loading || !invoice) return <div className="p-6">Chargement…</div>;
 
-  const filtered = useMemo(() => {
-    const qq = q.trim().toLowerCase();
-    const cqq = clientQ.trim().toLowerCase();
-
-    const from = addedFrom ? new Date(addedFrom) : null;
-    const to = addedTo ? new Date(addedTo) : null;
-
-    return rows.filter((r) => {
-      if (companyId !== "all" && r.company_id !== companyId) return false;
-
-      if (type !== "all") {
-        const t = (r.document_type || "facture").toLowerCase();
-        if (t !== type) return false;
-      }
-
-      if (mode !== "all") {
-        const m = (r.invoice_mode || "normale").toLowerCase();
-        if (m !== mode) return false;
-      }
-
-      if (sig !== "all") {
-        const s = isSigned(r);
-        if (sig === "signed" && !s) return false;
-        if (sig === "not_signed" && s) return false;
-      }
-
-      if (ttn !== "all") {
-        const t = (r.ttn_status || "not_sent").toLowerCase();
-        if (t !== ttn) return false;
-      }
-
-      if (createdBy !== "all") {
-        if ((r.created_by_user_id || "") !== createdBy) return false;
-      }
-
-      if (from || to) {
-        const d = r.created_at ? new Date(r.created_at) : null;
-        if (!d || Number.isNaN(d.getTime())) return false;
-        if (from && d < from) return false;
-        if (to) {
-          const end = new Date(to);
-          end.setHours(23, 59, 59, 999);
-          if (d > end) return false;
-        }
-      }
-
-      if (cqq) {
-        const blob = `${r.customer_name ?? ""} ${r.customer_email ?? ""} ${r.customer_phone ?? ""} ${r.customer_tax_id ?? ""}`.toLowerCase();
-        if (!blob.includes(cqq)) return false;
-      }
-
-      if (qq) {
-        const company = companyName.get(r.company_id) || "";
-        const blob = `${company} ${r.invoice_number ?? ""} ${r.unique_reference ?? ""} ${r.customer_name ?? ""}`.toLowerCase();
-        if (!blob.includes(qq)) return false;
-      }
-
-      return true;
-    });
-  }, [rows, companyId, type, mode, sig, ttn, createdBy, addedFrom, addedTo, clientQ, q, companyName]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const safePage = Math.min(Math.max(1, page), totalPages);
-
-  useEffect(() => {
-    if (safePage !== page) setPage(safePage);
-  }, [safePage, page]);
-
-  const paged = useMemo(() => {
-    const start = (safePage - 1) * pageSize;
-    return filtered.slice(start, start + pageSize);
-  }, [filtered, safePage]);
-
-  const pageUnsignedIds = useMemo(() => paged.filter((r) => !isSigned(r)).map((r) => r.id), [paged]);
-
-  const allUnsignedSelectedOnPage = useMemo(() => {
-    if (!pageUnsignedIds.length) return false;
-    for (const id of pageUnsignedIds) if (!selected.has(id)) return false;
-    return true;
-  }, [pageUnsignedIds, selected]);
-
-  function toggleSelectOne(id: string, checked: boolean) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  }
-
-  function toggleSelectAllOnPage(checked: boolean) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (checked) for (const id of pageUnsignedIds) next.add(id);
-      else for (const id of pageUnsignedIds) next.delete(id);
-      return next;
-    });
-  }
-
-  function userLabel(userId?: string | null) {
-    if (!userId) return "";
-    const u = usersMap.get(userId);
-    return u?.full_name || u?.email || userId;
-  }
-
-  async function deleteInvoices(ids: string[]) {
-    if (!ids.length) return;
-    setDeleting(true);
-    setErr(null);
-    try {
-      const { error } = await supabase.from("invoices").delete().in("id", ids);
-      if (error) throw error;
-      await load();
-    } catch (e: any) {
-      setErr(e?.message ?? "Suppression impossible.");
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  async function deleteOne(id: string) {
-    const ok = window.confirm("Supprimer ce document ? Cette action est irréversible.");
-    if (!ok) return;
-    await deleteInvoices([id]);
-  }
-
-  async function deleteSelected() {
-    const ids = Array.from(selected);
-    if (!ids.length) return;
-    const ok = window.confirm(`Supprimer ${ids.length} document(s) non signé(s) ? Cette action est irréversible.`);
-    if (!ok) return;
-    await deleteInvoices(ids);
-  }
+  const signed = invoice.signature_status === "signed" || !!invoice.signed_at;
+  const totals = calcTotals(lines, invoice.timbre);
 
   return (
     <div className="ftn-page">
       <div className="ftn-card">
         <div className="ftn-card-header">
           <div>
-            <div className="ftn-card-title">Factures</div>
-            <div className="ftn-card-subtitle">Toutes vos factures (facture / devis / avoir / permanente) + suivi signature et TTN.</div>
-          </div>
-          <div className="ftn-row" style={{ gap: 10, flexWrap: "wrap" }}>
-            <Link className="ftn-btn ftn-btn-primary" href="/invoices/new">
-              + Nouveau document
-            </Link>
-            <button className="ftn-btn ftn-btn-danger" onClick={deleteSelected} disabled={deleting || !selected.size}>
-              Supprimer sélection ({selected.size})
-            </button>
-            <button className="ftn-btn" onClick={() => load()} disabled={loading || deleting}>
-              Actualiser
-            </button>
+            <div className="ftn-card-title">Facture</div>
+            <div className={`ftn-badge ${signed ? "ok" : "bad"}`}>
+              {signed ? "Signée" : "Non signée"}
+            </div>
           </div>
         </div>
 
         <div className="ftn-card-content">
-          <div className="inv-grid">
-            <select className="ftn-input inv-span-2" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
-              <option value="all">Toutes les sociétés</option>
-              {companies.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-
-            <select className="ftn-input" value={type} onChange={(e) => setType(e.target.value)}>
-              <option value="all">Type : tout</option>
-              <option value="facture">Facture</option>
-              <option value="devis">Devis</option>
-              <option value="avoir">Avoir</option>
-            </select>
-
-            <select className="ftn-input" value={mode} onChange={(e) => setMode(e.target.value)}>
-              <option value="all">Mode : tout</option>
-              <option value="normale">Normale</option>
-              <option value="permanente">Permanente</option>
-            </select>
-
-            <select className="ftn-input" value={sig} onChange={(e) => setSig(e.target.value)}>
-              <option value="all">Signature : tout</option>
-              <option value="signed">Signée</option>
-              <option value="not_signed">Non signée</option>
-            </select>
-
-            <select className="ftn-input" value={ttn} onChange={(e) => setTtn(e.target.value)}>
-              <option value="all">TTN : tout</option>
-              <option value="not_sent">Non envoyée</option>
-              <option value="scheduled">Planifiée</option>
-              <option value="submitted">Soumise</option>
-              <option value="accepted">Acceptée</option>
-              <option value="rejected">Rejetée</option>
-              <option value="canceled">Annulée</option>
-            </select>
-
-            <select className="ftn-input inv-span-2" value={createdBy} onChange={(e) => setCreatedBy(e.target.value)}>
-              <option value="all">Créé par : tout</option>
-              {createdByOptions.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-
-            <input className="ftn-input" type="date" value={addedFrom} onChange={(e) => setAddedFrom(e.target.value)} aria-label="Ajout du" />
-            <input className="ftn-input" type="date" value={addedTo} onChange={(e) => setAddedTo(e.target.value)} aria-label="Ajout au" />
-          </div>
-
-          <div className="inv-search-row">
-            <input className="ftn-input" placeholder="Client (nom/email/tel/MF)" value={clientQ} onChange={(e) => setClientQ(e.target.value)} />
-            <input className="ftn-input" placeholder="Recherche (société, numéro, référence..)" value={q} onChange={(e) => setQ(e.target.value)} />
-            <button className="ftn-btn ftn-btn-primary" onClick={() => load()} disabled={loading || deleting}>
-              Rechercher
-            </button>
-          </div>
-
-          <div className="inv-date-hints">
-            <span>Ajout du</span>
-            <span>Au</span>
-          </div>
-
-          {err ? (
-            <div className="ftn-alert ftn-alert-error" role="alert" style={{ marginTop: 12 }}>
-              {err}
+          <div className="grid-2">
+            <div className="box">
+              <h4>Client</h4>
+              <div>{invoice.customer_name}</div>
+              <div>{invoice.customer_tax_id}</div>
+              <div>{invoice.customer_email}</div>
+              <div>{invoice.customer_phone}</div>
+              <div>{invoice.customer_address}</div>
             </div>
-          ) : null}
 
-          <div className="ftn-table-wrap" style={{ marginTop: 12 }}>
-            <table className="ftn-table">
-              <thead>
-                <tr>
-                  <th style={{ width: 44 }}>
-                    <input
-                      type="checkbox"
-                      checked={allUnsignedSelectedOnPage}
-                      onChange={(e) => toggleSelectAllOnPage(e.target.checked)}
-                      disabled={!pageUnsignedIds.length || loading || deleting}
-                      aria-label="Sélectionner tout (non signés)"
-                    />
-                  </th>
-                  <th>Société</th>
-                  <th>Client</th>
-                  <th>Type</th>
-                  <th>Mode</th>
-                  <th>Date</th>
-                  <th>Montant</th>
-                  <th>Créé par</th>
-                  <th style={{ width: 260 }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td colSpan={9} style={{ padding: 16 }}>
-                      Chargement...
-                    </td>
-                  </tr>
-                ) : paged.length ? (
-                  paged.map((r) => {
-                    const company = companyName.get(r.company_id) || r.company_id;
-                    const signed = isSigned(r);
-                    return (
-                      <tr key={r.id}>
-                        <td>
-                          <input
-                            type="checkbox"
-                            checked={selected.has(r.id)}
-                            onChange={(e) => toggleSelectOne(r.id, e.target.checked)}
-                            disabled={signed || deleting}
-                            aria-label={signed ? "Document signé (sélection désactivée)" : "Sélectionner"}
-                          />
-                        </td>
-                        <td>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                            <Link className="ftn-link" href={`/invoices/${r.id}`}>
-                              {company}
-                            </Link>
-
-                            <div className="ftn-muted" style={{ fontSize: 12 }}>
-                              {r.invoice_number || r.unique_reference || ""}
-                            </div>
-
-                            <div className="ftn-row" style={{ gap: 8, flexWrap: "wrap" }}>
-                              <span className="ftn-badge">{docTypeLabel(r)}</span>
-                              <span className="ftn-badge">{modeLabel(r)}</span>
-                              <span className={`ftn-badge ${signed ? "ftn-badge-ok" : "ftn-badge-bad"}`}>{sigLabel(r)}</span>
-                              <span className="ftn-badge">{ttnLabel(r)}</span>
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                            <div>{r.customer_name || "-"}</div>
-                            <div className="ftn-muted" style={{ fontSize: 12 }}>
-                              {r.customer_email || r.customer_phone || r.customer_tax_id || ""}
-                            </div>
-                          </div>
-                        </td>
-                        <td>{docTypeLabel(r)}</td>
-                        <td>{modeLabel(r)}</td>
-                        <td>{fmtDate(r.issue_date)}</td>
-                        <td>
-                          {fmt3(r.total_ttc)} {r.currency || "TND"}
-                        </td>
-                        <td>{userLabel(r.created_by_user_id)}</td>
-                        <td>
-                          <div className="inv-actions">
-                            <Link className="ftn-btn ftn-btn-xs" href={`/invoices/${r.id}`}>
-                              Voir
-                            </Link>
-
-                            {!signed ? (
-                              <>
-                                <Link className="ftn-btn ftn-btn-xs" href={`/invoices/${r.id}/edit`}>
-                                  Modifier
-                                </Link>
-                                <button className="ftn-btn ftn-btn-xs ftn-btn-danger" onClick={() => deleteOne(r.id)} disabled={deleting}>
-                                  Supprimer
-                                </button>
-                              </>
-                            ) : (
-                              <span className="ftn-muted" style={{ fontSize: 12 }}>
-                                Signée : modification/suppression bloquées
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                ) : (
-                  <tr>
-                    <td colSpan={9} style={{ padding: 16 }}>
-                      Aucun résultat.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+            <div className="box">
+              <h4>Vendeur</h4>
+              <div>{invoice.company_name}</div>
+              <div>{invoice.company_tax_id}</div>
+              <div>{invoice.company_address}</div>
+            </div>
           </div>
 
-          <div className="ftn-pagination">
-            <div className="ftn-muted">
-              Page {safePage} / {totalPages} • {filtered.length} document(s)
-            </div>
-            <div className="ftn-row" style={{ gap: 10 }}>
-              <button className="ftn-btn" onClick={() => setPage(1)} disabled={safePage <= 1}>
-                Début
-              </button>
-              <button className="ftn-btn" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}>
-                Précédent
-              </button>
-              <button className="ftn-btn" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}>
-                Suivant
-              </button>
-              <button className="ftn-btn" onClick={() => setPage(totalPages)} disabled={safePage >= totalPages}>
-                Fin
-              </button>
+          <table className="ftn-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Description</th>
+                <th>Qté</th>
+                <th>PU HT</th>
+                <th>Remise</th>
+                <th>TVA%</th>
+                <th>Total HT</th>
+                <th>Total TTC</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((l, i) => {
+                const base = Math.max(0, n(l.qty) * n(l.unit_price_ht) - n(l.discount));
+                const tva = base * (n(l.vat_rate) / 100);
+                return (
+                  <tr key={l.id}>
+                    <td>{i + 1}</td>
+                    <td>{l.description}</td>
+                    <td>{fmt(l.qty)}</td>
+                    <td>{fmt(l.unit_price_ht)}</td>
+                    <td>{fmt(l.discount)}</td>
+                    <td>{fmt(l.vat_rate)}</td>
+                    <td>{fmt(base)}</td>
+                    <td>{fmt(base + tva)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          <div className="totals">
+            <div><span>Total HT</span><span>{fmt(totals.totalHT)}</span></div>
+            <div><span>Total TVA</span><span>{fmt(totals.totalTVA)}</span></div>
+            <div><span>Timbre</span><span>{fmt(totals.stamp)}</span></div>
+            <div className="grand">
+              <span>Net à payer</span>
+              <span>{fmt(totals.totalTTC)} {invoice.currency || "TND"}</span>
             </div>
           </div>
         </div>
       </div>
 
       <style jsx>{`
-        .inv-grid {
+        .grid-2 {
           display: grid;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
-          gap: 10px;
-          align-items: center;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+          margin-bottom: 20px;
         }
-        .inv-span-2 {
-          grid-column: span 2;
+        .box {
+          background: #fff;
+          padding: 16px;
+          border-radius: 16px;
         }
-
-        .inv-search-row {
-          margin-top: 10px;
-          display: grid;
-          grid-template-columns: 1fr 1.3fr auto;
-          gap: 10px;
-          align-items: center;
+        .totals {
+          margin-top: 20px;
+          max-width: 360px;
+          margin-left: auto;
         }
-
-        .inv-date-hints {
-          display: grid;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
-          gap: 10px;
-          margin-top: 6px;
-          font-size: 12px;
-          opacity: 0.7;
-          user-select: none;
-        }
-        .inv-date-hints span:first-child {
-          grid-column: 4;
-        }
-        .inv-date-hints span:last-child {
-          grid-column: 5;
-        }
-
-        .inv-actions {
+        .totals div {
           display: flex;
-          gap: 8px;
-          align-items: center;
-          flex-wrap: wrap;
-          justify-content: flex-start;
+          justify-content: space-between;
+          padding: 6px 0;
         }
-
-        :global(.ftn-btn-xs) {
-          padding: 8px 10px;
-          font-size: 12px;
-          border-radius: 12px;
-          line-height: 1;
+        .totals .grand {
+          font-weight: 700;
+          border-top: 1px solid #ddd;
+          margin-top: 8px;
+          padding-top: 8px;
         }
-
-        :global(.ftn-btn-danger) {
-          border: 1px solid rgba(239, 68, 68, 0.35);
-          background: rgba(239, 68, 68, 0.08);
+        .ftn-badge.ok {
+          background: #22c55e;
+          color: #fff;
+          padding: 6px 12px;
+          border-radius: 999px;
         }
-
-        :global(.ftn-badge-ok) {
-          border: 1px solid rgba(34, 197, 94, 0.35);
-          background: rgba(34, 197, 94, 0.12);
-        }
-
-        :global(.ftn-badge-bad) {
-          border: 1px solid rgba(239, 68, 68, 0.35);
-          background: rgba(239, 68, 68, 0.12);
-        }
-
-        @media (max-width: 1200px) {
-          .inv-grid {
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-          }
-          .inv-date-hints {
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-          }
-          .inv-date-hints span:first-child {
-            grid-column: 3;
-          }
-          .inv-date-hints span:last-child {
-            grid-column: 4;
-          }
-        }
-
-        @media (max-width: 900px) {
-          .inv-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-          .inv-span-2 {
-            grid-column: span 2;
-          }
-          .inv-search-row {
-            grid-template-columns: 1fr 1fr;
-          }
-          .inv-search-row button {
-            grid-column: span 2;
-          }
-          .inv-date-hints {
-            display: none;
-          }
-        }
-
-        @media (max-width: 640px) {
-          .inv-grid {
-            grid-template-columns: 1fr;
-          }
-          .inv-span-2 {
-            grid-column: span 1;
-          }
-          .inv-search-row {
-            grid-template-columns: 1fr;
-          }
+        .ftn-badge.bad {
+          background: #ef4444;
+          color: #fff;
+          padding: 6px 12px;
+          border-radius: 999px;
         }
       `}</style>
     </div>
