@@ -1,253 +1,232 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
 
-type Company = {
-  id: string;
-  company_name?: string;
-  name?: string;
-};
+type Company = { id: string; name: string };
+type AppUser = { id: string; full_name: string | null; email: string | null };
 
 type InvoiceRow = {
   id: string;
   company_id: string;
-  document_type: string | null;
-  invoice_mode: string | null;
-  issue_date: string | null;
+
   created_at: string | null;
-  currency: string | null;
-  total_ttc: number | null;
+  issue_date: string | null;
+
   invoice_number: string | null;
   unique_reference: string | null;
+
+  document_type: string | null;
+  invoice_mode: string | null;
+
+  total_ttc: number | null;
+  currency: string | null;
+
   customer_name: string | null;
-  customer_tax_id: string | null;
   customer_email: string | null;
   customer_phone: string | null;
+  customer_tax_id: string | null;
+
   created_by_user_id: string | null;
+
   signature_status: string | null;
+  signed_at: string | null;
+
   ttn_status: string | null;
 };
 
-type RowActionState = {
-  selected: Set<string>;
-  busyId: string | null;
-};
-
-function s(v: any) {
-  return String(v ?? "").trim();
-}
-
-function n(v: any) {
-  const x = Number(v ?? 0);
-  return Number.isFinite(x) ? x : 0;
-}
-
 function fmt3(v: any) {
-  return (Math.round(n(v) * 1000) / 1000).toFixed(3);
-}
-
-function fmtDate(v: any) {
-  const d = s(v);
-  if (!d) return "—";
-  const dt = new Date(d);
-  return Number.isNaN(dt.getTime()) ? d : dt.toLocaleDateString("fr-FR");
-}
-
-function isSigned(r: InvoiceRow) {
-  return s(r.signature_status).toLowerCase() === "signed";
+  const x = Number(v ?? 0);
+  const n = Number.isFinite(x) ? x : 0;
+  return (Math.round(n * 1000) / 1000).toFixed(3);
 }
 
 function docTypeLabel(r: InvoiceRow) {
-  const t = s(r.document_type || "facture").toLowerCase();
-  if (t === "devis" || t === "quote") return "Devis";
-  if (t === "avoir" || t === "credit_note") return "Avoir";
+  const t = (r.document_type || "facture").toLowerCase();
+  if (t === "devis") return "Devis";
+  if (t === "avoir") return "Avoir";
   return "Facture";
 }
 
 function modeLabel(r: InvoiceRow) {
-  const m = s(r.invoice_mode || "normal").toLowerCase();
+  const m = (r.invoice_mode || "normale").toLowerCase();
   return m === "permanente" ? "Permanente" : "Normale";
 }
 
 function ttnLabel(r: InvoiceRow) {
-  const t = s(r.ttn_status || "not_sent").toLowerCase();
-  if (t === "accepted") return "TTN: Acceptée";
-  if (t === "rejected") return "TTN: Rejetée";
-  if (t === "submitted") return "TTN: Soumise";
-  if (t === "scheduled") return "TTN: Programmée";
-  if (t === "canceled") return "TTN: Annulée";
-  if (t === "failed") return "TTN: Erreur";
-  return "TTN: Non envoyée";
+  const s = (r.ttn_status || "not_sent").toLowerCase();
+  if (s === "accepted") return "Acceptée";
+  if (s === "submitted") return "Soumise";
+  if (s === "scheduled") return "Planifiée";
+  if (s === "rejected") return "Rejetée";
+  if (s === "canceled") return "Annulée";
+  return "Non envoyée";
+}
+
+function isSigned(r: InvoiceRow) {
+  const st = (r.signature_status || "").toLowerCase();
+  return st === "signed" || !!r.signed_at;
+}
+
+function sigLabel(r: InvoiceRow) {
+  return isSigned(r) ? "Signée" : "Non signée";
+}
+
+function fmtDate(d?: string | null) {
+  if (!d) return "";
+  try {
+    const dt = new Date(d);
+    if (Number.isNaN(dt.getTime())) return String(d);
+    return dt.toLocaleDateString();
+  } catch {
+    return String(d);
+  }
 }
 
 export default function InvoicesClient({ companies }: { companies: Company[] }) {
+  const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<InvoiceRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const [usersMap, setUsersMap] = useState<Map<string, any>>(new Map());
-  const [companyName, setCompanyName] = useState<Map<string, string>>(
-    () => new Map(companies.map((c) => [c.id, c.company_name || c.name || c.id]))
-  );
+  const [usersMap, setUsersMap] = useState<Map<string, AppUser>>(new Map());
 
-  const [companyId, setCompanyId] = useState("");
-  const [type, setType] = useState("tout");
-  const [mode, setMode] = useState("tout");
-  const [sig, setSig] = useState("tout");
-  const [ttn, setTtn] = useState("tout");
-  const [createdBy, setCreatedBy] = useState("tout");
-  const [addedFrom, setAddedFrom] = useState("");
-  const [addedTo, setAddedTo] = useState("");
+  const [companyId, setCompanyId] = useState<string>("all");
+  const [type, setType] = useState<string>("all");
+  const [mode, setMode] = useState<string>("all");
+  const [sig, setSig] = useState<string>("all");
+  const [ttn, setTtn] = useState<string>("all");
+  const [createdBy, setCreatedBy] = useState<string>("all");
+
+  const [addedFrom, setAddedFrom] = useState<string>("");
+  const [addedTo, setAddedTo] = useState<string>("");
+
   const [clientQ, setClientQ] = useState("");
   const [q, setQ] = useState("");
 
   const [page, setPage] = useState(1);
-  const pageSize = 20;
+  const pageSize = 25;
 
-  const [sel, setSel] = useState<RowActionState>({ selected: new Set(), busyId: null });
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
 
-  function toggleSelected(id: string, on?: boolean) {
-    setSel((p) => {
-      const next = new Set(p.selected);
-      const v = typeof on === "boolean" ? on : !next.has(id);
-      v ? next.add(id) : next.delete(id);
-      return { ...p, selected: next };
-    });
-  }
-
-  function toggleAll(on: boolean, list: InvoiceRow[]) {
-    setSel((p) => {
-      const next = new Set(p.selected);
-      for (const r of list) {
-        if (isSigned(r)) continue;
-        on ? next.add(r.id) : next.delete(r.id);
-      }
-      return { ...p, selected: next };
-    });
-  }
-
-  function extractList(payload: any): InvoiceRow[] {
-    const a = payload?.invoices ?? payload?.data ?? payload?.rows ?? [];
-    return Array.isArray(a) ? a : [];
-  }
-
-  function extractUsers(payload: any): any[] {
-    const a = payload?.users ?? payload?.included?.users ?? payload?.meta?.users ?? [];
-    return Array.isArray(a) ? a : [];
-  }
+  const companyName = useMemo(() => new Map(companies.map((c) => [c.id, c.name])), [companies]);
 
   async function load() {
     setLoading(true);
     setErr(null);
     try {
-      const res = await fetch("/api/invoices/list?limit=500", { cache: "no-store" });
-      const data = await res.json().catch(() => null);
+      const { data: inv, error: invErr } = await supabase
+        .from("invoices")
+        .select(
+          [
+            "id",
+            "company_id",
+            "created_at",
+            "issue_date",
+            "invoice_number",
+            "unique_reference",
+            "document_type",
+            "invoice_mode",
+            "total_ttc",
+            "currency",
+            "customer_name",
+            "customer_email",
+            "customer_phone",
+            "customer_tax_id",
+            "created_by_user_id",
+            "signature_status",
+            "ttn_status",
+          ].join(","),
+        )
+        .order("created_at", { ascending: false })
+        .limit(1500);
 
-      if (!res.ok) {
-        const msg = String(data?.error || data?.message || `HTTP_${res.status}`);
-        throw new Error(msg);
+      if (invErr) throw invErr;
+
+      const invoices = (inv ?? []) as InvoiceRow[];
+
+      const invIds = Array.from(new Set(invoices.map((x) => x.id).filter(Boolean))) as string[];
+      if (invIds.length) {
+        const { data: sigs, error: sigErr } = await supabase
+          .from("invoice_signatures")
+          .select("invoice_id,signed_at")
+          .in("invoice_id", invIds);
+
+        if (sigErr) throw sigErr;
+
+        const sigMap = new Map<string, string | null>();
+        for (const s of (sigs ?? []) as any[]) sigMap.set(String(s.invoice_id), s.signed_at ?? null);
+        for (const r of invoices) (r as any).signed_at = sigMap.get(r.id) ?? null;
       }
-
-      const invoices = extractList(data);
-      const users = extractUsers(data);
 
       setRows(invoices);
+      setSelected(new Set());
 
-      const um = new Map<string, any>();
-      for (const u of users) um.set(String(u.id), u);
-      setUsersMap(um);
-    } catch (e: any) {
-      setRows([]);
-      setUsersMap(new Map());
-      setErr(String(e?.message || "Erreur"));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function deleteOne(id: string) {
-    if (!id) return;
-    setSel((p) => ({ ...p, busyId: id }));
-    try {
-      const res = await fetch(`/api/invoices/${id}/delete`, { method: "POST" });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(String(data?.error || data?.message || `HTTP_${res.status}`));
-      setSel((p) => {
-        const next = new Set(p.selected);
-        next.delete(id);
-        return { ...p, selected: next };
-      });
-      await load();
-    } catch (e: any) {
-      setErr(String(e?.message || "Erreur"));
-    } finally {
-      setSel((p) => ({ ...p, busyId: null }));
-    }
-  }
-
-  async function bulkDelete() {
-    const ids = Array.from(sel.selected);
-    if (!ids.length) return;
-
-    setLoading(true);
-    setErr(null);
-    try {
-      for (const id of ids) {
-        const r = rows.find((x) => x.id === id);
-        if (!r) continue;
-        if (isSigned(r)) continue;
-
-        const res = await fetch(`/api/invoices/${id}/delete`, { method: "POST" });
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          throw new Error(String(data?.error || data?.message || `HTTP_${res.status}`));
-        }
+      const ids = Array.from(new Set(invoices.map((x) => x.created_by_user_id).filter(Boolean))) as string[];
+      if (!ids.length) {
+        setUsersMap(new Map());
+        return;
       }
-      setSel((p) => ({ ...p, selected: new Set() }));
-      await load();
+
+      const { data: u, error: uErr } = await supabase.from("app_users").select("id,full_name,email").in("id", ids);
+      if (uErr) throw uErr;
+
+      const map = new Map<string, AppUser>();
+      for (const it of (u ?? []) as any[]) map.set(it.id, it);
+      setUsersMap(map);
     } catch (e: any) {
-      setErr(String(e?.message || "Erreur"));
+      setErr(e?.message ?? "Erreur chargement.");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    setCompanyName(new Map(companies.map((c) => [c.id, c.company_name || c.name || c.id])));
     load();
-  }, [companies]);
+  }, []);
+
+  const createdByOptions = useMemo(() => {
+    const list: { id: string; label: string }[] = [];
+    usersMap.forEach((u, id) => list.push({ id, label: u.full_name || u.email || id }));
+    return list.sort((a, b) => a.label.localeCompare(b.label));
+  }, [usersMap]);
 
   const filtered = useMemo(() => {
+    const qq = q.trim().toLowerCase();
+    const cqq = clientQ.trim().toLowerCase();
+
     const from = addedFrom ? new Date(addedFrom) : null;
     const to = addedTo ? new Date(addedTo) : null;
-    const cqq = clientQ.trim().toLowerCase();
-    const qq = q.trim().toLowerCase();
 
     return rows.filter((r) => {
-      if (companyId && r.company_id !== companyId) return false;
+      if (companyId !== "all" && r.company_id !== companyId) return false;
 
-      const dt = s(r.document_type || "facture").toLowerCase();
-      if (type !== "tout") {
-        if (type === "facture" && !(dt === "facture" || dt === "invoice")) return false;
-        if (type === "devis" && !(dt === "devis" || dt === "quote")) return false;
-        if (type === "avoir" && !(dt === "avoir" || dt === "credit_note")) return false;
+      if (type !== "all") {
+        const t = (r.document_type || "facture").toLowerCase();
+        if (t !== type) return false;
       }
 
-      const md = s(r.invoice_mode || "normal").toLowerCase();
-      if (mode !== "tout") {
-        if (mode === "normal" && md !== "normal") return false;
-        if (mode === "permanente" && md !== "permanente") return false;
+      if (mode !== "all") {
+        const m = (r.invoice_mode || "normale").toLowerCase();
+        if (m !== mode) return false;
       }
 
-      const signed = isSigned(r);
-      if (sig === "signed" && !signed) return false;
-      if (sig === "not_signed" && signed) return false;
+      if (sig !== "all") {
+        const s = isSigned(r);
+        if (sig === "signed" && !s) return false;
+        if (sig === "not_signed" && s) return false;
+      }
 
-      const ts = s(r.ttn_status || "not_sent").toLowerCase();
-      if (ttn !== "tout" && ts !== ttn) return false;
+      if (ttn !== "all") {
+        const t = (r.ttn_status || "not_sent").toLowerCase();
+        if (t !== ttn) return false;
+      }
 
-      if (createdBy !== "tout" && s(r.created_by_user_id) !== createdBy) return false;
+      if (createdBy !== "all") {
+        if ((r.created_by_user_id || "") !== createdBy) return false;
+      }
 
       if (from || to) {
         const d = r.created_at ? new Date(r.created_at) : null;
@@ -266,8 +245,8 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
       }
 
       if (qq) {
-        const c = companyName.get(r.company_id) || "";
-        const blob = `${c} ${r.invoice_number ?? ""} ${r.unique_reference ?? ""} ${r.customer_name ?? ""}`.toLowerCase();
+        const company = companyName.get(r.company_id) || "";
+        const blob = `${company} ${r.invoice_number ?? ""} ${r.unique_reference ?? ""} ${r.customer_name ?? ""}`.toLowerCase();
         if (!blob.includes(qq)) return false;
       }
 
@@ -282,193 +261,411 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
     if (safePage !== page) setPage(safePage);
   }, [safePage, page]);
 
-  const pageRows = useMemo(() => {
+  const paged = useMemo(() => {
     const start = (safePage - 1) * pageSize;
     return filtered.slice(start, start + pageSize);
   }, [filtered, safePage]);
 
-  const allSelectableOnPage = pageRows.filter((r) => !isSigned(r));
-  const allChecked = allSelectableOnPage.length > 0 && allSelectableOnPage.every((r) => sel.selected.has(r.id));
+  const pageUnsignedIds = useMemo(() => paged.filter((r) => !isSigned(r)).map((r) => r.id), [paged]);
+
+  const allUnsignedSelectedOnPage = useMemo(() => {
+    if (!pageUnsignedIds.length) return false;
+    for (const id of pageUnsignedIds) if (!selected.has(id)) return false;
+    return true;
+  }, [pageUnsignedIds, selected]);
+
+  function toggleSelectOne(id: string, checked: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllOnPage(checked: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) for (const id of pageUnsignedIds) next.add(id);
+      else for (const id of pageUnsignedIds) next.delete(id);
+      return next;
+    });
+  }
+
+  function userLabel(userId?: string | null) {
+    if (!userId) return "";
+    const u = usersMap.get(userId);
+    return u?.full_name || u?.email || userId;
+  }
+
+  async function deleteInvoices(ids: string[]) {
+    if (!ids.length) return;
+    setDeleting(true);
+    setErr(null);
+    try {
+      const { error } = await supabase.from("invoices").delete().in("id", ids);
+      if (error) throw error;
+      await load();
+    } catch (e: any) {
+      setErr(e?.message ?? "Suppression impossible.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function deleteOne(id: string) {
+    const ok = window.confirm("Supprimer ce document ? Cette action est irréversible.");
+    if (!ok) return;
+    await deleteInvoices([id]);
+  }
+
+  async function deleteSelected() {
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    const ok = window.confirm(`Supprimer ${ids.length} document(s) non signé(s) ? Cette action est irréversible.`);
+    if (!ok) return;
+    await deleteInvoices(ids);
+  }
 
   return (
-    <div className="ftn-card">
-      <div className="ftn-card-content">
-        {err ? (
-          <div className="ftn-alert ftn-alert-error" role="alert" style={{ marginBottom: 12 }}>
-            {err}
+    <div className="ftn-page">
+      <div className="ftn-card">
+        <div className="ftn-card-header">
+          <div>
+            <div className="ftn-card-title">Factures</div>
+            <div className="ftn-card-subtitle">Toutes vos factures (facture / devis / avoir / permanente) + suivi signature et TTN.</div>
           </div>
-        ) : null}
-
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
-          <select className="ftn-input" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
-            <option value="">Toutes les sociétés</option>
-            {companies.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.company_name || c.name}
-              </option>
-            ))}
-          </select>
-
-          <select className="ftn-input" value={type} onChange={(e) => setType(e.target.value)}>
-            <option value="tout">Type : tout</option>
-            <option value="facture">Facture</option>
-            <option value="devis">Devis</option>
-            <option value="avoir">Avoir</option>
-          </select>
-
-          <select className="ftn-input" value={mode} onChange={(e) => setMode(e.target.value)}>
-            <option value="tout">Mode : tout</option>
-            <option value="normal">Normale</option>
-            <option value="permanente">Permanente</option>
-          </select>
-
-          <select className="ftn-input" value={sig} onChange={(e) => setSig(e.target.value)}>
-            <option value="tout">Signature : tout</option>
-            <option value="signed">Signée</option>
-            <option value="not_signed">Non signée</option>
-          </select>
-
-          <select className="ftn-input" value={ttn} onChange={(e) => setTtn(e.target.value)}>
-            <option value="tout">TTN : tout</option>
-            <option value="not_sent">Non envoyée</option>
-            <option value="scheduled">Programmée</option>
-            <option value="submitted">Soumise</option>
-            <option value="accepted">Acceptée</option>
-            <option value="rejected">Rejetée</option>
-            <option value="canceled">Annulée</option>
-            <option value="failed">Erreur</option>
-          </select>
-
-          <select className="ftn-input" value={createdBy} onChange={(e) => setCreatedBy(e.target.value)}>
-            <option value="tout">Créé par : tout</option>
-            {Array.from(usersMap.entries()).map(([id, u]) => (
-              <option key={id} value={id}>
-                {u?.full_name || u?.email || id}
-              </option>
-            ))}
-          </select>
-
-          <input className="ftn-input" type="date" value={addedFrom} onChange={(e) => setAddedFrom(e.target.value)} />
-          <input className="ftn-input" type="date" value={addedTo} onChange={(e) => setAddedTo(e.target.value)} />
-
-          <input className="ftn-input" placeholder="Client (nom/email/tel/MF)" value={clientQ} onChange={(e) => setClientQ(e.target.value)} />
-          <input className="ftn-input" placeholder="Recherche (société, numéro, référence..)" value={q} onChange={(e) => setQ(e.target.value)} />
-
-          <button className="ftn-btn" type="button" onClick={() => load()} disabled={loading}>
-            Actualiser
-          </button>
-
-          <button className="ftn-btn" type="button" onClick={() => bulkDelete()} disabled={!sel.selected.size || loading}>
-            Supprimer sélection
-          </button>
+          <div className="ftn-row" style={{ gap: 10, flexWrap: "wrap" }}>
+            <Link className="ftn-btn ftn-btn-primary" href="/invoices/new">
+              + Nouveau document
+            </Link>
+            <button className="ftn-btn ftn-btn-danger" onClick={deleteSelected} disabled={deleting || !selected.size}>
+              Supprimer sélection ({selected.size})
+            </button>
+            <button className="ftn-btn" onClick={() => load()} disabled={loading || deleting}>
+              Actualiser
+            </button>
+          </div>
         </div>
 
-        <div className="ftn-table-wrap">
-          <table className="ftn-table">
-            <thead>
-              <tr>
-                <th style={{ width: 44 }}>
-                  <input type="checkbox" checked={allChecked} disabled={!allSelectableOnPage.length} onChange={(e) => toggleAll(e.target.checked, pageRows)} />
-                </th>
-                <th>Société</th>
-                <th>Client</th>
-                <th>Type</th>
-                <th>Mode</th>
-                <th>Date</th>
-                <th>Montant</th>
-                <th style={{ width: 220 }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={8} style={{ padding: 16 }}>
-                    Chargement...
-                  </td>
-                </tr>
-              ) : pageRows.length ? (
-                pageRows.map((r) => {
-                  const signed = isSigned(r);
-                  const company = companyName.get(r.company_id) || r.company_id;
-                  return (
-                    <tr key={r.id}>
-                      <td>
-                        <input type="checkbox" disabled={signed} checked={sel.selected.has(r.id)} onChange={(e) => toggleSelected(r.id, e.target.checked)} />
-                      </td>
-                      <td>
-                        <Link className="ftn-link" href={`/invoices/${r.id}`}>
-                          {company}
-                        </Link>
-                        <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
-                          {r.invoice_number || r.unique_reference || ""}
-                          {r.invoice_number || r.unique_reference ? " · " : ""}
-                          {signed ? "Signée" : "Non signée"}
-                          {" · "}
-                          {ttnLabel(r)}
-                        </div>
-                      </td>
-                      <td>{r.customer_name || "—"}</td>
-                      <td>{docTypeLabel(r)}</td>
-                      <td>{modeLabel(r)}</td>
-                      <td>{fmtDate(r.issue_date)}</td>
-                      <td>
-                        {fmt3(r.total_ttc)} {r.currency || "TND"}
-                      </td>
-                      <td>
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          <Link className="ftn-btn ftn-btn-ghost" href={`/invoices/${r.id}`}>
-                            Voir
-                          </Link>
+        <div className="ftn-card-content">
+          <div className="inv-grid">
+            <select className="ftn-input inv-span-2" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+              <option value="all">Toutes les sociétés</option>
+              {companies.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
 
-                          {!signed ? (
-                            <>
-                              <Link className="ftn-btn ftn-btn-ghost" href={`/invoices/${r.id}/edit`}>
-                                Modifier
-                              </Link>
-                              <button className="ftn-btn ftn-btn-ghost" type="button" disabled={sel.busyId === r.id} onClick={() => deleteOne(r.id)}>
-                                Supprimer
-                              </button>
-                              <Link className="ftn-btn" href={`/invoices/${r.id}/signature?back=${encodeURIComponent("/invoices")}`}>
-                                Signer
-                              </Link>
-                            </>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={8} style={{ padding: 16 }}>
-                    Aucun résultat.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+            <select className="ftn-input" value={type} onChange={(e) => setType(e.target.value)}>
+              <option value="all">Type : tout</option>
+              <option value="facture">Facture</option>
+              <option value="devis">Devis</option>
+              <option value="avoir">Avoir</option>
+            </select>
 
-        <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ opacity: 0.75 }}>
-            Page {safePage} / {totalPages} • {filtered.length} document(s)
+            <select className="ftn-input" value={mode} onChange={(e) => setMode(e.target.value)}>
+              <option value="all">Mode : tout</option>
+              <option value="normale">Normale</option>
+              <option value="permanente">Permanente</option>
+            </select>
+
+            <select className="ftn-input" value={sig} onChange={(e) => setSig(e.target.value)}>
+              <option value="all">Signature : tout</option>
+              <option value="signed">Signée</option>
+              <option value="not_signed">Non signée</option>
+            </select>
+
+            <select className="ftn-input" value={ttn} onChange={(e) => setTtn(e.target.value)}>
+              <option value="all">TTN : tout</option>
+              <option value="not_sent">Non envoyée</option>
+              <option value="scheduled">Planifiée</option>
+              <option value="submitted">Soumise</option>
+              <option value="accepted">Acceptée</option>
+              <option value="rejected">Rejetée</option>
+              <option value="canceled">Annulée</option>
+            </select>
+
+            <select className="ftn-input inv-span-2" value={createdBy} onChange={(e) => setCreatedBy(e.target.value)}>
+              <option value="all">Créé par : tout</option>
+              {createdByOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+
+            <input className="ftn-input" type="date" value={addedFrom} onChange={(e) => setAddedFrom(e.target.value)} aria-label="Ajout du" />
+            <input className="ftn-input" type="date" value={addedTo} onChange={(e) => setAddedTo(e.target.value)} aria-label="Ajout au" />
           </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button className="ftn-btn" onClick={() => setPage(1)} disabled={safePage <= 1}>
-              Début
+
+          <div className="inv-search-row">
+            <input className="ftn-input" placeholder="Client (nom/email/tel/MF)" value={clientQ} onChange={(e) => setClientQ(e.target.value)} />
+            <input className="ftn-input" placeholder="Recherche (société, numéro, référence..)" value={q} onChange={(e) => setQ(e.target.value)} />
+            <button className="ftn-btn ftn-btn-primary" onClick={() => load()} disabled={loading || deleting}>
+              Rechercher
             </button>
-            <button className="ftn-btn" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}>
-              Précédent
-            </button>
-            <button className="ftn-btn" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}>
-              Suivant
-            </button>
-            <button className="ftn-btn" onClick={() => setPage(totalPages)} disabled={safePage >= totalPages}>
-              Fin
-            </button>
+          </div>
+
+          <div className="inv-date-hints">
+            <span>Ajout du</span>
+            <span>Au</span>
+          </div>
+
+          {err ? (
+            <div className="ftn-alert ftn-alert-error" role="alert" style={{ marginTop: 12 }}>
+              {err}
+            </div>
+          ) : null}
+
+          <div className="ftn-table-wrap" style={{ marginTop: 12 }}>
+            <table className="ftn-table">
+              <thead>
+                <tr>
+                  <th style={{ width: 44 }}>
+                    <input
+                      type="checkbox"
+                      checked={allUnsignedSelectedOnPage}
+                      onChange={(e) => toggleSelectAllOnPage(e.target.checked)}
+                      disabled={!pageUnsignedIds.length || loading || deleting}
+                      aria-label="Sélectionner tout (non signés)"
+                    />
+                  </th>
+                  <th>Société</th>
+                  <th>Client</th>
+                  <th>Type</th>
+                  <th>Mode</th>
+                  <th>Date</th>
+                  <th>Montant</th>
+                  <th>Créé par</th>
+                  <th style={{ width: 260 }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={9} style={{ padding: 16 }}>
+                      Chargement...
+                    </td>
+                  </tr>
+                ) : paged.length ? (
+                  paged.map((r) => {
+                    const company = companyName.get(r.company_id) || r.company_id;
+                    const signed = isSigned(r);
+                    return (
+                      <tr key={r.id}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={selected.has(r.id)}
+                            onChange={(e) => toggleSelectOne(r.id, e.target.checked)}
+                            disabled={signed || deleting}
+                            aria-label={signed ? "Document signé (sélection désactivée)" : "Sélectionner"}
+                          />
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            <Link className="ftn-link" href={`/invoices/${r.id}`}>
+                              {company}
+                            </Link>
+
+                            <div className="ftn-muted" style={{ fontSize: 12 }}>
+                              {r.invoice_number || r.unique_reference || ""}
+                            </div>
+
+                            <div className="ftn-row" style={{ gap: 8, flexWrap: "wrap" }}>
+                              <span className="ftn-badge">{docTypeLabel(r)}</span>
+                              <span className="ftn-badge">{modeLabel(r)}</span>
+                              <span className={`ftn-badge ${signed ? "ftn-badge-ok" : "ftn-badge-bad"}`}>{sigLabel(r)}</span>
+                              <span className="ftn-badge">{ttnLabel(r)}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            <div>{r.customer_name || "-"}</div>
+                            <div className="ftn-muted" style={{ fontSize: 12 }}>
+                              {r.customer_email || r.customer_phone || r.customer_tax_id || ""}
+                            </div>
+                          </div>
+                        </td>
+                        <td>{docTypeLabel(r)}</td>
+                        <td>{modeLabel(r)}</td>
+                        <td>{fmtDate(r.issue_date)}</td>
+                        <td>
+                          {fmt3(r.total_ttc)} {r.currency || "TND"}
+                        </td>
+                        <td>{userLabel(r.created_by_user_id)}</td>
+                        <td>
+                          <div className="inv-actions">
+                            <Link className="ftn-btn ftn-btn-xs" href={`/invoices/${r.id}`}>
+                              Voir
+                            </Link>
+
+                            {!signed ? (
+                              <>
+                                <Link className="ftn-btn ftn-btn-xs" href={`/invoices/${r.id}/edit`}>
+                                  Modifier
+                                </Link>
+                                <button className="ftn-btn ftn-btn-xs ftn-btn-danger" onClick={() => deleteOne(r.id)} disabled={deleting}>
+                                  Supprimer
+                                </button>
+                              </>
+                            ) : (
+                              <span className="ftn-muted" style={{ fontSize: 12 }}>
+                                Signée : modification/suppression bloquées
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={9} style={{ padding: 16 }}>
+                      Aucun résultat.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="ftn-pagination">
+            <div className="ftn-muted">
+              Page {safePage} / {totalPages} • {filtered.length} document(s)
+            </div>
+            <div className="ftn-row" style={{ gap: 10 }}>
+              <button className="ftn-btn" onClick={() => setPage(1)} disabled={safePage <= 1}>
+                Début
+              </button>
+              <button className="ftn-btn" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}>
+                Précédent
+              </button>
+              <button className="ftn-btn" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}>
+                Suivant
+              </button>
+              <button className="ftn-btn" onClick={() => setPage(totalPages)} disabled={safePage >= totalPages}>
+                Fin
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      <style jsx>{`
+        .inv-grid {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 10px;
+          align-items: center;
+        }
+        .inv-span-2 {
+          grid-column: span 2;
+        }
+
+        .inv-search-row {
+          margin-top: 10px;
+          display: grid;
+          grid-template-columns: 1fr 1.3fr auto;
+          gap: 10px;
+          align-items: center;
+        }
+
+        .inv-date-hints {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 10px;
+          margin-top: 6px;
+          font-size: 12px;
+          opacity: 0.7;
+          user-select: none;
+        }
+        .inv-date-hints span:first-child {
+          grid-column: 4;
+        }
+        .inv-date-hints span:last-child {
+          grid-column: 5;
+        }
+
+        .inv-actions {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          flex-wrap: wrap;
+          justify-content: flex-start;
+        }
+
+        :global(.ftn-btn-xs) {
+          padding: 8px 10px;
+          font-size: 12px;
+          border-radius: 12px;
+          line-height: 1;
+        }
+
+        :global(.ftn-btn-danger) {
+          border: 1px solid rgba(239, 68, 68, 0.35);
+          background: rgba(239, 68, 68, 0.08);
+        }
+
+        :global(.ftn-badge-ok) {
+          border: 1px solid rgba(34, 197, 94, 0.35);
+          background: rgba(34, 197, 94, 0.12);
+        }
+
+        :global(.ftn-badge-bad) {
+          border: 1px solid rgba(239, 68, 68, 0.35);
+          background: rgba(239, 68, 68, 0.12);
+        }
+
+        @media (max-width: 1200px) {
+          .inv-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+          }
+          .inv-date-hints {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+          }
+          .inv-date-hints span:first-child {
+            grid-column: 3;
+          }
+          .inv-date-hints span:last-child {
+            grid-column: 4;
+          }
+        }
+
+        @media (max-width: 900px) {
+          .inv-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+          .inv-span-2 {
+            grid-column: span 2;
+          }
+          .inv-search-row {
+            grid-template-columns: 1fr 1fr;
+          }
+          .inv-search-row button {
+            grid-column: span 2;
+          }
+          .inv-date-hints {
+            display: none;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .inv-grid {
+            grid-template-columns: 1fr;
+          }
+          .inv-span-2 {
+            grid-column: span 1;
+          }
+          .inv-search-row {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
     </div>
   );
 }
