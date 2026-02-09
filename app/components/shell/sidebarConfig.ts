@@ -68,7 +68,7 @@ export function getSidebarItems({
       { kind: "link", key: "p_create", label: "Créer une page", href: "/pages/new", icon: "create" },
       { kind: "link", key: "p_entities", label: "Mes entités", href: "/pages", icon: "entities" },
       { kind: "link", key: "p_invit", label: "Invitations", href: "/invitations", icon: "invitations" },
-      { kind: "link", key: "p_invoices", label: "Factures", href: "/invoices", icon: "invoices" },
+      { kind: "link", key: "p_invoices", label: "Factures/Devis/Avoirs", href: "/invoices", icon: "invoices" },
       { kind: "link", key: "p_recurring", label: "Factures récurrentes", href: "/recurring", icon: "recurring" },
       { kind: "link", key: "p_decl", label: "Déclarations", href: "/declarations", icon: "declarations" },
 
