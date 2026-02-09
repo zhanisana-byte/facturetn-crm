@@ -2,15 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* =========================================================
-   FACTURETN — LUXE GLOBAL UI (v1.2) — FULL PROJECT CSS
-   Base: ton CSS actuel
-   Objectif: sidebar visible type WordPress + espace de travail plus large
-========================================================= */
-
-/* -----------------------------
-   Variables
------------------------------ */
 :root{
   --bg: #f6f7fb;
   --ink: #0b1220;
@@ -31,18 +22,16 @@
 
   --ring: rgba(186,134,52,.24);
 
-  /* Layout */
   --shell-pad-x: 22px;
   --shell-pad-y: 28px;
   --sidebar-w: 320px;
   --gap: 18px;
-  --container-max: 1480px; /* espace plus large */
+  --container-max: 1480px;
 }
 
 *{ box-sizing:border-box; }
 html, body{ height:100%; }
 
-/* Scroll propre: page scroll, sidebar scroll interne */
 body{
   color: var(--ink);
   background:
@@ -52,9 +41,6 @@ body{
     var(--bg);
 }
 
-/* =========================================================
-   SHELL
-========================================================= */
 .ftn-shell{
   min-height:100vh;
   padding: var(--shell-pad-y) var(--shell-pad-x);
@@ -63,19 +49,12 @@ body{
   .ftn-shell{ padding: 18px 12px; }
 }
 
-/* =========================================================
-   APP SHELL (SIDEBAR + MAIN)
-   - Plus large
-   - Evite que le contenu disparaisse (min-width:0 + align stretch)
-========================================================= */
 .ftn-app{
   display:grid;
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   gap: var(--gap);
-
   max-width: min(var(--container-max), 100%);
   margin: 0 auto;
-
   align-items: stretch;
   min-width: 0;
 }
@@ -83,16 +62,10 @@ body{
   .ftn-app{ grid-template-columns: 1fr; }
 }
 
-/* =========================================================
-   SIDEBAR
-   - Toujours visible
-   - Scroll interne pour voir tout le menu comme WordPress
-========================================================= */
 .ftn-sidebar{
   position: sticky;
   top: 18px;
   align-self: start;
-
   border-radius: 26px;
   padding: 18px 16px;
   border: 1px solid rgba(255,255,255,.08);
@@ -101,16 +74,12 @@ body{
     linear-gradient(180deg, rgba(15,23,42,.96), rgba(2,6,23,.96));
   box-shadow: var(--shadow2);
   color: #fff;
-
-  /* Important: menu complet visible, scroll interne */
   max-height: calc(100vh - 36px);
   overflow-y: auto;
   overflow-x: hidden;
-
   min-width: 0;
 }
 
-/* Scrollbar sidebar (discret) */
 .ftn-sidebar::-webkit-scrollbar{ width: 10px; }
 .ftn-sidebar::-webkit-scrollbar-track{ background: rgba(255,255,255,.06); border-radius: 999px; }
 .ftn-sidebar::-webkit-scrollbar-thumb{
@@ -136,7 +105,6 @@ body{
   .ftn-sidebar-open{ transform: translateX(0); }
 }
 
-/* Mobile menu */
 .ftn-header-row{
   display:flex;
   gap: 14px;
@@ -200,7 +168,6 @@ body{
 .ftn-brand-title{ font-weight: 900; font-size: 15px; }
 .ftn-brand-sub{ font-size: 12px; opacity: .78; margin-top: 2px; }
 
-/* Sidebar titles/dividers */
 .ftn-sidebar-title{
   padding: 8px 10px 0;
   font-size: 11px;
@@ -215,7 +182,6 @@ body{
   background: rgba(255,255,255,.10);
 }
 
-/* Nav */
 .ftn-nav{
   display:flex;
   flex-direction: column;
@@ -293,11 +259,6 @@ body{
 }
 .ftn-small{ font-size: 12px; }
 
-/* =========================================================
-   MAIN (Content container)
-   - prend plus de place
-   - évite les pages "vides" à cause d'un min-height
-========================================================= */
 .ftn-main{
   border-radius: 26px;
   background: var(--card);
@@ -305,8 +266,6 @@ body{
   box-shadow: var(--shadow);
   overflow: hidden;
   min-width: 0;
-
-  /* donne une base de hauteur pour éviter le "contenu disparu" */
   min-height: calc(100vh - (var(--shell-pad-y) * 2));
 }
 
@@ -328,9 +287,6 @@ body{
   .ftn-header{ padding: 18px 14px 10px; }
 }
 
-/* =========================================================
-   TOPBAR (header inside main)
-========================================================= */
 .ftn-topbar{
   display:flex;
   align-items:flex-start;
@@ -341,9 +297,6 @@ body{
 .ftn-topbar-left{ min-width: 0; }
 .ftn-topbar-actions{ display:flex; align-items:center; gap: 10px; flex-wrap: wrap; }
 
-/* =========================================================
-   GRID / CARDS
-========================================================= */
 .ftn-grid{ display:grid; gap: 16px; }
 
 .ftn-grid-2{
@@ -362,7 +315,6 @@ body{
 
 .ftn-wrap{ display:flex; flex-direction:column; gap:18px; }
 
-/* Classic card */
 .ftn-card{
   border-radius: var(--radius);
   background: rgba(255,255,255,.86);
@@ -377,7 +329,6 @@ body{
   border-color: rgba(126,231,205,.35);
 }
 
-/* Luxe card (ton style) */
 .ftn-card-lux{
   border-radius: 22px;
   background: linear-gradient(180deg, rgba(255,255,255,.90), rgba(255,255,255,.72));
@@ -422,7 +373,6 @@ body{
 .ftn-card-right{ display:flex; align-items:center; gap:8px; }
 .ftn-card-body{ padding: 0 16px 16px 16px; color: rgba(11,18,32,.92); }
 
-/* Reveal */
 .ftn-reveal{
   opacity: 0;
   transform: translateY(10px) scale(.99);
@@ -433,7 +383,6 @@ body{
   .ftn-reveal{ animation:none; opacity:1; transform:none; }
 }
 
-/* Pills */
 .ftn-pill{
   display:inline-flex; align-items:center; gap:6px;
   padding: 6px 10px;
@@ -454,7 +403,6 @@ body{
 .ftn-pill-success{ border-color: rgba(16,185,129,.30); background: rgba(16,185,129,.10); color: rgba(6,95,70,.95); }
 .ftn-pill-info{ border-color: rgba(59,130,246,.25); background: rgba(59,130,246,.10); color: rgba(30,64,175,.95); }
 
-/* Buttons */
 .ftn-btn{
   display:inline-flex;
   align-items:center;
@@ -549,9 +497,6 @@ body{
   font-weight: 700;
 }
 
-/* =========================================================
-   FORMS
-========================================================= */
 .ftn-label{
   display:block;
   font-size: 12px;
@@ -574,9 +519,6 @@ body{
   box-shadow: 0 0 0 6px var(--ring), 0 18px 60px rgba(2,6,23,.10);
 }
 
-/* =========================================================
-   TABLES
-========================================================= */
 .ftn-table{
   width:100%;
   border-collapse: separate;
@@ -599,7 +541,6 @@ body{
 }
 .ftn-table tr:last-child td{ border-bottom: none; }
 
-/* Div-table recap */
 .ftn-tr{
   display:grid;
   grid-template-columns: 1.2fr 0.7fr 1.6fr;
@@ -652,9 +593,6 @@ body{
   padding:0 !important;
 }
 
-/* =========================================================
-   AUTH (HOME / LOGIN / REGISTER)
-========================================================= */
 .ftn-auth{
   min-height: calc(100vh - 56px);
   display:flex;
@@ -734,7 +672,6 @@ body{
 .ftn-auth-sub{ margin-top: 6px; color: var(--muted); font-size: 13px; }
 .ftn-auth-form{ margin-top: 18px; }
 
-/* Hero WOW */
 .ftn-hero{ position: relative; }
 .ftn-hero-badge{
   display:inline-flex;
@@ -794,7 +731,6 @@ body{
   color: rgba(15,23,42,.55);
 }
 
-/* Terms (register) */
 .ftn-terms{
   margin-top: 14px;
   padding: 14px;
@@ -839,9 +775,6 @@ body{
 .ftn-terms-link:hover{ text-decoration-color: rgba(186,134,52,.85); }
 .ftn-register-foot{ margin-top: 14px; }
 
-/* =========================================================
-   LEGAL PAGES (server safe)
-========================================================= */
 .ftn-legal-wrap {
   min-height: 100vh;
   padding: 28px 16px 40px;
