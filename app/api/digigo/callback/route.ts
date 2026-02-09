@@ -48,21 +48,21 @@ async function resolveContextFromState(svc: any, state: string) {
   const st = s(state);
   if (!st) throw new Error("MISSING_STATE");
 
-  const sessRes = await svc.from("digigo_sign_sessions").select("*").eq("state", st).maybeSingle();
-  if (!sessRes.data) throw new Error("SESSION_NOT_FOUND");
+  const nowIso = new Date().toISOString();
+
+  const sessRes = await svc
+    .from("digigo_sign_sessions")
+    .select("id,state,invoice_id,back_url,expires_at,status")
+    .eq("state", st)
+    .eq("status", "pending")
+    .gt("expires_at", nowIso)
+    .maybeSingle();
+
+  if (!sessRes.data) throw new Error("SESSION_EXPIRED");
 
   const session: any = sessRes.data;
-  const exp = new Date(session.expires_at).getTime();
-  const now = Date.now();
-
-  if (!exp || exp + 30000 < now) {
-    await svc.from("digigo_sign_sessions").update({ status: "expired" }).eq("id", session.id);
-    throw new Error("SESSION_EXPIRED");
-  }
-
   const invoice_id = s(session.invoice_id);
   const back_url = s(session.back_url) || (invoice_id ? `/invoices/${invoice_id}` : "/");
-
   return { state: st, invoice_id, back_url, session_id: s(session.id) };
 }
 
@@ -70,11 +70,14 @@ async function resolveContextFromInvoice(svc: any, invoiceId: string) {
   const inv = s(invoiceId);
   if (!inv || !isUuid(inv)) throw new Error("MISSING_CONTEXT");
 
+  const nowIso = new Date().toISOString();
+
   const sessRes = await svc
     .from("digigo_sign_sessions")
-    .select("*")
+    .select("id,state,invoice_id,back_url,expires_at,status,created_at")
     .eq("invoice_id", inv)
     .eq("status", "pending")
+    .gt("expires_at", nowIso)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -82,18 +85,9 @@ async function resolveContextFromInvoice(svc: any, invoiceId: string) {
   if (!sessRes.data) throw new Error("SESSION_EXPIRED");
 
   const session: any = sessRes.data;
-  const exp = new Date(session.expires_at).getTime();
-  const now = Date.now();
-
-  if (!exp || exp + 30000 < now) {
-    await svc.from("digigo_sign_sessions").update({ status: "expired" }).eq("id", session.id);
-    throw new Error("SESSION_EXPIRED");
-  }
-
   const state = s(session.state);
   const invoice_id = s(session.invoice_id);
   const back_url = s(session.back_url) || (invoice_id ? `/invoices/${invoice_id}` : "/");
-
   return { state, invoice_id, back_url, session_id: s(session.id) };
 }
 
@@ -181,7 +175,7 @@ export async function POST(req: Request) {
     const invoiceIdIn = s(body.invoice_id);
     const backUrlIn = s(body.back_url);
 
-    const c = await cookies();
+    const c = cookies();
     const stateCookie = s(c.get("digigo_state")?.value || "");
     const invoiceCookie = s(c.get("digigo_invoice_id")?.value || "");
     const backCookie = s(c.get("digigo_back_url")?.value || "");
@@ -294,9 +288,6 @@ export async function POST(req: Request) {
     return res;
   } catch (e: any) {
     const details = String(e?.message || e || "");
-    return NextResponse.json(
-      { ok: false, error: "CALLBACK_FATAL", message: "Erreur serveur.", details },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "CALLBACK_FATAL", message: "Erreur serveur.", details }, { status: 500 });
   }
 }
