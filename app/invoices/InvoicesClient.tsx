@@ -90,10 +90,6 @@ function isSigned(r: InvoiceRow) {
   return st === "signed";
 }
 
-function sigTone(r: InvoiceRow) {
-  return isSigned(r) ? "sig-green" : "sig-red";
-}
-
 export default function InvoicesClient({ companies }: { companies: Company[] }) {
   const [rows, setRows] = useState<InvoiceRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -242,4 +238,274 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
       const signed = isSigned(r);
       if (sig !== "tout") {
         if (sig === "signed" && !signed) return false;
-        if (sig === "
+        if (sig === "not_signed" && signed) return false;
+      }
+
+      const ts = s(r.ttn_status || "not_sent").toLowerCase();
+      if (ttn !== "tout") {
+        if (ttn === "not_sent" && ts !== "not_sent") return false;
+        if (ttn === "scheduled" && ts !== "scheduled") return false;
+        if (ttn === "submitted" && ts !== "submitted") return false;
+        if (ttn === "accepted" && ts !== "accepted") return false;
+        if (ttn === "rejected" && ts !== "rejected") return false;
+        if (ttn === "canceled" && ts !== "canceled") return false;
+        if (ttn === "failed" && ts !== "failed") return false;
+      }
+
+      if (createdBy !== "tout") {
+        if (s(r.created_by_user_id) !== createdBy) return false;
+      }
+
+      if (from || to) {
+        const d = r.created_at ? new Date(r.created_at) : null;
+        if (!d || Number.isNaN(d.getTime())) return false;
+        if (from && d < from) return false;
+        if (to) {
+          const end = new Date(to);
+          end.setHours(23, 59, 59, 999);
+          if (d > end) return false;
+        }
+      }
+
+      if (cqq) {
+        const blob = `${r.customer_name ?? ""} ${r.customer_email ?? ""} ${r.customer_phone ?? ""} ${
+          r.customer_tax_id ?? ""
+        }`.toLowerCase();
+        if (!blob.includes(cqq)) return false;
+      }
+
+      if (qq) {
+        const c = companyName.get(r.company_id) || "";
+        const blob = `${c} ${r.invoice_number ?? ""} ${r.unique_reference ?? ""} ${r.customer_name ?? ""}`.toLowerCase();
+        if (!blob.includes(qq)) return false;
+      }
+
+      return true;
+    });
+  }, [rows, companyId, type, mode, sig, ttn, createdBy, addedFrom, addedTo, clientQ, q, companyName]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+
+  useEffect(() => {
+    if (safePage !== page) setPage(safePage);
+  }, [safePage, page]);
+
+  const pageRows = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, safePage]);
+
+  const allSelectableOnPage = pageRows.filter((r) => !isSigned(r));
+  const allChecked = allSelectableOnPage.length > 0 && allSelectableOnPage.every((r) => sel.selected.has(r.id));
+
+  return (
+    <div className="ftn-card">
+      {err ? (
+        <div className="ftn-alert ftn-alert-error" role="alert" style={{ marginBottom: 12 }}>
+          {err}
+        </div>
+      ) : null}
+
+      <div className="ftn-card-content">
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 10 }}>
+          <select className="ftn-input" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+            <option value="">Toutes les sociétés</option>
+            {companies.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.company_name}
+              </option>
+            ))}
+          </select>
+
+          <select className="ftn-input" value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="tout">Type : tout</option>
+            <option value="facture">Facture</option>
+            <option value="devis">Devis</option>
+            <option value="avoir">Avoir</option>
+          </select>
+
+          <select className="ftn-input" value={mode} onChange={(e) => setMode(e.target.value)}>
+            <option value="tout">Mode : tout</option>
+            <option value="normal">Normale</option>
+            <option value="permanente">Permanente</option>
+          </select>
+
+          <select className="ftn-input" value={sig} onChange={(e) => setSig(e.target.value)}>
+            <option value="tout">Signature : tout</option>
+            <option value="signed">Signée</option>
+            <option value="not_signed">Non signée</option>
+          </select>
+
+          <select className="ftn-input" value={ttn} onChange={(e) => setTtn(e.target.value)}>
+            <option value="tout">TTN : tout</option>
+            <option value="not_sent">Non envoyée</option>
+            <option value="scheduled">Programmée</option>
+            <option value="submitted">Soumise</option>
+            <option value="accepted">Acceptée</option>
+            <option value="rejected">Rejetée</option>
+            <option value="canceled">Annulée</option>
+            <option value="failed">Erreur</option>
+          </select>
+
+          <select className="ftn-input" value={createdBy} onChange={(e) => setCreatedBy(e.target.value)}>
+            <option value="tout">Créé par : tout</option>
+            {Array.from(usersMap.entries()).map(([id, u]) => (
+              <option key={id} value={id}>
+                {u?.full_name || u?.email || id}
+              </option>
+            ))}
+          </select>
+
+          <input className="ftn-input" type="date" value={addedFrom} onChange={(e) => setAddedFrom(e.target.value)} />
+          <input className="ftn-input" type="date" value={addedTo} onChange={(e) => setAddedTo(e.target.value)} />
+
+          <input
+            className="ftn-input"
+            placeholder="Client (nom/email/tel/MF)"
+            value={clientQ}
+            onChange={(e) => setClientQ(e.target.value)}
+          />
+          <input
+            className="ftn-input"
+            placeholder="Recherche (société, numéro, référence..)"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+
+          <button className="ftn-btn" type="button" onClick={() => load()} disabled={loading}>
+            Actualiser
+          </button>
+
+          <button className="ftn-btn" type="button" onClick={() => bulkDelete()} disabled={!sel.selected.size || loading}>
+            Supprimer sélection
+          </button>
+        </div>
+
+        <div className="ftn-table-wrap" style={{ marginTop: 12 }}>
+          <table className="ftn-table">
+            <thead>
+              <tr>
+                <th style={{ width: 44 }}>
+                  <input
+                    type="checkbox"
+                    checked={allChecked}
+                    disabled={!allSelectableOnPage.length}
+                    onChange={(e) => toggleAll(e.target.checked, pageRows)}
+                  />
+                </th>
+                <th>Société</th>
+                <th>Client</th>
+                <th>Type</th>
+                <th>Mode</th>
+                <th>Date</th>
+                <th>Montant</th>
+                <th>Créé par</th>
+                <th style={{ width: 220 }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={9} style={{ padding: 16 }}>
+                    Chargement...
+                  </td>
+                </tr>
+              ) : pageRows.length ? (
+                pageRows.map((r) => {
+                  const signed = isSigned(r);
+                  const company = companyName.get(r.company_id) || r.company_id;
+                  const creator = usersMap.get(String(r.created_by_user_id));
+                  const creatorLabel = creator?.full_name || creator?.email || "—";
+
+                  return (
+                    <tr key={r.id}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          disabled={signed}
+                          checked={sel.selected.has(r.id)}
+                          onChange={(e) => toggleSelected(r.id, e.target.checked)}
+                        />
+                      </td>
+                      <td>
+                        <Link className="ftn-link" href={`/invoices/${r.id}`}>
+                          {company}
+                        </Link>
+                      </td>
+                      <td>{r.customer_name || "—"}</td>
+                      <td>{docTypeLabel(r)}</td>
+                      <td>{modeLabel(r)}</td>
+                      <td>{fmtDate(r.issue_date)}</td>
+                      <td>
+                        {fmt3(r.total_ttc)} {r.currency || "TND"}
+                      </td>
+                      <td>{creatorLabel}</td>
+                      <td>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <Link className="ftn-btn ftn-btn-ghost" href={`/invoices/${r.id}`}>
+                            Voir
+                          </Link>
+
+                          {!signed ? (
+                            <>
+                              <Link className="ftn-btn ftn-btn-ghost" href={`/invoices/${r.id}/edit`}>
+                                Modifier
+                              </Link>
+                              <button
+                                className="ftn-btn ftn-btn-ghost"
+                                type="button"
+                                disabled={sel.busyId === r.id}
+                                onClick={() => deleteOne(r.id)}
+                              >
+                                Supprimer
+                              </button>
+                              <Link className="ftn-btn" href={`/invoices/${r.id}/signature?back=${encodeURIComponent("/invoices")}`}>
+                                Signer
+                              </Link>
+                            </>
+                          ) : null}
+                        </div>
+
+                        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
+                          <span style={{ marginRight: 10 }}>{signed ? "Signée" : "Non signée"}</span>
+                          <span>{ttnLabel(r)}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={9} style={{ padding: 16 }}>
+                    Aucun résultat.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ opacity: 0.75 }}>
+            Page {safePage} / {totalPages} • {filtered.length} document(s)
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button className="ftn-btn" onClick={() => setPage(1)} disabled={safePage <= 1}>
+              Début
+            </button>
+            <button className="ftn-btn" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}>
+              Précédent
+            </button>
+            <button className="ftn-btn" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}>
+              Suivant
+            </button>
+            <button className="ftn-btn" onClick={() => setPage(totalPages)} disabled={safePage >= totalPages}>
+              Fin
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
