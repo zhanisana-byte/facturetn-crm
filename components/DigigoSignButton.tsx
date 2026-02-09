@@ -6,74 +6,49 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-export default function DigigoSignButton({ invoiceId }: { invoiceId: string }) {
+export default function DigigoSignButton(props: { invoiceId: string; backUrl?: string }) {
+  const invoiceId = s(props.invoiceId);
+  const backUrl = s(props.backUrl || "");
+
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState("");
 
-  function setEverywhere(key: string, value: string) {
-    if (!value) return;
-    try {
-      window.localStorage.setItem(key, value);
-    } catch {}
-    try {
-      window.sessionStorage.setItem(key, value);
-    } catch {}
-  }
-
-  function clearEverywhere(keys: string[]) {
-    for (const k of keys) {
-      try {
-        window.localStorage.removeItem(k);
-      } catch {}
-      try {
-        window.sessionStorage.removeItem(k);
-      } catch {}
+  async function handleClick() {
+    if (!invoiceId) {
+      alert("invoiceId manquant");
+      return;
     }
-  }
 
-  async function start() {
-    setErr("");
     setLoading(true);
-
-    clearEverywhere(["digigo_state", "digigo_invoice_id", "digigo_back_url"]);
-
     try {
       const r = await fetch("/api/digigo/start", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ invoice_id: invoiceId, back_url: `/invoices/${invoiceId}` }),
+        body: JSON.stringify({ invoice_id: invoiceId, back_url: backUrl }),
+        cache: "no-store",
+        credentials: "include",
       });
 
-      const j = await r.json().catch(() => ({}));
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j?.ok) throw new Error(s(j?.details || j?.error || `HTTP_${r.status}`));
 
-      if (!r.ok || !j?.ok || !j?.authorize_url) {
-        setErr(s(j?.error || j?.message || "Impossible de démarrer DigiGo."));
-        return;
-      }
+      const url = s(j?.authorize_url || "");
+      if (!url) throw new Error("AUTHORIZE_URL_MISSING");
 
-      const state = s(j?.state || "");
-      if (state) setEverywhere("digigo_state", state);
-
-      setEverywhere("digigo_invoice_id", invoiceId);
-      setEverywhere("digigo_back_url", `/invoices/${invoiceId}`);
-
-      window.location.href = String(j.authorize_url);
+      window.location.href = url;
     } catch (e: any) {
-      setErr(s(e?.message || "Erreur réseau."));
-    } finally {
+      alert(s(e?.message || e || "Erreur"));
       setLoading(false);
     }
   }
 
   return (
-    <div className="space-y-2">
-      <button className="ftn-btn w-full sm:w-auto" type="button" onClick={start} disabled={loading}>
-        {loading ? "Redirection…" : "Signer avec DigiGo"}
-      </button>
-
-      {err ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{err}</div>
-      ) : null}
-    </div>
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={loading}
+      className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold bg-slate-900 text-white disabled:opacity-60"
+    >
+      {loading ? "Redirection…" : "Signer avec DigiGo"}
+    </button>
   );
 }
