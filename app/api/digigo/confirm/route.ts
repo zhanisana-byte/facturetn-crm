@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { digigoCall } from "@/lib/signature/digigoClient";
+import { digigoOauthToken, digigoSignHash } from "@/lib/digigo/server";
+import { injectSignatureIntoTeifXml } from "@/lib/ttn/teifSignature";
+import { sha256Base64Utf8 } from "@/lib/digigo/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,57 +30,69 @@ export async function POST(req: Request) {
     if (!code) return NextResponse.json({ ok: false, error: "MISSING_CODE" }, { status: 400 });
     if (!state) return NextResponse.json({ ok: false, error: "MISSING_STATE" }, { status: 400 });
 
+    const { data: session } = await service
+      .from("digigo_sign_sessions")
+      .select("id,invoice_id,back_url,status")
+      .eq("state", state)
+      .maybeSingle();
+
     const sigRes = await service
       .from("invoice_signatures")
-      .select("*")
+      .select("meta,unsigned_xml,unsigned_hash")
       .eq("invoice_id", invoiceId)
       .maybeSingle();
 
     if (sigRes.error) {
       return NextResponse.json({ ok: false, error: "SIGNATURE_READ_FAILED", message: sigRes.error.message }, { status: 500 });
     }
-    const sig = sigRes.data;
+
+    const sig = sigRes.data as any;
     if (!sig) return NextResponse.json({ ok: false, error: "SIGNATURE_NOT_FOUND" }, { status: 404 });
 
-    const meta = (sig as any)?.meta && typeof (sig as any).meta === "object" ? (sig as any).meta : {};
-    const credentialId = s(meta?.credentialId);
-    const unsigned_hash = s((sig as any)?.unsigned_hash);
+    const meta = sig?.meta && typeof sig.meta === "object" ? sig.meta : {};
+    const credentialId = s(meta?.credentialId || meta?.credential_id || meta?.digigo_signer_email || "");
+    const unsignedXml = s(sig?.unsigned_xml);
+    const unsignedHash = s(sig?.unsigned_hash);
 
     if (!credentialId) return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
-    if (!unsigned_hash) return NextResponse.json({ ok: false, error: "UNSIGNED_HASH_MISSING" }, { status: 400 });
+    if (!unsignedXml) return NextResponse.json({ ok: false, error: "UNSIGNED_XML_MISSING" }, { status: 400 });
+    if (!unsignedHash) return NextResponse.json({ ok: false, error: "UNSIGNED_HASH_MISSING" }, { status: 400 });
 
-    const confirmPayload = {
-      credentialId,
-      state,
-      code,
-      hash: unsigned_hash,
-    };
-
-    const resp = await digigoCall("confirm", confirmPayload);
-
-    if (!resp.ok) {
-      await service
-        .from("invoice_signatures")
-        .update({ state: "failed", error_message: s(resp.error || "CONFIRM_FAILED") })
-        .eq("invoice_id", invoiceId);
-
-      return NextResponse.json(
-        { ok: false, error: "DIGIGO_CONFIRM_FAILED", message: s(resp.error || "Confirm failed"), status: resp.status || 400 },
-        { status: 400 }
-      );
+    const tok = await digigoOauthToken({ credentialId, code });
+    if (!tok.ok) {
+      await service.from("invoice_signatures").update({ state: "failed", error_message: s((tok as any).error || "TOKEN_FAILED") }).eq("invoice_id", invoiceId);
+      await service.from("invoices").update({ signature_status: "failed" }).eq("id", invoiceId);
+      if (session?.id) await service.from("digigo_sign_sessions").update({ status: "failed", error_message: s((tok as any).error || "TOKEN_FAILED") }).eq("id", session.id);
+      return NextResponse.json({ ok: false, error: "DIGIGO_TOKEN_FAILED", message: s((tok as any).error || "TOKEN_FAILED") }, { status: 400 });
     }
 
-    const signedHash = s(resp?.data?.signedHash ?? resp?.data?.signed_hash ?? resp?.data?.hash ?? "");
-    const signedXml = s(resp?.data?.signedXml ?? resp?.data?.signed_xml ?? resp?.data?.xml ?? "");
+    const sign = await digigoSignHash({ credentialId, sad: (tok as any).sad, hashes: [unsignedHash] });
+    if (!sign.ok) {
+      await service.from("invoice_signatures").update({ state: "failed", error_message: s((sign as any).error || "SIGN_FAILED") }).eq("invoice_id", invoiceId);
+      await service.from("invoices").update({ signature_status: "failed" }).eq("id", invoiceId);
+      if (session?.id) await service.from("digigo_sign_sessions").update({ status: "failed", error_message: s((sign as any).error || "SIGN_FAILED") }).eq("id", session.id);
+      return NextResponse.json({ ok: false, error: "DIGIGO_SIGN_FAILED", message: s((sign as any).error || "SIGN_FAILED") }, { status: 400 });
+    }
+
+    const signatureValue = s((sign as any).value);
+    const signedXml = injectSignatureIntoTeifXml(unsignedXml, signatureValue);
+    const signedHash = sha256Base64Utf8(signedXml);
 
     await service
       .from("invoice_signatures")
       .update({
         state: "signed",
         signed_at: new Date().toISOString(),
-        signed_hash: signedHash || null,
-        signed_xml: signedXml || null,
+        signed_hash: signedHash,
+        signed_xml: signedXml,
         error_message: null,
+        meta: {
+          ...meta,
+          state: "signed",
+          digigo: { code, sad: (tok as any).sad, algorithm: s((sign as any).algorithm || "") },
+          signed_hash: signedHash,
+          unsigned_hash: unsignedHash,
+        },
       })
       .eq("invoice_id", invoiceId);
 
@@ -90,6 +104,10 @@ export async function POST(req: Request) {
         ttn_signed: true,
       })
       .eq("id", invoiceId);
+
+    if (session?.id) {
+      await service.from("digigo_sign_sessions").update({ status: "done", error_message: null, updated_at: new Date().toISOString() }).eq("id", session.id);
+    }
 
     return NextResponse.json({ ok: true, signed_hash: signedHash }, { status: 200 });
   } catch (e: any) {
