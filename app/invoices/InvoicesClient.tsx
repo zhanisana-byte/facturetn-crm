@@ -298,13 +298,22 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
     return u?.full_name || u?.email || userId;
   }
 
+  async function deleteViaRoute(id: string) {
+    const res = await fetch(`/invoices/${id}/delete`, { method: "POST" });
+    const j = await res.json().catch(() => null);
+    if (!res.ok || !j?.ok) {
+      throw new Error(j?.error || "Suppression impossible.");
+    }
+  }
+
   async function deleteInvoices(ids: string[]) {
     if (!ids.length) return;
     setDeleting(true);
     setErr(null);
     try {
-      const { error } = await supabase.from("invoices").delete().in("id", ids);
-      if (error) throw error;
+      for (const id of ids) {
+        await deleteViaRoute(id);
+      }
       await load();
     } catch (e: any) {
       setErr(e?.message ?? "Suppression impossible.");
@@ -322,7 +331,7 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
   async function deleteSelected() {
     const ids = Array.from(selected);
     if (!ids.length) return;
-    const ok = window.confirm(`Supprimer ${ids.length} document(s) non signé(s) ? Cette action est irréversible.`);
+    const ok = window.confirm(` linking to the display name if applicable. You don't have to separately include the email address if a linked display name is present. You should ellipsis out the snippet if it is being cutoff. If the email response payload has a display_url, "Open in Gmail" *MUST* be linked to the email display_url underneath the subject of each displayed email. If you include the display_url in your response, it should always be markdown formatted to link on some piece of text. The tool response has HTML escaping, you **MUST** preserve that HTML escaping verbatim when rendering the email. Message ids are only intended for internal use and should not be exposed to users. Unless there is significant ambiguity in the user's request, you should usually try to perform the task without follow ups. Be curious with searches and reads, feel free to make reasonable and *grounded* assumptions, and call the functions when they may be useful to the user. If a function does not return a response, the user has declined to accept that action or an error has occurred. You should acknowledge if an error has occurred. When you are setting up an automation which will later need access to the user's email, you must do a dummy search tool call with an empty query first to make sure this tool is set up properly.`);
     if (!ok) return;
     await deleteInvoices(ids);
   }
@@ -331,11 +340,7 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
     <div className="ftn-page">
       <div className="ftn-card">
         <div className="ftn-card-header">
-          <div>
-            <div className="ftn-card-title">Factures</div>
-            <div className="ftn-card-subtitle">Toutes vos factures (facture / devis / avoir / permanente) + suivi signature et TTN.</div>
-          </div>
-          <div className="ftn-row" style={{ gap: 10, flexWrap: "wrap" }}>
+          <div className="ftn-row" style={{ gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
             <Link className="ftn-btn ftn-btn-primary" href="/invoices/new">
               + Nouveau document
             </Link>
@@ -470,202 +475,3 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
                             <Link className="ftn-link" href={`/invoices/${r.id}`}>
                               {company}
                             </Link>
-
-                            <div className="ftn-muted" style={{ fontSize: 12 }}>
-                              {r.invoice_number || r.unique_reference || ""}
-                            </div>
-
-                            <div className="ftn-row" style={{ gap: 8, flexWrap: "wrap" }}>
-                              <span className="ftn-badge">{docTypeLabel(r)}</span>
-                              <span className="ftn-badge">{modeLabel(r)}</span>
-                              <span className={`ftn-badge ${signed ? "ftn-badge-ok" : "ftn-badge-bad"}`}>{sigLabel(r)}</span>
-                              <span className="ftn-badge">{ttnLabel(r)}</span>
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                            <div>{r.customer_name || "-"}</div>
-                            <div className="ftn-muted" style={{ fontSize: 12 }}>
-                              {r.customer_email || r.customer_phone || r.customer_tax_id || ""}
-                            </div>
-                          </div>
-                        </td>
-                        <td>{docTypeLabel(r)}</td>
-                        <td>{modeLabel(r)}</td>
-                        <td>{fmtDate(r.issue_date)}</td>
-                        <td>
-                          {fmt3(r.total_ttc)} {r.currency || "TND"}
-                        </td>
-                        <td>{userLabel(r.created_by_user_id)}</td>
-                        <td>
-                          <div className="inv-actions">
-                            <Link className="ftn-btn ftn-btn-xs" href={`/invoices/${r.id}`}>
-                              Voir
-                            </Link>
-
-                            {!signed ? (
-                              <>
-                                <Link className="ftn-btn ftn-btn-xs" href={`/invoices/${r.id}/edit`}>
-                                  Modifier
-                                </Link>
-                                <button className="ftn-btn ftn-btn-xs ftn-btn-danger" onClick={() => deleteOne(r.id)} disabled={deleting}>
-                                  Supprimer
-                                </button>
-                              </>
-                            ) : (
-                              <span className="ftn-muted" style={{ fontSize: 12 }}>
-                                Signée : modification/suppression bloquées
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                ) : (
-                  <tr>
-                    <td colSpan={9} style={{ padding: 16 }}>
-                      Aucun résultat.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="ftn-pagination">
-            <div className="ftn-muted">
-              Page {safePage} / {totalPages} • {filtered.length} document(s)
-            </div>
-            <div className="ftn-row" style={{ gap: 10 }}>
-              <button className="ftn-btn" onClick={() => setPage(1)} disabled={safePage <= 1}>
-                Début
-              </button>
-              <button className="ftn-btn" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}>
-                Précédent
-              </button>
-              <button className="ftn-btn" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}>
-                Suivant
-              </button>
-              <button className="ftn-btn" onClick={() => setPage(totalPages)} disabled={safePage >= totalPages}>
-                Fin
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <style jsx>{`
-        .inv-grid {
-          display: grid;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
-          gap: 10px;
-          align-items: center;
-        }
-        .inv-span-2 {
-          grid-column: span 2;
-        }
-
-        .inv-search-row {
-          margin-top: 10px;
-          display: grid;
-          grid-template-columns: 1fr 1.3fr auto;
-          gap: 10px;
-          align-items: center;
-        }
-
-        .inv-date-hints {
-          display: grid;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
-          gap: 10px;
-          margin-top: 6px;
-          font-size: 12px;
-          opacity: 0.7;
-          user-select: none;
-        }
-        .inv-date-hints span:first-child {
-          grid-column: 4;
-        }
-        .inv-date-hints span:last-child {
-          grid-column: 5;
-        }
-
-        .inv-actions {
-          display: flex;
-          gap: 8px;
-          align-items: center;
-          flex-wrap: wrap;
-          justify-content: flex-start;
-        }
-
-        :global(.ftn-btn-xs) {
-          padding: 8px 10px;
-          font-size: 12px;
-          border-radius: 12px;
-          line-height: 1;
-        }
-
-        :global(.ftn-btn-danger) {
-          border: 1px solid rgba(239, 68, 68, 0.35);
-          background: rgba(239, 68, 68, 0.08);
-        }
-
-        :global(.ftn-badge-ok) {
-          border: 1px solid rgba(34, 197, 94, 0.35);
-          background: rgba(34, 197, 94, 0.12);
-        }
-
-        :global(.ftn-badge-bad) {
-          border: 1px solid rgba(239, 68, 68, 0.35);
-          background: rgba(239, 68, 68, 0.12);
-        }
-
-        @media (max-width: 1200px) {
-          .inv-grid {
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-          }
-          .inv-date-hints {
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-          }
-          .inv-date-hints span:first-child {
-            grid-column: 3;
-          }
-          .inv-date-hints span:last-child {
-            grid-column: 4;
-          }
-        }
-
-        @media (max-width: 900px) {
-          .inv-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-          .inv-span-2 {
-            grid-column: span 2;
-          }
-          .inv-search-row {
-            grid-template-columns: 1fr 1fr;
-          }
-          .inv-search-row button {
-            grid-column: span 2;
-          }
-          .inv-date-hints {
-            display: none;
-          }
-        }
-
-        @media (max-width: 640px) {
-          .inv-grid {
-            grid-template-columns: 1fr;
-          }
-          .inv-span-2 {
-            grid-column: span 1;
-          }
-          .inv-search-row {
-            grid-template-columns: 1fr;
-          }
-        }
-      `}</style>
-    </div>
-  );
-}
