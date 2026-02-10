@@ -11,6 +11,30 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
+async function safeUpdateInvoiceSigned(svc: any, invoiceId: string) {
+  const payload: any = {
+    updated_at: new Date().toISOString(),
+  };
+
+  payload.signature_status = "signed";
+  payload.signature_provider = "digigo";
+  payload.ttn_signed = true;
+
+  const r = await svc.from("invoices").update(payload).eq("id", invoiceId);
+  if (!r.error) return;
+
+  const msg = s(r.error.message);
+  if (msg.includes("column") && msg.includes("does not exist")) {
+    await svc
+      .from("invoices")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", invoiceId);
+    return;
+  }
+
+  throw r.error;
+}
+
 export async function POST(req: Request) {
   const svc = createServiceClient();
 
@@ -18,13 +42,13 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const state = s(body.state);
     const token = s(body.token);
+    const codeFromBody = s(body.code);
 
     if (!state) return NextResponse.json({ ok: false, error: "MISSING_STATE" }, { status: 400 });
-    if (!token) return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
 
     const { data: session, error: sessErr } = await svc
       .from("digigo_sign_sessions")
-      .select("id,invoice_id,back_url,company_id,status,expires_at")
+      .select("id,invoice_id,back_url,expires_at,status")
       .eq("state", state)
       .maybeSingle();
 
@@ -39,8 +63,7 @@ export async function POST(req: Request) {
       const exp = Date.parse(expRaw);
       if (Number.isFinite(exp) && exp < Date.now()) {
         await svc.from("digigo_sign_sessions").update({ status: "expired", updated_at: new Date().toISOString() }).eq("id", (session as any).id);
-        await svc.from("invoice_signatures").update({ state: "expired", error_message: "SESSION_EXPIRED" }).eq("invoice_id", invoiceId);
-        await svc.from("invoices").update({ signature_status: "pending", updated_at: new Date().toISOString() }).eq("id", invoiceId);
+        await svc.from("invoice_signatures").update({ state: "expired", error_message: "SESSION_EXPIRED", updated_at: new Date().toISOString() }).eq("invoice_id", invoiceId);
         return NextResponse.json({ ok: true, redirect: (session as any).back_url || `/invoices/${invoiceId}` });
       }
     }
@@ -63,20 +86,22 @@ export async function POST(req: Request) {
     if (!unsignedXml) return NextResponse.json({ ok: false, error: "UNSIGNED_XML_MISSING" }, { status: 400 });
     if (!unsignedHash) return NextResponse.json({ ok: false, error: "UNSIGNED_HASH_MISSING" }, { status: 400 });
 
-    const code = jwtGetJti(token);
+    const jti = token ? jwtGetJti(token) : "";
+    const code = codeFromBody || jti;
+
     if (!code) {
-      await svc.from("digigo_sign_sessions").update({ status: "failed", error_message: "JWT_JTI_MISSING", updated_at: new Date().toISOString() }).eq("id", (session as any).id);
-      await svc.from("invoice_signatures").update({ state: "failed", error_message: "JWT_JTI_MISSING" }).eq("invoice_id", invoiceId);
-      await svc.from("invoices").update({ signature_status: "failed", updated_at: new Date().toISOString() }).eq("id", invoiceId);
+      await svc.from("digigo_sign_sessions").update({ status: "failed", error_message: "MISSING_CODE", updated_at: new Date().toISOString() }).eq("id", (session as any).id);
+      await svc.from("invoice_signatures").update({ state: "failed", error_message: "MISSING_CODE", updated_at: new Date().toISOString() }).eq("invoice_id", invoiceId);
       return NextResponse.json({ ok: true, redirect: ((session as any).back_url || `/invoices/${invoiceId}`) + `?sig=failed` });
     }
+
+    await svc.from("digigo_sign_sessions").update({ digigo_jti: code, updated_at: new Date().toISOString() }).eq("id", (session as any).id);
 
     const tok = await digigoOauthToken({ credentialId, code });
     if (!tok.ok) {
       const msg = s((tok as any).error || "TOKEN_FAILED");
       await svc.from("digigo_sign_sessions").update({ status: "failed", error_message: msg, updated_at: new Date().toISOString() }).eq("id", (session as any).id);
-      await svc.from("invoice_signatures").update({ state: "failed", error_message: msg }).eq("invoice_id", invoiceId);
-      await svc.from("invoices").update({ signature_status: "failed", updated_at: new Date().toISOString() }).eq("id", invoiceId);
+      await svc.from("invoice_signatures").update({ state: "failed", error_message: msg, updated_at: new Date().toISOString() }).eq("invoice_id", invoiceId);
       return NextResponse.json({ ok: true, redirect: ((session as any).back_url || `/invoices/${invoiceId}`) + `?sig=failed` });
     }
 
@@ -84,12 +109,13 @@ export async function POST(req: Request) {
     if (!sign.ok) {
       const msg = s((sign as any).error || "SIGN_FAILED");
       await svc.from("digigo_sign_sessions").update({ status: "failed", error_message: msg, updated_at: new Date().toISOString() }).eq("id", (session as any).id);
-      await svc.from("invoice_signatures").update({ state: "failed", error_message: msg }).eq("invoice_id", invoiceId);
-      await svc.from("invoices").update({ signature_status: "failed", updated_at: new Date().toISOString() }).eq("id", invoiceId);
+      await svc.from("invoice_signatures").update({ state: "failed", error_message: msg, updated_at: new Date().toISOString() }).eq("invoice_id", invoiceId);
       return NextResponse.json({ ok: true, redirect: ((session as any).back_url || `/invoices/${invoiceId}`) + `?sig=failed` });
     }
 
     const signatureValue = s((sign as any).value);
+    const algorithm = s((sign as any).algorithm || "");
+
     const signedXml = injectSignatureIntoTeifXml(unsignedXml, signatureValue);
     const signedHash = sha256Base64Utf8(signedXml);
 
@@ -101,13 +127,10 @@ export async function POST(req: Request) {
         signed_hash: signedHash,
         signed_xml: signedXml,
         error_message: null,
+        updated_at: new Date().toISOString(),
         meta: {
           ...meta,
-          digigo: {
-            code,
-            sad: (tok as any).sad,
-            algorithm: s((sign as any).algorithm || ""),
-          },
+          digigo: { code, sad: (tok as any).sad, algorithm },
           unsigned_hash: unsignedHash,
           signed_hash: signedHash,
         },
@@ -123,15 +146,7 @@ export async function POST(req: Request) {
       })
       .eq("id", (session as any).id);
 
-    await svc
-      .from("invoices")
-      .update({
-        signature_status: "signed",
-        signature_provider: "digigo",
-        ttn_signed: true,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", invoiceId);
+    await safeUpdateInvoiceSigned(svc, invoiceId);
 
     return NextResponse.json({ ok: true, redirect: (session as any).back_url || `/invoices/${invoiceId}` });
   } catch (e: any) {
