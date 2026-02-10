@@ -28,22 +28,21 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   if (invErr) return NextResponse.json({ ok: false, error: invErr.message }, { status: 500 });
   if (!invoice) return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
 
+  const companyId = s((invoice as any).company_id);
+  if (!companyId) return NextResponse.json({ ok: false, error: "INVOICE_NO_COMPANY" }, { status: 400 });
+
   const service = createServiceClient();
 
   const { data: sig, error: sigErr } = await service
     .from("invoice_signatures")
-    .select("signed_xml,state,signed_at")
+    .select("signed_xml,signed_at,state,provider")
     .eq("invoice_id", invoiceId)
     .maybeSingle();
 
   if (sigErr) return NextResponse.json({ ok: false, error: sigErr.message }, { status: 500 });
 
-  const signedXml = s((sig as any)?.signed_xml ?? "");
-  const state = s((sig as any)?.state ?? "").toLowerCase();
-
-  if (!signedXml || (state && state !== "signed")) {
-    return NextResponse.json({ ok: false, error: "NOT_SIGNED" }, { status: 409 });
-  }
+  const signedXml = s((sig as any)?.signed_xml);
+  if (!signedXml) return NextResponse.json({ ok: false, error: "NOT_SIGNED" }, { status: 409 });
 
   return new Response(signedXml, {
     status: 200,
