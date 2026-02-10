@@ -20,9 +20,13 @@ type InvoiceRow = {
   document_type: string | null;
   invoice_mode: string | null;
 
+  subtotal_ht: number | null;
+  total_vat: number | null;
   total_ttc: number | null;
+
   stamp_amount: number | null;
   net_to_pay: number | null;
+
   currency: string | null;
 
   customer_name: string | null;
@@ -38,10 +42,17 @@ type InvoiceRow = {
   ttn_status: string | null;
 };
 
+function toNum(v: any, def = 0) {
+  const x = Number(v);
+  return Number.isFinite(x) ? x : def;
+}
+
+function round3(n: number) {
+  return Math.round(n * 1000) / 1000;
+}
+
 function fmt3(v: any) {
-  const x = Number(v ?? 0);
-  const n = Number.isFinite(x) ? x : 0;
-  return (Math.round(n * 1000) / 1000).toFixed(3);
+  return round3(toNum(v ?? 0, 0)).toFixed(3);
 }
 
 function docTypeLabel(r: InvoiceRow) {
@@ -53,7 +64,8 @@ function docTypeLabel(r: InvoiceRow) {
 
 function modeLabel(r: InvoiceRow) {
   const m = (r.invoice_mode || "normale").toLowerCase();
-  return m === "permanente" ? "Permanente" : "Normale";
+  if (m === "permanente") return "Permanente";
+  return "Normale";
 }
 
 function ttnLabel(r: InvoiceRow) {
@@ -84,6 +96,17 @@ function fmtDate(d?: string | null) {
   } catch {
     return String(d);
   }
+}
+
+function netToPayRow(r: InvoiceRow) {
+  const net = toNum(r.net_to_pay, NaN);
+  if (Number.isFinite(net)) return net;
+  const ht = toNum(r.subtotal_ht, 0);
+  const vat = toNum(r.total_vat, 0);
+  const stamp = toNum(r.stamp_amount, 0);
+  const ttc = toNum(r.total_ttc, NaN);
+  if (Number.isFinite(ttc)) return round3(ttc + stamp);
+  return round3(ht + vat + stamp);
 }
 
 export default function InvoicesClient({ companies }: { companies: Company[] }) {
@@ -131,6 +154,8 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
             "unique_reference",
             "document_type",
             "invoice_mode",
+            "subtotal_ht",
+            "total_vat",
             "total_ttc",
             "stamp_amount",
             "net_to_pay",
@@ -142,7 +167,7 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
             "created_by_user_id",
             "signature_status",
             "ttn_status",
-          ].join(","),
+          ].join(",")
         )
         .order("created_at", { ascending: false })
         .limit(1500);
@@ -158,11 +183,11 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
           .select("invoice_id,signed_at")
           .in("invoice_id", invIds);
 
-        if (!sigErr) {
-          const sigMap = new Map<string, string | null>();
-          for (const s of (sigs ?? []) as any[]) sigMap.set(String(s.invoice_id), s.signed_at ?? null);
-          for (const r of invoices) (r as any).signed_at = sigMap.get(r.id) ?? null;
-        }
+        if (sigErr) throw sigErr;
+
+        const sigMap = new Map<string, string | null>();
+        for (const s of (sigs ?? []) as any[]) sigMap.set(String(s.invoice_id), s.signed_at ?? null);
+        for (const r of invoices) (r as any).signed_at = sigMap.get(r.id) ?? null;
       }
 
       setRows(invoices);
@@ -214,7 +239,8 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
 
       if (mode !== "all") {
         const m = (r.invoice_mode || "normale").toLowerCase();
-        if (m !== mode) return false;
+        const mm = m === "normal" ? "normale" : m;
+        if (mm !== mode) return false;
       }
 
       if (sig !== "all") {
@@ -302,10 +328,13 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
     return u?.full_name || u?.email || userId;
   }
 
-  async function deleteOneApi(id: string) {
+  async function apiDeleteOne(id: string) {
     const res = await fetch(`/api/invoices/${id}/delete`, { method: "POST" });
-    const j = await res.json().catch(() => ({}));
-    if (!res.ok || !j?.ok) throw new Error(j?.error || "Suppression impossible.");
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.ok) {
+      const msg = json?.error || `Suppression impossible (${res.status}).`;
+      throw new Error(msg);
+    }
   }
 
   async function deleteInvoices(ids: string[]) {
@@ -314,7 +343,7 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
     setErr(null);
     try {
       for (const id of ids) {
-        await deleteOneApi(id);
+        await apiDeleteOne(id);
       }
       await load();
     } catch (e: any) {
@@ -333,24 +362,27 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
   async function deleteSelected() {
     const ids = Array.from(selected);
     if (!ids.length) return;
-    const ok = window.confirm(`Supprimer ${ids.length} document(s) non signé(s) ? Cette action est irréversible.`);
-    if (!ok) return;
-    await deleteInvoices(ids);
-  }
 
-  function amountLabel(r: InvoiceRow) {
-    const net = Number(r.net_to_pay ?? NaN);
-    if (Number.isFinite(net)) return net;
-    const ttc = Number(r.total_ttc ?? 0);
-    const stamp = Number(r.stamp_amount ?? 0);
-    return ttc + stamp;
+    const unsignedIds = ids.filter((id) => {
+      const r = rows.find((x) => x.id === id);
+      return r ? !isSigned(r) : true;
+    });
+
+    if (!unsignedIds.length) {
+      setErr("Sélection invalide : uniquement les documents non signés sont supprimables.");
+      return;
+    }
+
+    const ok = window.confirm(`Supprimer ${unsignedIds.length} document(s) non signé(s) ? Cette action est irréversible.`);
+    if (!ok) return;
+    await deleteInvoices(unsignedIds);
   }
 
   return (
     <div className="ftn-page">
       <div className="ftn-card">
         <div className="ftn-card-header">
-          <div className="ftn-row" style={{ gap: 10, flexWrap: "wrap" }}>
+          <div className="ftn-row" style={{ gap: 10, flexWrap: "wrap", justifyContent: "flex-start" }}>
             <Link className="ftn-btn ftn-btn-primary" href="/invoices/new">
               + Nouveau document
             </Link>
@@ -453,7 +485,7 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
                   <th>Type</th>
                   <th>Mode</th>
                   <th>Date</th>
-                  <th>Montant</th>
+                  <th>Montant (Net à payer)</th>
                   <th>Créé par</th>
                   <th style={{ width: 260 }}>Actions</th>
                 </tr>
@@ -469,6 +501,8 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
                   paged.map((r) => {
                     const company = companyName.get(r.company_id) || r.company_id;
                     const signed = isSigned(r);
+                    const net = netToPayRow(r);
+
                     return (
                       <tr key={r.id}>
                         <td>
@@ -510,7 +544,7 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
                         <td>{modeLabel(r)}</td>
                         <td>{fmtDate(r.issue_date)}</td>
                         <td>
-                          {fmt3(amountLabel(r))} {r.currency || "TND"}
+                          {fmt3(net)} {r.currency || "TND"}
                         </td>
                         <td>{userLabel(r.created_by_user_id)}</td>
                         <td>
@@ -622,11 +656,10 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
         }
 
         :global(.ftn-btn-danger) {
-          border: 1px solid rgba(239, 68, 68, 0.9);
-          background: rgba(239, 68, 68, 1);
+          border: 1px solid rgba(239, 68, 68, 0.85);
+          background: rgb(239, 68, 68);
           color: #fff;
         }
-
         :global(.ftn-btn-danger:disabled) {
           opacity: 0.55;
         }
