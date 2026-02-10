@@ -21,11 +21,6 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function iso4217OK(v: string) {
-  const x = (v || "").trim().toUpperCase();
-  return /^[A-Z]{3}$/.test(x);
-}
-
 function toNum(v: any, def = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : def;
@@ -37,6 +32,11 @@ function round3(n: number) {
 
 function fmt3(n: number) {
   return round3(n).toFixed(3);
+}
+
+function iso4217OK(v: string) {
+  const x = (v || "").trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(x);
 }
 
 function computeTotals(items: ItemRow[], stampAmount: number) {
@@ -61,10 +61,10 @@ function computeTotals(items: ItemRow[], stampAmount: number) {
   total_vat = round3(total_vat);
 
   const total_ttc = round3(subtotal_ht + total_vat);
-  const stamp = round3(toNum(stampAmount, 0));
-  const net_to_pay = round3(total_ttc + stamp);
+  const stamp_amount = round3(toNum(stampAmount, 0));
+  const net_to_pay = round3(total_ttc + stamp_amount);
 
-  return { subtotal_ht, total_vat, total_ttc, stamp_amount: stamp, net_to_pay };
+  return { subtotal_ht, total_vat, total_ttc, stamp_amount, net_to_pay };
 }
 
 function Modal({
@@ -110,7 +110,9 @@ export default function EditInvoiceClient({ invoice, items }: { invoice: any; it
     message: "",
   });
 
-  const [documentType, setDocumentType] = useState<DocumentType>((s(invoice?.document_type || "facture").toLowerCase() as any) || "facture");
+  const [documentType, setDocumentType] = useState<DocumentType>(
+    ((s(invoice?.document_type || "facture").toLowerCase() as any) || "facture") as DocumentType
+  );
 
   const [customerType, setCustomerType] = useState<CustomerType>(() => {
     const mf = s(invoice?.customer_tax_id);
@@ -127,7 +129,7 @@ export default function EditInvoiceClient({ invoice, items }: { invoice: any; it
   const [customerAddress, setCustomerAddress] = useState<string>(s(invoice?.customer_address || ""));
 
   const [currency, setCurrency] = useState<string>(s(invoice?.currency || "TND") || "TND");
-  const [stampAmount, setStampAmount] = useState<number>(toNum(invoice?.stamp_amount, 1));
+  const [stampAmount, setStampAmount] = useState<number>(toNum(invoice?.stamp_amount, 0));
 
   const [rows, setRows] = useState<ItemRow[]>(
     (items ?? []).length
@@ -157,7 +159,14 @@ export default function EditInvoiceClient({ invoice, items }: { invoice: any; it
   }
 
   function removeLine(i: number) {
-    setRows((prev) => prev.filter((_, idx) => idx !== i).map((x, idx) => ({ ...x, line_no: idx + 1 })));
+    setRows((prev) =>
+      prev
+        .filter((_, idx) => idx !== i)
+        .map((x, idx) => ({
+          ...x,
+          line_no: idx + 1,
+        }))
+    );
   }
 
   function updateLine(i: number, key: keyof ItemRow, value: any) {
@@ -171,7 +180,7 @@ export default function EditInvoiceClient({ invoice, items }: { invoice: any; it
 
   async function onSave() {
     if (isPending) return;
-    if (!invoiceId) return openError("ID facture manquant.");
+    if (!invoiceId) return openError("ID document manquant.");
     if (signed) return openError("Document signé : modification bloquée.");
 
     if (!customerName.trim()) return openError("Veuillez saisir le nom du client.");
@@ -184,8 +193,10 @@ export default function EditInvoiceClient({ invoice, items }: { invoice: any; it
       if (mf.length < 4) return openError("MF invalide.");
     }
 
-    const validItems = rows
-      .map((it) => ({
+    const cleanedItems = rows
+      .map((it, idx) => ({
+        id: it.id,
+        line_no: idx + 1,
         description: s(it.description),
         quantity: toNum(it.quantity, 0),
         unit_price_ht: toNum(it.unit_price_ht, 0),
@@ -194,7 +205,7 @@ export default function EditInvoiceClient({ invoice, items }: { invoice: any; it
       }))
       .filter((it) => it.description && it.quantity > 0);
 
-    if (!validItems.length) return openError("Ajoutez au moins une ligne avec description et quantité > 0.");
+    if (!cleanedItems.length) return openError("Ajoutez au moins une ligne avec description et quantité > 0.");
 
     startTransition(async () => {
       try {
@@ -212,7 +223,7 @@ export default function EditInvoiceClient({ invoice, items }: { invoice: any; it
           currency: currency.trim().toUpperCase(),
           stamp_amount: round3(toNum(stampAmount, 0)),
 
-          items: rows,
+          items: cleanedItems,
         };
 
         const res = await fetch(`/api/invoices/${invoiceId}/update`, {
@@ -282,7 +293,14 @@ export default function EditInvoiceClient({ invoice, items }: { invoice: any; it
 
             <div>
               <label className="ftn-label">Timbre (DT)</label>
-              <input className="ftn-input" type="number" step="0.001" value={stampAmount} onChange={(e) => setStampAmount(toNum(e.target.value, 0))} disabled={signed} />
+              <input
+                className="ftn-input"
+                type="number"
+                step="0.001"
+                value={stampAmount}
+                onChange={(e) => setStampAmount(toNum(e.target.value, 0))}
+                disabled={signed}
+              />
             </div>
           </div>
         </div>
@@ -335,4 +353,110 @@ export default function EditInvoiceClient({ invoice, items }: { invoice: any; it
           </button>
         </div>
 
-        <div className="mt
+        <div className="mt-4 overflow-x-auto">
+          <table className="ftn-table">
+            <thead>
+              <tr>
+                <th style={{ width: 70 }}>#</th>
+                <th>Description</th>
+                <th style={{ width: 110 }}>Qté</th>
+                <th style={{ width: 140 }}>PU HT</th>
+                <th style={{ width: 130 }}>Remise %</th>
+                <th style={{ width: 110 }}>TVA %</th>
+                <th style={{ width: 120 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((it, i) => (
+                <tr key={it.id || `${it.line_no}-${i}`}>
+                  <td>{i + 1}</td>
+                  <td>
+                    <input className="ftn-input" value={it.description} onChange={(e) => updateLine(i, "description", e.target.value)} disabled={signed} />
+                  </td>
+                  <td>
+                    <input
+                      className="ftn-input"
+                      type="number"
+                      step="0.001"
+                      value={it.quantity}
+                      onChange={(e) => updateLine(i, "quantity", toNum(e.target.value, 0))}
+                      disabled={signed}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className="ftn-input"
+                      type="number"
+                      step="0.001"
+                      value={it.unit_price_ht}
+                      onChange={(e) => updateLine(i, "unit_price_ht", toNum(e.target.value, 0))}
+                      disabled={signed}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className="ftn-input"
+                      type="number"
+                      step="0.001"
+                      value={it.discount_pct}
+                      onChange={(e) => updateLine(i, "discount_pct", toNum(e.target.value, 0))}
+                      disabled={signed}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className="ftn-input"
+                      type="number"
+                      step="0.001"
+                      value={it.vat_pct}
+                      onChange={(e) => updateLine(i, "vat_pct", toNum(e.target.value, 0))}
+                      disabled={signed}
+                    />
+                  </td>
+                  <td>
+                    <button className="ftn-btn ftn-btn-xs" onClick={() => removeLine(i)} disabled={signed || rows.length <= 1}>
+                      Supprimer
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="ftn-card p-4">
+            <div className="text-xs text-[var(--muted)]">Sous-total HT</div>
+            <div className="text-lg font-semibold">
+              {fmt3(totals.subtotal_ht)} {currency}
+            </div>
+          </div>
+          <div className="ftn-card p-4">
+            <div className="text-xs text-[var(--muted)]">Total TVA</div>
+            <div className="text-lg font-semibold">
+              {fmt3(totals.total_vat)} {currency}
+            </div>
+          </div>
+          <div className="ftn-card p-4">
+            <div className="text-xs text-[var(--muted)]">TTC</div>
+            <div className="text-lg font-semibold">
+              {fmt3(totals.total_ttc)} {currency}
+            </div>
+          </div>
+          <div className="ftn-card p-4">
+            <div className="text-xs text-[var(--muted)]">Net à payer (TTC + Timbre)</div>
+            <div className="text-lg font-semibold">
+              {fmt3(totals.net_to_pay)} {currency}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2 justify-end">
+          <button className="ftn-btn ftn-btn-primary" onClick={onSave} disabled={signed || isPending}>
+            Enregistrer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
