@@ -14,18 +14,19 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
-  if (!auth?.user) {
-    return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
-  }
+  if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
   const invoiceId = s(id);
-  if (!invoiceId) {
-    return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
-  }
+  if (!invoiceId) return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
 
-  const { data: inv, error: invErr } = await supabase.from("invoices").select("id,company_id,signature_status").eq("id", invoiceId).maybeSingle();
+  const { data: invoice, error: invErr } = await supabase
+    .from("invoices")
+    .select("id,company_id")
+    .eq("id", invoiceId)
+    .maybeSingle();
+
   if (invErr) return NextResponse.json({ ok: false, error: invErr.message }, { status: 500 });
-  if (!inv) return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
+  if (!invoice) return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
 
   const service = createServiceClient();
 
@@ -38,7 +39,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   if (sigErr) return NextResponse.json({ ok: false, error: sigErr.message }, { status: 500 });
 
   const signedXml = s((sig as any)?.signed_xml ?? "");
-  const state = s((sig as any)?.state ?? "");
+  const state = s((sig as any)?.state ?? "").toLowerCase();
 
   if (!signedXml || (state && state !== "signed")) {
     return NextResponse.json({ ok: false, error: "NOT_SIGNED" }, { status: 409 });
