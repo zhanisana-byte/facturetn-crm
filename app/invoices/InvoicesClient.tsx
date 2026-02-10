@@ -21,6 +21,8 @@ type InvoiceRow = {
   invoice_mode: string | null;
 
   total_ttc: number | null;
+  stamp_amount: number | null;
+  net_to_pay: number | null;
   currency: string | null;
 
   customer_name: string | null;
@@ -130,6 +132,8 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
             "document_type",
             "invoice_mode",
             "total_ttc",
+            "stamp_amount",
+            "net_to_pay",
             "currency",
             "customer_name",
             "customer_email",
@@ -154,11 +158,11 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
           .select("invoice_id,signed_at")
           .in("invoice_id", invIds);
 
-        if (sigErr) throw sigErr;
-
-        const sigMap = new Map<string, string | null>();
-        for (const s of (sigs ?? []) as any[]) sigMap.set(String(s.invoice_id), s.signed_at ?? null);
-        for (const r of invoices) (r as any).signed_at = sigMap.get(r.id) ?? null;
+        if (!sigErr) {
+          const sigMap = new Map<string, string | null>();
+          for (const s of (sigs ?? []) as any[]) sigMap.set(String(s.invoice_id), s.signed_at ?? null);
+          for (const r of invoices) (r as any).signed_at = sigMap.get(r.id) ?? null;
+        }
       }
 
       setRows(invoices);
@@ -298,12 +302,10 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
     return u?.full_name || u?.email || userId;
   }
 
-  async function deleteViaRoute(id: string) {
-    const res = await fetch(`/invoices/${id}/delete`, { method: "POST" });
-    const j = await res.json().catch(() => null);
-    if (!res.ok || !j?.ok) {
-      throw new Error(j?.error || "Suppression impossible.");
-    }
+  async function deleteOneApi(id: string) {
+    const res = await fetch(`/api/invoices/${id}/delete`, { method: "POST" });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j?.ok) throw new Error(j?.error || "Suppression impossible.");
   }
 
   async function deleteInvoices(ids: string[]) {
@@ -312,7 +314,7 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
     setErr(null);
     try {
       for (const id of ids) {
-        await deleteViaRoute(id);
+        await deleteOneApi(id);
       }
       await load();
     } catch (e: any) {
@@ -331,16 +333,24 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
   async function deleteSelected() {
     const ids = Array.from(selected);
     if (!ids.length) return;
-    const ok = window.confirm(` linking to the display name if applicable. You don't have to separately include the email address if a linked display name is present. You should ellipsis out the snippet if it is being cutoff. If the email response payload has a display_url, "Open in Gmail" *MUST* be linked to the email display_url underneath the subject of each displayed email. If you include the display_url in your response, it should always be markdown formatted to link on some piece of text. The tool response has HTML escaping, you **MUST** preserve that HTML escaping verbatim when rendering the email. Message ids are only intended for internal use and should not be exposed to users. Unless there is significant ambiguity in the user's request, you should usually try to perform the task without follow ups. Be curious with searches and reads, feel free to make reasonable and *grounded* assumptions, and call the functions when they may be useful to the user. If a function does not return a response, the user has declined to accept that action or an error has occurred. You should acknowledge if an error has occurred. When you are setting up an automation which will later need access to the user's email, you must do a dummy search tool call with an empty query first to make sure this tool is set up properly.`);
+    const ok = window.confirm(`Supprimer ${ids.length} document(s) non signé(s) ? Cette action est irréversible.`);
     if (!ok) return;
     await deleteInvoices(ids);
+  }
+
+  function amountLabel(r: InvoiceRow) {
+    const net = Number(r.net_to_pay ?? NaN);
+    if (Number.isFinite(net)) return net;
+    const ttc = Number(r.total_ttc ?? 0);
+    const stamp = Number(r.stamp_amount ?? 0);
+    return ttc + stamp;
   }
 
   return (
     <div className="ftn-page">
       <div className="ftn-card">
         <div className="ftn-card-header">
-          <div className="ftn-row" style={{ gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <div className="ftn-row" style={{ gap: 10, flexWrap: "wrap" }}>
             <Link className="ftn-btn ftn-btn-primary" href="/invoices/new">
               + Nouveau document
             </Link>
@@ -500,7 +510,7 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
                         <td>{modeLabel(r)}</td>
                         <td>{fmtDate(r.issue_date)}</td>
                         <td>
-                          {fmt3(r.total_ttc)} {r.currency || "TND"}
+                          {fmt3(amountLabel(r))} {r.currency || "TND"}
                         </td>
                         <td>{userLabel(r.created_by_user_id)}</td>
                         <td>
@@ -514,7 +524,7 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
                                 <Link className="ftn-btn ftn-btn-xs" href={`/invoices/${r.id}/edit`}>
                                   Modifier
                                 </Link>
-                                <button className="ftn-btn ftn-btn-xs ftn-btn-delete" onClick={() => deleteOne(r.id)} disabled={deleting}>
+                                <button className="ftn-btn ftn-btn-xs ftn-btn-danger" onClick={() => deleteOne(r.id)} disabled={deleting}>
                                   Supprimer
                                 </button>
                               </>
@@ -612,21 +622,13 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
         }
 
         :global(.ftn-btn-danger) {
-          border: 1px solid rgba(239, 68, 68, 0.35);
-          background: rgba(239, 68, 68, 0.08);
-        }
-
-        :global(.ftn-btn-delete) {
-          border: 1px solid rgba(239, 68, 68, 0.6);
-          background: rgba(239, 68, 68, 0.9);
+          border: 1px solid rgba(239, 68, 68, 0.9);
+          background: rgba(239, 68, 68, 1);
           color: #fff;
         }
-        :global(.ftn-btn-delete:hover) {
-          background: rgba(220, 38, 38, 0.95);
-        }
-        :global(.ftn-btn-delete:disabled) {
-          opacity: 0.6;
-          cursor: not-allowed;
+
+        :global(.ftn-btn-danger:disabled) {
+          opacity: 0.55;
         }
 
         :global(.ftn-badge-ok) {
