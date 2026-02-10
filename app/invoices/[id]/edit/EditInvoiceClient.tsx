@@ -1,22 +1,11 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 
-function n(v: any) {
-  const x = Number(v ?? 0);
-  return Number.isFinite(x) ? x : 0;
-}
-
-function fmt3(v: any) {
-  const x = n(v);
-  return (Math.round(x * 1000) / 1000).toFixed(3);
-}
-
-function round3(x: number) {
-  return Math.round(x * 1000) / 1000;
-}
+type DocumentType = "facture" | "devis" | "avoir";
+type CustomerType = "entreprise" | "particulier";
 
 type ItemRow = {
   id?: string;
@@ -28,102 +17,189 @@ type ItemRow = {
   discount_pct: number;
 };
 
+function s(v: any) {
+  return String(v ?? "").trim();
+}
+
+function iso4217OK(v: string) {
+  const x = (v || "").trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(x);
+}
+
+function toNum(v: any, def = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : def;
+}
+
+function round3(n: number) {
+  return Math.round(n * 1000) / 1000;
+}
+
+function fmt3(n: number) {
+  return round3(n).toFixed(3);
+}
+
+function computeTotals(items: ItemRow[], stampAmount: number) {
+  let subtotal_ht = 0;
+  let total_vat = 0;
+
+  for (const it of items) {
+    const qty = toNum(it.quantity, 0);
+    const pu = toNum(it.unit_price_ht, 0);
+    const vat = toNum(it.vat_pct, 0);
+    const disc = toNum(it.discount_pct, 0);
+
+    const line_ht = qty * pu;
+    const line_disc = line_ht * (disc / 100);
+    const net_ht = line_ht - line_disc;
+
+    subtotal_ht += net_ht;
+    total_vat += net_ht * (vat / 100);
+  }
+
+  subtotal_ht = round3(subtotal_ht);
+  total_vat = round3(total_vat);
+
+  const total_ttc = round3(subtotal_ht + total_vat);
+  const stamp = round3(toNum(stampAmount, 0));
+  const net_to_pay = round3(total_ttc + stamp);
+
+  return { subtotal_ht, total_vat, total_ttc, stamp_amount: stamp, net_to_pay };
+}
+
+function Modal({
+  open,
+  title,
+  message,
+  onClose,
+}: {
+  open: boolean;
+  title: string;
+  message: string;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-start justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full max-w-lg ftn-card p-5">
+        <div className="text-lg font-semibold">{title}</div>
+        <div className="mt-2 text-sm text-[var(--muted)] whitespace-pre-wrap">{message}</div>
+        <div className="mt-4 flex justify-end">
+          <button className="ftn-btn" onClick={onClose}>
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function EditInvoiceClient({ invoice, items }: { invoice: any; items: any[] }) {
-  const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
 
-  const invoiceId = String(invoice?.id || "");
+  const invoiceId = s(invoice?.id);
+  const signatureStatus = s(invoice?.signature_status || "").toLowerCase();
+  const signed = signatureStatus === "signed";
 
-  const [issueDate, setIssueDate] = useState<string>(String(invoice?.issue_date || ""));
-  const [invoiceNumber, setInvoiceNumber] = useState<string>(String(invoice?.invoice_number || ""));
+  const [modal, setModal] = useState<{ open: boolean; title: string; message: string }>({
+    open: false,
+    title: "",
+    message: "",
+  });
 
-  const [customerName, setCustomerName] = useState<string>(String(invoice?.customer_name || ""));
-  const [customerTaxId, setCustomerTaxId] = useState<string>(String(invoice?.customer_tax_id || ""));
-  const [customerEmail, setCustomerEmail] = useState<string>(String(invoice?.customer_email || ""));
-  const [customerPhone, setCustomerPhone] = useState<string>(String(invoice?.customer_phone || ""));
-  const [customerAddress, setCustomerAddress] = useState<string>(String(invoice?.customer_address || ""));
+  const [documentType, setDocumentType] = useState<DocumentType>((s(invoice?.document_type || "facture").toLowerCase() as any) || "facture");
 
-  const [currency, setCurrency] = useState<string>(String(invoice?.currency || "TND"));
-  const [stampAmount, setStampAmount] = useState<number>(n(invoice?.stamp_amount ?? 1));
+  const [customerType, setCustomerType] = useState<CustomerType>(() => {
+    const mf = s(invoice?.customer_tax_id);
+    return mf ? "entreprise" : "particulier";
+  });
 
-  const [lines, setLines] = useState<ItemRow[]>(
+  const [issueDate, setIssueDate] = useState<string>(s(invoice?.issue_date || "").slice(0, 10));
+  const [invoiceNumber, setInvoiceNumber] = useState<string>(s(invoice?.invoice_number || ""));
+
+  const [customerName, setCustomerName] = useState<string>(s(invoice?.customer_name || ""));
+  const [customerTaxId, setCustomerTaxId] = useState<string>(s(invoice?.customer_tax_id || ""));
+  const [customerEmail, setCustomerEmail] = useState<string>(s(invoice?.customer_email || ""));
+  const [customerPhone, setCustomerPhone] = useState<string>(s(invoice?.customer_phone || ""));
+  const [customerAddress, setCustomerAddress] = useState<string>(s(invoice?.customer_address || ""));
+
+  const [currency, setCurrency] = useState<string>(s(invoice?.currency || "TND") || "TND");
+  const [stampAmount, setStampAmount] = useState<number>(toNum(invoice?.stamp_amount, 1));
+
+  const [rows, setRows] = useState<ItemRow[]>(
     (items ?? []).length
-      ? (items ?? []).map((it: any, idx: number) => ({
-          id: it.id,
-          line_no: Number(it.line_no ?? idx + 1),
-          description: String(it.description ?? ""),
-          quantity: n(it.quantity ?? 1),
-          unit_price_ht: n(it.unit_price_ht ?? 0),
-          vat_pct: n(it.vat_pct ?? 19),
-          discount_pct: n(it.discount_pct ?? 0),
+      ? (items as any[]).map((it, idx) => ({
+          id: s(it.id) || undefined,
+          line_no: toNum(it.line_no, idx + 1),
+          description: s(it.description || ""),
+          quantity: toNum(it.quantity, 1),
+          unit_price_ht: toNum(it.unit_price_ht, 0),
+          vat_pct: toNum(it.vat_pct, 19),
+          discount_pct: toNum(it.discount_pct, 0),
         }))
-      : [{ line_no: 1, description: "", quantity: 1, unit_price_ht: 0, vat_pct: 19, discount_pct: 0 }],
+      : [{ line_no: 1, description: "", quantity: 1, unit_price_ht: 0, vat_pct: 19, discount_pct: 0 }]
   );
 
-  const totals = useMemo(() => {
-    let subtotal_ht = 0;
-    let total_vat = 0;
+  const totals = useMemo(() => computeTotals(rows, stampAmount), [rows, stampAmount]);
 
-    for (const it of lines) {
-      const qty = n(it.quantity);
-      const pu = n(it.unit_price_ht);
-      const vat = n(it.vat_pct);
-      const disc = n(it.discount_pct);
-
-      const line_ht = qty * pu;
-      const line_disc = line_ht * (disc / 100);
-      const net_ht = line_ht - line_disc;
-
-      subtotal_ht += net_ht;
-      total_vat += net_ht * (vat / 100);
-    }
-
-    subtotal_ht = round3(subtotal_ht);
-    total_vat = round3(total_vat);
-
-    const total_ttc = round3(subtotal_ht + total_vat);
-    const stamp = round3(n(stampAmount));
-    const net_to_pay = round3(total_ttc + stamp);
-
-    return { subtotal_ht, total_vat, total_ttc, stamp, net_to_pay };
-  }, [lines, stampAmount]);
+  function openError(msg: string) {
+    setModal({ open: true, title: "Erreur", message: msg });
+  }
 
   function addLine() {
-    setLines((prev) => [...prev, { line_no: prev.length + 1, description: "", quantity: 1, unit_price_ht: 0, vat_pct: 19, discount_pct: 0 }]);
+    setRows((prev) => [
+      ...prev,
+      { line_no: prev.length + 1, description: "", quantity: 1, unit_price_ht: 0, vat_pct: 19, discount_pct: 0 },
+    ]);
   }
 
   function removeLine(i: number) {
-    setLines((prev) => prev.filter((_, idx) => idx !== i).map((x, idx) => ({ ...x, line_no: idx + 1 })));
+    setRows((prev) => prev.filter((_, idx) => idx !== i).map((x, idx) => ({ ...x, line_no: idx + 1 })));
   }
 
   function updateLine(i: number, key: keyof ItemRow, value: any) {
-    setLines((prev) => prev.map((row, idx) => (idx === i ? { ...row, [key]: value } : row)));
+    setRows((prev) =>
+      prev.map((row, idx) => {
+        if (idx !== i) return row;
+        return { ...row, [key]: value };
+      })
+    );
   }
 
   async function onSave() {
-    if (!invoiceId) return;
+    if (isPending) return;
+    if (!invoiceId) return openError("ID facture manquant.");
+    if (signed) return openError("Document signé : modification bloquée.");
 
-    if (!customerName.trim()) return alert("Nom client obligatoire.");
-    if (!issueDate) return alert("Date obligatoire.");
-    if (!currency.trim()) return alert("Devise obligatoire.");
+    if (!customerName.trim()) return openError("Veuillez saisir le nom du client.");
+    if (!issueDate) return openError("Veuillez choisir une date.");
+    if (!iso4217OK(currency)) return openError("Devise invalide (ex: TND, EUR, USD).");
 
-    const cleanItems = lines
-      .map((it, idx) => ({
-        line_no: idx + 1,
-        description: String(it.description || "").trim(),
-        quantity: round3(n(it.quantity)),
-        unit_price_ht: round3(n(it.unit_price_ht)),
-        vat_pct: round3(n(it.vat_pct)),
-        discount_pct: round3(n(it.discount_pct)),
+    if (customerType === "entreprise") {
+      const mf = (customerTaxId || "").trim();
+      if (!mf) return openError("MF obligatoire pour un client Entreprise.");
+      if (mf.length < 4) return openError("MF invalide.");
+    }
+
+    const validItems = rows
+      .map((it) => ({
+        description: s(it.description),
+        quantity: toNum(it.quantity, 0),
+        unit_price_ht: toNum(it.unit_price_ht, 0),
+        vat_pct: toNum(it.vat_pct, 0),
+        discount_pct: toNum(it.discount_pct, 0),
       }))
       .filter((it) => it.description && it.quantity > 0);
 
-    if (!cleanItems.length) return alert("Ajoutez au moins une ligne valide.");
+    if (!validItems.length) return openError("Ajoutez au moins une ligne avec description et quantité > 0.");
 
     startTransition(async () => {
       try {
-        const invPatch: any = {
+        const payload = {
+          document_type: documentType,
           issue_date: issueDate,
           invoice_number: invoiceNumber.trim() || null,
 
@@ -134,184 +210,129 @@ export default function EditInvoiceClient({ invoice, items }: { invoice: any; it
           customer_address: customerAddress.trim() || null,
 
           currency: currency.trim().toUpperCase(),
+          stamp_amount: round3(toNum(stampAmount, 0)),
 
-          stamp_enabled: true,
-          stamp_amount: round3(n(stampAmount)),
-
-          subtotal_ht: totals.subtotal_ht,
-          total_vat: totals.total_vat,
-          total_ttc: totals.total_ttc,
-          net_to_pay: totals.net_to_pay,
+          items: rows,
         };
 
-        const upInv = await supabase.from("invoices").update(invPatch).eq("id", invoiceId);
-        if (upInv.error) throw new Error(upInv.error.message);
+        const res = await fetch(`/api/invoices/${invoiceId}/update`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
 
-        const del = await supabase.from("invoice_items").delete().eq("invoice_id", invoiceId);
-        if (del.error) throw new Error(del.error.message);
-
-        const ins = await supabase.from("invoice_items").insert(
-          cleanItems.map((it) => ({
-            invoice_id: invoiceId,
-            ...it,
-          })),
-        );
-        if (ins.error) throw new Error(ins.error.message);
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.ok) {
+          throw new Error(json?.error || `Erreur mise à jour (${res.status}).`);
+        }
 
         router.push(`/invoices/${invoiceId}`);
         router.refresh();
       } catch (e: any) {
-        alert(e?.message || "Erreur sauvegarde.");
+        openError(e?.message || "Erreur inconnue.");
       }
     });
   }
 
+  const mfLabel = customerType === "entreprise" ? "MF (obligatoire)" : "MF (optionnel)";
+  const mfPlaceholder = customerType === "entreprise" ? "Matricule fiscal (obligatoire)" : "Matricule fiscal";
+
   return (
-    <div className="ftn-page">
-      <div className="ftn-card">
-        <div className="ftn-card-header">
-          <div className="ftn-row" style={{ gap: 10, flexWrap: "wrap" }}>
-            <button className="ftn-btn" onClick={() => router.push(`/invoices/${invoiceId}`)} disabled={pending}>
-              Retour
-            </button>
-            <button className="ftn-btn ftn-btn-primary" onClick={onSave} disabled={pending}>
-              Enregistrer
-            </button>
+    <div className="ftn-page pb-28">
+      <Modal open={modal.open} title={modal.title} message={modal.message} onClose={() => setModal((m) => ({ ...m, open: false }))} />
+
+      <div className="ftn-page-head">
+        <div>
+          <h1 className="ftn-h1">Modifier document</h1>
+          <p className="ftn-subtitle">Facture / Devis / Avoir</p>
+        </div>
+        <Link className="ftn-btn ftn-btn-ghost" href={`/invoices/${invoiceId}`}>
+          Retour
+        </Link>
+      </div>
+
+      <div className="ftn-grid-2">
+        <div className="ftn-card p-5">
+          <div className="ftn-section-title">Document</div>
+
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div>
+              <label className="ftn-label">Type</label>
+              <select className="ftn-input" value={documentType} onChange={(e) => setDocumentType(e.target.value as any)} disabled={signed}>
+                <option value="facture">Facture</option>
+                <option value="devis">Devis</option>
+                <option value="avoir">Avoir</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="ftn-label">Date</label>
+              <input className="ftn-input" type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} disabled={signed} />
+            </div>
+
+            <div>
+              <label className="ftn-label">Numéro (optionnel)</label>
+              <input className="ftn-input" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} placeholder="Ex: F-2026-0001" disabled={signed} />
+            </div>
+
+            <div>
+              <label className="ftn-label">Devise</label>
+              <input className="ftn-input" value={currency} onChange={(e) => setCurrency(e.target.value)} placeholder="TND" disabled={signed} />
+            </div>
+
+            <div>
+              <label className="ftn-label">Timbre (DT)</label>
+              <input className="ftn-input" type="number" step="0.001" value={stampAmount} onChange={(e) => setStampAmount(toNum(e.target.value, 0))} disabled={signed} />
+            </div>
           </div>
         </div>
 
-        <div className="ftn-card-content">
-          <div className="grid gap-3 md:grid-cols-3">
-            <div>
-              <div className="text-xs text-[var(--muted)]">Date</div>
-              <input className="ftn-input w-full" type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
-            </div>
-            <div>
-              <div className="text-xs text-[var(--muted)]">Numéro</div>
-              <input className="ftn-input w-full" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
-            </div>
-            <div>
-              <div className="text-xs text-[var(--muted)]">Devise</div>
-              <input className="ftn-input w-full" value={currency} onChange={(e) => setCurrency(e.target.value)} />
-            </div>
-          </div>
+        <div className="ftn-card p-5">
+          <div className="ftn-section-title">Client</div>
 
-          <div className="mt-5 grid gap-3 md:grid-cols-3">
-            <div className="md:col-span-2">
-              <div className="text-xs text-[var(--muted)]">Nom client</div>
-              <input className="ftn-input w-full" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
-            </div>
+          <div className="mt-3 grid grid-cols-2 gap-3">
             <div>
-              <div className="text-xs text-[var(--muted)]">MF</div>
-              <input className="ftn-input w-full" value={customerTaxId} onChange={(e) => setCustomerTaxId(e.target.value)} />
-            </div>
-            <div>
-              <div className="text-xs text-[var(--muted)]">Email</div>
-              <input className="ftn-input w-full" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} />
-            </div>
-            <div>
-              <div className="text-xs text-[var(--muted)]">Téléphone</div>
-              <input className="ftn-input w-full" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
-            </div>
-            <div className="md:col-span-3">
-              <div className="text-xs text-[var(--muted)]">Adresse</div>
-              <input className="ftn-input w-full" value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} />
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-3 md:grid-cols-3">
-            <div>
-              <div className="text-xs text-[var(--muted)]">Timbre</div>
-              <input className="ftn-input w-full" type="number" step="0.001" value={String(stampAmount)} onChange={(e) => setStampAmount(n(e.target.value))} />
-            </div>
-            <div className="md:col-span-2 ftn-card p-4">
-              <div className="text-sm font-medium">Totaux</div>
-              <div className="mt-2 text-sm flex justify-between">
-                <span className="text-[var(--muted)]">Total HT</span>
-                <span className="font-medium">{fmt3(totals.subtotal_ht)}</span>
-              </div>
-              <div className="mt-1 text-sm flex justify-between">
-                <span className="text-[var(--muted)]">Total TVA</span>
-                <span className="font-medium">{fmt3(totals.total_vat)}</span>
-              </div>
-              <div className="mt-1 text-sm flex justify-between">
-                <span className="text-[var(--muted)]">Timbre</span>
-                <span className="font-medium">{fmt3(totals.stamp)}</span>
-              </div>
-              <div className="mt-2 pt-2 border-t border-[var(--border)] text-sm flex justify-between">
-                <span className="font-semibold">Net à payer</span>
-                <span className="font-semibold">{fmt3(totals.net_to_pay)}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-6 ftn-card p-4">
-            <div className="ftn-row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-              <div className="text-sm font-medium">Lignes</div>
-              <button className="ftn-btn" onClick={addLine} disabled={pending}>
-                + Ajouter ligne
-              </button>
+              <label className="ftn-label">Type client</label>
+              <select className="ftn-input" value={customerType} onChange={(e) => setCustomerType(e.target.value as any)} disabled={signed}>
+                <option value="entreprise">Entreprise</option>
+                <option value="particulier">Particulier</option>
+              </select>
             </div>
 
-            <div className="mt-4 overflow-x-auto">
-              <table className="ftn-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: 50 }}>#</th>
-                    <th>Description</th>
-                    <th style={{ width: 110 }}>Qté</th>
-                    <th style={{ width: 140 }}>PU HT</th>
-                    <th style={{ width: 120 }}>Remise%</th>
-                    <th style={{ width: 110 }}>TVA%</th>
-                    <th style={{ width: 120 }} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {lines.map((it, idx) => (
-                    <tr key={idx}>
-                      <td>{idx + 1}</td>
-                      <td>
-                        <input className="ftn-input w-full" value={it.description} onChange={(e) => updateLine(idx, "description", e.target.value)} />
-                      </td>
-                      <td>
-                        <input className="ftn-input w-full" type="number" step="0.001" value={String(it.quantity)} onChange={(e) => updateLine(idx, "quantity", n(e.target.value))} />
-                      </td>
-                      <td>
-                        <input
-                          className="ftn-input w-full"
-                          type="number"
-                          step="0.001"
-                          value={String(it.unit_price_ht)}
-                          onChange={(e) => updateLine(idx, "unit_price_ht", n(e.target.value))}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          className="ftn-input w-full"
-                          type="number"
-                          step="0.001"
-                          value={String(it.discount_pct)}
-                          onChange={(e) => updateLine(idx, "discount_pct", n(e.target.value))}
-                        />
-                      </td>
-                      <td>
-                        <input className="ftn-input w-full" type="number" step="0.001" value={String(it.vat_pct)} onChange={(e) => updateLine(idx, "vat_pct", n(e.target.value))} />
-                      </td>
-                      <td>
-                        <button className="ftn-btn" onClick={() => removeLine(idx)} disabled={pending || lines.length <= 1}>
-                          Supprimer
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div>
+              <label className="ftn-label">Nom</label>
+              <input className="ftn-input" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Nom client" disabled={signed} />
             </div>
 
-            <div className="mt-4 text-xs text-[var(--muted)]">Le net à payer = (HT - remise) + TVA + timbre.</div>
+            <div>
+              <label className="ftn-label">{mfLabel}</label>
+              <input className="ftn-input" value={customerTaxId} onChange={(e) => setCustomerTaxId(e.target.value)} placeholder={mfPlaceholder} disabled={signed} />
+            </div>
+
+            <div>
+              <label className="ftn-label">Email (optionnel)</label>
+              <input className="ftn-input" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="client@email.tn" disabled={signed} />
+            </div>
+
+            <div>
+              <label className="ftn-label">Téléphone (optionnel)</label>
+              <input className="ftn-input" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="+216 ..." disabled={signed} />
+            </div>
+
+            <div>
+              <label className="ftn-label">Adresse (optionnel)</label>
+              <input className="ftn-input" value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} placeholder="Adresse" disabled={signed} />
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
-}
+
+      <div className="ftn-card p-5 mt-4">
+        <div className="flex items-center justify-between">
+          <div className="ftn-section-title">Lignes</div>
+          <button className="ftn-btn ftn-btn-ghost" onClick={addLine} disabled={signed}>
+            Ajouter ligne
+          </button>
+        </div>
+
+        <div className="mt
