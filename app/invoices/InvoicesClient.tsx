@@ -475,3 +475,215 @@ export default function InvoicesClient({ companies }: { companies: Company[] }) 
                             <Link className="ftn-link" href={`/invoices/${r.id}`}>
                               {company}
                             </Link>
+
+                            <div className="ftn-muted" style={{ fontSize: 12 }}>
+                              {r.invoice_number || r.unique_reference || ""}
+                            </div>
+
+                            <div className="ftn-row" style={{ gap: 8, flexWrap: "wrap" }}>
+                              <span className="ftn-badge">{docTypeLabel(r)}</span>
+                              <span className="ftn-badge">{modeLabel(r)}</span>
+                              <span className={`ftn-badge ${signed ? "ftn-badge-ok" : "ftn-badge-bad"}`}>{sigLabel(r)}</span>
+                              <span className="ftn-badge">{ttnLabel(r)}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            <div>{r.customer_name || "-"}</div>
+                            <div className="ftn-muted" style={{ fontSize: 12 }}>
+                              {r.customer_email || r.customer_phone || r.customer_tax_id || ""}
+                            </div>
+                          </div>
+                        </td>
+                        <td>{docTypeLabel(r)}</td>
+                        <td>{modeLabel(r)}</td>
+                        <td>{fmtDate(r.issue_date)}</td>
+                        <td>
+                          {fmt3(r.total_ttc)} {r.currency || "TND"}
+                        </td>
+                        <td>{userLabel(r.created_by_user_id)}</td>
+                        <td>
+                          <div className="inv-actions">
+                            <Link className="ftn-btn ftn-btn-xs" href={`/invoices/${r.id}`}>
+                              Voir
+                            </Link>
+
+                            {!signed ? (
+                              <>
+                                <Link className="ftn-btn ftn-btn-xs" href={`/invoices/${r.id}/edit`}>
+                                  Modifier
+                                </Link>
+                                <button className="ftn-btn ftn-btn-xs ftn-btn-delete" onClick={() => deleteOne(r.id)} disabled={deleting}>
+                                  Supprimer
+                                </button>
+                              </>
+                            ) : (
+                              <span className="ftn-muted" style={{ fontSize: 12 }}>
+                                Signée : modification/suppression bloquées
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={9} style={{ padding: 16 }}>
+                      Aucun résultat.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="ftn-pagination">
+            <div className="ftn-muted">
+              Page {safePage} / {totalPages} • {filtered.length} document(s)
+            </div>
+            <div className="ftn-row" style={{ gap: 10 }}>
+              <button className="ftn-btn" onClick={() => setPage(1)} disabled={safePage <= 1}>
+                Début
+              </button>
+              <button className="ftn-btn" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}>
+                Précédent
+              </button>
+              <button className="ftn-btn" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}>
+                Suivant
+              </button>
+              <button className="ftn-btn" onClick={() => setPage(totalPages)} disabled={safePage >= totalPages}>
+                Fin
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <style jsx>{`
+        .inv-grid {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 10px;
+          align-items: center;
+        }
+        .inv-span-2 {
+          grid-column: span 2;
+        }
+
+        .inv-search-row {
+          margin-top: 10px;
+          display: grid;
+          grid-template-columns: 1fr 1.3fr auto;
+          gap: 10px;
+          align-items: center;
+        }
+
+        .inv-date-hints {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 10px;
+          margin-top: 6px;
+          font-size: 12px;
+          opacity: 0.7;
+          user-select: none;
+        }
+        .inv-date-hints span:first-child {
+          grid-column: 4;
+        }
+        .inv-date-hints span:last-child {
+          grid-column: 5;
+        }
+
+        .inv-actions {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          flex-wrap: wrap;
+          justify-content: flex-start;
+        }
+
+        :global(.ftn-btn-xs) {
+          padding: 8px 10px;
+          font-size: 12px;
+          border-radius: 12px;
+          line-height: 1;
+        }
+
+        :global(.ftn-btn-danger) {
+          border: 1px solid rgba(239, 68, 68, 0.35);
+          background: rgba(239, 68, 68, 0.08);
+        }
+
+        :global(.ftn-btn-delete) {
+          border: 1px solid rgba(239, 68, 68, 0.6);
+          background: rgba(239, 68, 68, 0.9);
+          color: #fff;
+        }
+        :global(.ftn-btn-delete:hover) {
+          background: rgba(220, 38, 38, 0.95);
+        }
+        :global(.ftn-btn-delete:disabled) {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        :global(.ftn-badge-ok) {
+          border: 1px solid rgba(34, 197, 94, 0.35);
+          background: rgba(34, 197, 94, 0.12);
+        }
+
+        :global(.ftn-badge-bad) {
+          border: 1px solid rgba(239, 68, 68, 0.35);
+          background: rgba(239, 68, 68, 0.12);
+        }
+
+        @media (max-width: 1200px) {
+          .inv-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+          }
+          .inv-date-hints {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+          }
+          .inv-date-hints span:first-child {
+            grid-column: 3;
+          }
+          .inv-date-hints span:last-child {
+            grid-column: 4;
+          }
+        }
+
+        @media (max-width: 900px) {
+          .inv-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+          .inv-span-2 {
+            grid-column: span 2;
+          }
+          .inv-search-row {
+            grid-template-columns: 1fr 1fr;
+          }
+          .inv-search-row button {
+            grid-column: span 2;
+          }
+          .inv-date-hints {
+            display: none;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .inv-grid {
+            grid-template-columns: 1fr;
+          }
+          .inv-span-2 {
+            grid-column: span 1;
+          }
+          .inv-search-row {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
