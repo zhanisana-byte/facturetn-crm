@@ -13,7 +13,6 @@ export default function DigigoRedirectClient() {
 
   const token = useMemo(() => s(sp.get("token") || ""), [sp]);
   const code = useMemo(() => s(sp.get("code") || ""), [sp]);
-  const state = useMemo(() => s(sp.get("state") || ""), [sp]);
   const invoice_id = useMemo(() => s(sp.get("invoice_id") || ""), [sp]);
   const back_url = useMemo(() => s(sp.get("back") || ""), [sp]);
 
@@ -30,7 +29,7 @@ export default function DigigoRedirectClient() {
         const r = await fetch("/api/digigo/callback", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, code, state, invoice_id, back_url }),
+          body: JSON.stringify({ token, code, invoice_id, back_url }),
           cache: "no-store",
           credentials: "include",
         });
@@ -62,7 +61,7 @@ export default function DigigoRedirectClient() {
     return () => {
       mounted = false;
     };
-  }, [token, code, state, invoice_id, back_url, router]);
+  }, [token, code, invoice_id, back_url, router]);
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center p-6">
