@@ -13,9 +13,6 @@ export const dynamic = "force-dynamic";
 function s(v: any) {
   return String(v ?? "").trim();
 }
-function isUuid(v: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
-}
 function b64urlToBuf(b64url: string) {
   const pad = b64url.length % 4 === 0 ? "" : "=".repeat(4 - (b64url.length % 4));
   const b64 = (b64url + pad).replace(/-/g, "+").replace(/_/g, "/");
@@ -41,46 +38,44 @@ export async function POST(req: Request) {
   const token = s(body?.token);
   const codeParam = s(body?.code);
   const stateParam = s(body?.state);
-  const invoiceIdBody = s(body?.invoice_id ?? body?.invoiceId ?? body?.id);
   const backUrlBody = s(body?.back_url ?? body?.backUrl ?? "");
+
+  if (!token) return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
+
+  const okJwt = jwtVerifyRs256(token, NDCA_JWT_VERIFY_CERT_PEM);
+  if (!okJwt) return NextResponse.json({ ok: false, error: "JWT_INVALID" }, { status: 400 });
+
+  const jti = jwtGetJti(token);
+  if (!jti) return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 400 });
 
   const cookieStore = await cookies();
   const stateCookie = s(cookieStore.get("digigo_state")?.value || "");
-  const invoiceCookie = s(cookieStore.get("digigo_invoice_id")?.value || "");
   const backCookie = s(cookieStore.get("digigo_back_url")?.value || "");
 
-  const invoiceId = invoiceIdBody || invoiceCookie;
-  if (!invoiceId || !isUuid(invoiceId)) return NextResponse.json({ ok: false, error: "INVALID_INVOICE_ID" }, { status: 400 });
+  const state = stateParam || stateCookie || jti;
 
-  const state = stateParam || stateCookie;
-  if (!state) return NextResponse.json({ ok: false, error: "MISSING_STATE" }, { status: 400 });
-
-  if (token) {
-    const okJwt = jwtVerifyRs256(token, NDCA_JWT_VERIFY_CERT_PEM);
-    if (!okJwt) return NextResponse.json({ ok: false, error: "JWT_INVALID" }, { status: 400 });
+  if (state !== jti) {
+    return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 400 });
   }
-
-  const jti = token ? jwtGetJti(token) : "";
-  if (!jti) return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 400 });
-  if (jti !== state) return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 400 });
 
   const sessRes = await service
     .from("digigo_sign_sessions")
-    .select("id,invoice_id,back_url,status,expires_at")
+    .select("id,state,invoice_id,back_url,status,expires_at")
     .eq("state", state)
     .maybeSingle();
 
   const session: any = sessRes.data;
   if (!session?.id) return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 404 });
-  if (s(session.invoice_id) !== invoiceId) return NextResponse.json({ ok: false, error: "MISSING_CONTEXT" }, { status: 400 });
 
   const exp = new Date(s(session.expires_at)).getTime();
   if (!Number.isFinite(exp) || exp < Date.now()) {
     await service.from("digigo_sign_sessions").update({ status: "expired", updated_at: new Date().toISOString() }).eq("id", session.id);
-    await service.from("invoice_signatures").update({ state: "expired", error_message: "SESSION_EXPIRED" }).eq("invoice_id", invoiceId);
-    await service.from("invoices").update({ signature_status: "failed" }).eq("id", invoiceId);
+    await service.from("invoice_signatures").update({ state: "expired", error_message: "SESSION_EXPIRED" }).eq("invoice_id", session.invoice_id);
     return NextResponse.json({ ok: false, error: "SESSION_EXPIRED" }, { status: 400 });
   }
+
+  const invoiceId = s(session.invoice_id);
+  if (!invoiceId) return NextResponse.json({ ok: false, error: "MISSING_CONTEXT" }, { status: 400 });
 
   const sigRes = await service
     .from("invoice_signatures")
@@ -95,7 +90,8 @@ export async function POST(req: Request) {
 
   const currentState = s(sig.state);
   if (currentState === "signed" && s(sig.signed_xml)) {
-    const res0 = NextResponse.json({ ok: true, back_url: backUrlBody || s(session.back_url) || backCookie }, { status: 200 });
+    const back_url = backUrlBody || s(session.back_url) || backCookie || `/invoices/${invoiceId}`;
+    const res0 = NextResponse.json({ ok: true, back_url }, { status: 200 });
     res0.cookies.set("digigo_state", "", { path: "/", maxAge: 0 });
     res0.cookies.set("digigo_invoice_id", "", { path: "/", maxAge: 0 });
     res0.cookies.set("digigo_back_url", "", { path: "/", maxAge: 0 });
@@ -115,19 +111,16 @@ export async function POST(req: Request) {
   if (recomputed !== unsignedHash) {
     await service.from("invoice_signatures").update({ state: "failed", error_message: "HASH_MISMATCH" }).eq("invoice_id", invoiceId);
     await service.from("digigo_sign_sessions").update({ status: "failed", error_message: "HASH_MISMATCH", updated_at: new Date().toISOString() }).eq("id", session.id);
-    await service.from("invoices").update({ signature_status: "failed" }).eq("id", invoiceId);
     return NextResponse.json({ ok: false, error: "HASH_MISMATCH" }, { status: 400 });
   }
 
   const code = codeParam || jti;
-  if (!code) return NextResponse.json({ ok: false, error: "MISSING_CODE" }, { status: 400 });
 
   const tok = await digigoOauthToken({ credentialId, code });
   if (!tok.ok) {
     const msg = s((tok as any).error || "DIGIGO_TOKEN_FAILED");
     await service.from("invoice_signatures").update({ state: "failed", error_message: msg }).eq("invoice_id", invoiceId);
     await service.from("digigo_sign_sessions").update({ status: "failed", error_message: msg, updated_at: new Date().toISOString() }).eq("id", session.id);
-    await service.from("invoices").update({ signature_status: "failed" }).eq("id", invoiceId);
     return NextResponse.json({ ok: false, error: "DIGIGO_TOKEN_FAILED", message: msg }, { status: 400 });
   }
 
@@ -136,7 +129,6 @@ export async function POST(req: Request) {
     const msg = s((sign as any).error || "DIGIGO_SIGN_FAILED");
     await service.from("invoice_signatures").update({ state: "failed", error_message: msg }).eq("invoice_id", invoiceId);
     await service.from("digigo_sign_sessions").update({ status: "failed", error_message: msg, updated_at: new Date().toISOString() }).eq("id", session.id);
-    await service.from("invoices").update({ signature_status: "failed" }).eq("id", invoiceId);
     return NextResponse.json({ ok: false, error: "DIGIGO_SIGN_FAILED", message: msg }, { status: 400 });
   }
 
@@ -144,7 +136,6 @@ export async function POST(req: Request) {
   if (!signatureValue) {
     await service.from("invoice_signatures").update({ state: "failed", error_message: "SIGNATURE_VALUE_MISSING" }).eq("invoice_id", invoiceId);
     await service.from("digigo_sign_sessions").update({ status: "failed", error_message: "SIGNATURE_VALUE_MISSING", updated_at: new Date().toISOString() }).eq("id", session.id);
-    await service.from("invoices").update({ signature_status: "failed" }).eq("id", invoiceId);
     return NextResponse.json({ ok: false, error: "SIGNATURE_VALUE_MISSING" }, { status: 400 });
   }
 
@@ -169,15 +160,6 @@ export async function POST(req: Request) {
       },
     })
     .eq("invoice_id", invoiceId);
-
-  await service
-    .from("invoices")
-    .update({
-      signature_status: "signed",
-      signature_provider: "digigo",
-      ttn_signed: true,
-    })
-    .eq("id", invoiceId);
 
   await service
     .from("digigo_sign_sessions")
