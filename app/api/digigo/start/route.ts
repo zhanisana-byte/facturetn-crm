@@ -122,7 +122,7 @@ export async function POST(req: Request) {
   const unsigned_hash = sha256Base64Utf8(unsigned_xml);
 
   const state = crypto.randomUUID();
-  const expires_at = new Date(Date.now() + 30 * 60 * 1000).toISOString(); // 30 min
+  const expires_at = new Date(Date.now() + 30 * 60 * 1000).toISOString();
   const backUrlFinal = back_url || `/invoices/${invoice_id}`;
   const env = s(process.env.DIGIGO_ENV || process.env.NODE_ENV || "production");
 
