@@ -31,7 +31,6 @@ function isHttps(req: Request) {
   const app = s(process.env.NEXT_PUBLIC_APP_URL || "");
   return app.startsWith("https://");
 }
-
 function computeFromItems(items: any[]) {
   let ht = 0;
   let tva = 0;
