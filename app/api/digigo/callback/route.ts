@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "MISSING_STATE" }, { status: 400 });
   }
 
-  const supabase = createClient();
+  const supabase = await createClient();
 
   const { data: sess } = await supabase.auth.getUser();
   if (!sess?.user?.id) {
