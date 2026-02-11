@@ -34,15 +34,25 @@ export default async function InvoicePage({ params }: { params: { id: string } }
   const supabase = await createClient();
   const { data: sess } = await supabase.auth.getSession();
   const user = sess.session?.user;
+
   if (!user) redirect("/login");
 
   const invoiceId = s(params?.id);
   if (!invoiceId) notFound();
 
-  const { data: invoice } = await supabase.from("invoices").select("*").eq("id", invoiceId).single();
+  const { data: invoice } = await supabase
+    .from("invoices")
+    .select("*")
+    .eq("id", invoiceId)
+    .single();
+
   if (!invoice) notFound();
 
-  const { data: company } = await supabase.from("companies").select("*").eq("id", (invoice as any).company_id).maybeSingle();
+  const { data: company } = await supabase
+    .from("companies")
+    .select("*")
+    .eq("id", (invoice as any).company_id)
+    .maybeSingle();
 
   const { data: items } = await supabase
     .from("invoice_items")
@@ -73,6 +83,7 @@ export default async function InvoicePage({ params }: { params: { id: string } }
   return (
     <AppShell title="Facture" subtitle="Résumé" accountType="profil">
       <div className="ftn-page pb-10">
+
         <div className="ftn-page-head">
           <div className="flex items-start gap-3">
             <div>
@@ -83,6 +94,7 @@ export default async function InvoicePage({ params }: { params: { id: string } }
                 Date: {issueDate || "—"} • Devise: {currency}
               </div>
             </div>
+
             <div className={`mt-1 inline-flex items-center rounded-full border px-3 py-1 text-xs ${badge(headBadge.kind)}`}>
               {headBadge.label}
             </div>
@@ -93,11 +105,11 @@ export default async function InvoicePage({ params }: { params: { id: string } }
               Retour
             </Link>
 
-            <a className="ftn-btn ftn-btn-ghost" href={`/api/invoices/${invoiceId}/pdf`} target="_blank" rel="noreferrer">
+            <a className="ftn-btn ftn-btn-ghost" href={`/api/invoices/${invoiceId}/pdf`} target="_blank">
               Télécharger PDF
             </a>
 
-            <a className="ftn-btn ftn-btn-ghost" href={`/api/invoices/${invoiceId}/xml`} target="_blank" rel="noreferrer">
+            <a className="ftn-btn ftn-btn-ghost" href={`/api/invoices/${invoiceId}/xml`} target="_blank">
               Télécharger XML (TEIF)
             </a>
 
@@ -105,14 +117,18 @@ export default async function InvoicePage({ params }: { params: { id: string } }
               className={`ftn-btn ftn-btn-ghost ${invoiceSigned ? "" : "opacity-50 pointer-events-none"}`}
               href={`/api/invoices/${invoiceId}/xml-signed`}
               target="_blank"
-              rel="noreferrer"
             >
               Télécharger XML (signé)
             </a>
 
-            <Link className="ftn-btn" href={`/invoices/${invoiceId}/signature?back=${encodeURIComponent(`/invoices/${invoiceId}`)}`}>
-              Voir facture pour signer
-            </Link>
+            {!invoiceSigned && (
+              <Link
+                className="ftn-btn"
+                href={`/invoices/${invoiceId}/signature?back=${encodeURIComponent(`/invoices/${invoiceId}`)}`}
+              >
+                Voir facture pour signer
+              </Link>
+            )}
           </div>
         </div>
 
@@ -152,7 +168,7 @@ export default async function InvoicePage({ params }: { params: { id: string } }
               </div>
               <div>
                 <div className="text-xs text-[var(--muted)]">MF</div>
-                <div className="text-sm font-medium">{s((company as any)?.tax_id || (company as any)?.taxId) || "—"}</div>
+                <div className="text-sm font-medium">{s((company as any)?.tax_id) || "—"}</div>
               </div>
               <div>
                 <div className="text-xs text-[var(--muted)]">Adresse</div>
@@ -162,18 +178,10 @@ export default async function InvoicePage({ params }: { params: { id: string } }
           </div>
         </div>
 
-        {/* EDIT INLINE (si non signé) */}
-        {!invoiceSigned && !locked ? (
-          <InlineInvoiceEditor
-            invoice={invoice}
-            items={items || []}
-            onSaved={() => {
-              "use client";
-            }}
-          />
-        ) : null}
+        {!invoiceSigned && !locked && (
+          <InlineInvoiceEditor invoice={invoice} items={items || []} />
+        )}
 
-        {/* RÉSUMÉ lecture (toujours visible) */}
         <div className="ftn-card p-5 mt-4">
           <div className="ftn-section-title">Totaux</div>
 
@@ -181,6 +189,7 @@ export default async function InvoicePage({ params }: { params: { id: string } }
             <div className="lg:col-span-2">
               <div className="text-xs text-[var(--muted)]">Échéance</div>
               <div className="text-sm font-medium">{dueDate || "—"}</div>
+
               <div className="text-xs text-[var(--muted)] mt-3">Notes</div>
               <div className="text-sm font-medium">{notes || "—"}</div>
             </div>
@@ -191,14 +200,17 @@ export default async function InvoicePage({ params }: { params: { id: string } }
                   <span className="text-[var(--muted)]">Total HT</span>
                   <span className="font-medium">{fmt3((invoice as any).subtotal_ht)}</span>
                 </div>
+
                 <div className="flex justify-between">
                   <span className="text-[var(--muted)]">Total TVA</span>
-                  <span className="font-medium">{fmt3((invoice as any).total_vat ?? (invoice as any).total_tva)}</span>
+                  <span className="font-medium">{fmt3((invoice as any).total_vat)}</span>
                 </div>
+
                 <div className="flex justify-between">
                   <span className="text-[var(--muted)]">Timbre</span>
                   <span className="font-medium">{fmt3(stamp)}</span>
                 </div>
+
                 <div className="mt-2 pt-2 border-t border-[var(--border)] flex justify-between">
                   <span className="font-semibold">Net à payer</span>
                   <span className="font-semibold">{fmt3((invoice as any).net_to_pay)}</span>
