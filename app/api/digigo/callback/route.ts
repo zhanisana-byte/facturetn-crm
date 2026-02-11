@@ -1,4 +1,3 @@
-```ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -13,11 +12,15 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-async function safeUpdateInvoiceSigned(svc: any, invoiceId: string) {
-  const payload: any = {
-    updated_at: new Date().toISOString(),
-  };
+function clearDigigoCookies(res: NextResponse) {
+  res.cookies.set("digigo_state", "", { path: "/", maxAge: 0 });
+  res.cookies.set("digigo_invoice_id", "", { path: "/", maxAge: 0 });
+  res.cookies.set("digigo_back_url", "", { path: "/", maxAge: 0 });
+  return res;
+}
 
+async function safeUpdateInvoiceSigned(svc: any, invoiceId: string) {
+  const payload: any = { updated_at: new Date().toISOString() };
   payload.signature_status = "signed";
   payload.signature_provider = "digigo";
   payload.ttn_signed = true;
@@ -34,13 +37,6 @@ async function safeUpdateInvoiceSigned(svc: any, invoiceId: string) {
   throw r.error;
 }
 
-function clearDigigoCookies(res: NextResponse) {
-  res.cookies.set("digigo_state", "", { path: "/", maxAge: 0 });
-  res.cookies.set("digigo_invoice_id", "", { path: "/", maxAge: 0 });
-  res.cookies.set("digigo_back_url", "", { path: "/", maxAge: 0 });
-  return res;
-}
-
 export async function POST(req: Request) {
   const svc = createServiceClient();
 
@@ -50,6 +46,7 @@ export async function POST(req: Request) {
     const token = s(body.token);
     const codeFromBody = s(body.code);
     const invoiceFromBody = s(body.invoice_id || body.invoiceId || "");
+    const backFromBody = s(body.back_url || body.backUrl || "");
 
     const cookieStore = await cookies();
     const stateFromCookie = s(cookieStore.get("digigo_state")?.value || "");
@@ -88,7 +85,7 @@ export async function POST(req: Request) {
     const invoiceId = s((session as any).invoice_id) || invoiceIdFromCookie || invoiceFromBody;
     if (!invoiceId) return NextResponse.json({ ok: false, error: "SESSION_NO_INVOICE" }, { status: 400 });
 
-    const backUrl = s((session as any).back_url || "") || backFromCookie || `/invoices/${invoiceId}`;
+    const backUrl = s((session as any).back_url || "") || backFromBody || backFromCookie || `/invoices/${invoiceId}`;
 
     const expRaw = s((session as any).expires_at);
     if (expRaw) {
@@ -110,7 +107,7 @@ export async function POST(req: Request) {
 
     const { data: sig, error: sigErr } = await svc
       .from("invoice_signatures")
-      .select("meta,unsigned_xml,unsigned_hash,state")
+      .select("meta,unsigned_xml,unsigned_hash")
       .eq("invoice_id", invoiceId)
       .maybeSingle();
 
@@ -209,11 +206,7 @@ export async function POST(req: Request) {
 
     await svc
       .from("digigo_sign_sessions")
-      .update({
-        status: "done",
-        error_message: null,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ status: "done", error_message: null, updated_at: new Date().toISOString() })
       .eq("id", (session as any).id);
 
     await safeUpdateInvoiceSigned(svc, invoiceId);
@@ -223,4 +216,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "CALLBACK_FATAL", details: s(e?.message || e) }, { status: 500 });
   }
 }
-```
