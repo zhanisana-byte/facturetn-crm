@@ -7,7 +7,7 @@ function s(v: any) {
 }
 
 export async function POST(req: Request) {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const body = await req.json().catch(() => ({} as any));
 
   const token = s(body.token);
@@ -46,10 +46,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "MISSING_INVOICE_ID" }, { status: 400 });
   }
 
-  await supabase
-    .from("digigo_oauth_states")
-    .delete()
-    .eq("id", stRow.id);
+  await supabase.from("digigo_oauth_states").delete().eq("id", stRow.id);
 
   cookieStore.set("digigo_state", "", { path: "/", maxAge: 0 });
 
