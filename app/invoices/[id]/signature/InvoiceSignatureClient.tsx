@@ -38,6 +38,23 @@ export default function DigigoSignButton({
     }
   }
 
+  function formatApiError(j: any) {
+    const msg =
+      s(j?.message) ||
+      s(j?.details?.message) ||
+      s(j?.details) ||
+      s(j?.error_description) ||
+      "";
+
+    const code = s(j?.error);
+
+    if (msg && code && msg !== code) return `${msg}`;
+    if (msg) return msg;
+    if (code) return code;
+
+    return "Impossible de démarrer DigiGo.";
+  }
+
   async function start() {
     setErr("");
     setLoading(true);
@@ -64,7 +81,7 @@ export default function DigigoSignButton({
       const j = await r.json().catch(() => ({}));
 
       if (!r.ok || !j?.ok || !j?.authorize_url) {
-        setErr(s(j?.error || j?.message || "Impossible de démarrer DigiGo."));
+        setErr(formatApiError(j));
         return;
       }
 
