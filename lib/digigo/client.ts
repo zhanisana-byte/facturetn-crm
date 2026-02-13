@@ -23,13 +23,13 @@ export function digigoAuthorizeUrl(args: {
   redirectUri: string;
 }) {
   const clientId = env("DIGIGO_CLIENT_ID");
-  if (!clientId) throw new Error("DIGIGO_CLIENT_ID missing");
+  if (!clientId) throw new Error("DIGIGO_CLIENT_ID_MISSING");
 
   const baseUrl = env("DIGIGO_BASE_URL");
-  if (!baseUrl) throw new Error("DIGIGO_BASE_URL missing");
+  if (!baseUrl) throw new Error("DIGIGO_BASE_URL_MISSING");
 
   const redirectUri = s(args.redirectUri);
-  if (!redirectUri || !/^https?:\/\//i.test(redirectUri)) throw new Error("DIGIGO_REDIRECT_URI invalid");
+  if (!redirectUri || !/^https?:\/\//i.test(redirectUri)) throw new Error("DIGIGO_REDIRECT_URI_INVALID");
 
   const authorize = baseUrl.replace(/\/$/, "") + "/oauth2/authorize";
 
