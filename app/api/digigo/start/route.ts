@@ -13,6 +13,7 @@ export const dynamic = "force-dynamic";
 function s(v: any) {
   return String(v ?? "").trim();
 }
+
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
@@ -44,11 +45,13 @@ export async function POST(req: Request) {
     const cookieStore = await cookies();
 
     const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+    if (!auth?.user) {
+      return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+    }
 
     const body = await req.json().catch(() => ({}));
-    const invoice_id = s(body.invoice_id);
-    const back_url = s(body.back_url || body.backUrl || body.back || "");
+    const invoice_id = s(body.invoice_id || body.invoiceId);
+    const back_url = s(body.back_url || body.backUrl || body.back);
     const env = s(body.environment || body.env || "test") || "test";
 
     if (!invoice_id || !isUuid(invoice_id)) {
@@ -56,7 +59,9 @@ export async function POST(req: Request) {
     }
 
     const inv = await service.from("invoices").select("*").eq("id", invoice_id).single();
-    if (!inv.data) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
+    if (!inv.data) {
+      return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
+    }
 
     const invoice: any = inv.data;
     const company_id = s(invoice.company_id);
@@ -65,11 +70,14 @@ export async function POST(req: Request) {
       (await canCompanyAction(supabase, auth.user.id, company_id, "validate_invoices" as any)) ||
       (await canCompanyAction(supabase, auth.user.id, company_id, "submit_ttn" as any));
 
-    if (!allowed) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+    if (!allowed) {
+      return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+    }
 
     if (!s(invoice.invoice_number)) {
       return NextResponse.json({ ok: false, error: "INVOICE_NUMBER_MISSING" }, { status: 400 });
     }
+
     if (!invoice.issue_date) {
       return NextResponse.json({ ok: false, error: "ISSUE_DATE_MISSING" }, { status: 400 });
     }
@@ -103,7 +111,9 @@ export async function POST(req: Request) {
         : {};
 
     const credentialId = s(cfg.digigo_signer_email || cfg.credentialId || cfg.signer_email || (credRes.data as any).cert_email);
-    if (!credentialId) return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
+    if (!credentialId) {
+      return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
+    }
 
     const state = crypto.randomUUID();
 
@@ -138,7 +148,12 @@ export async function POST(req: Request) {
     cookieStore.set("digigo_back_url", back_url || "/invoices", { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 1800 });
 
     const appUrl = s(process.env.NEXT_PUBLIC_APP_URL).replace(/\/$/, "");
-    const redirectUri = `${appUrl}/digigo/redirect`; // <- UI ou handler unique
+    const redirectEnv = s(process.env.DIGIGO_REDIRECT_URI).replace(/\/$/, "");
+    const redirectUri = redirectEnv || (appUrl ? `${appUrl}/digigo/redirect` : "");
+
+    if (!redirectUri || !/^https?:\/\//i.test(redirectUri)) {
+      return NextResponse.json({ ok: false, error: "REDIRECT_URI_INVALID", value: redirectUri }, { status: 500 });
+    }
 
     const authorize_url = digigoAuthorizeUrl({
       credentialId,
@@ -149,6 +164,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, state, authorize_url });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: "INTERNAL_ERROR", message: String(e?.message || e) }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "INTERNAL_ERROR", message: String(e?.message || e) },
+      { status: 500 }
+    );
   }
 }
