@@ -47,6 +47,7 @@ type DigigoAuthorizeArgs = {
   state?: string;
   invoiceId?: string;
   backUrl?: string;
+  redirectUri?: string;
 };
 
 function addQuery(baseUrl: string, params: Record<string, string | undefined>) {
@@ -59,25 +60,37 @@ function addQuery(baseUrl: string, params: Record<string, string | undefined>) {
 }
 
 export function digigoAuthorizeUrl(args: DigigoAuthorizeArgs): string {
-  const baseRedirectUri = digigoRedirectUri();
+  const baseRedirectUri = String(args.redirectUri || digigoRedirectUri() || "").trim();
   const clientId = digigoClientId();
 
   const credentialId = String(args.credentialId || "").trim();
   const hash = String(args.hashBase64 || "").trim();
-  const numSignatures = Number.isFinite(args.numSignatures as number)
-    ? String(args.numSignatures)
-    : "1";
+  const numSignatures = Number.isFinite(args.numSignatures as number) ? String(args.numSignatures) : "1";
 
   if (!baseRedirectUri) throw new Error("DIGIGO_REDIRECT_URI missing");
   if (!clientId) throw new Error("DIGIGO_CLIENT_ID missing");
   if (!credentialId) throw new Error("credentialId missing");
   if (!hash) throw new Error("hashBase64 missing");
 
-  const redirectUri = addQuery(baseRedirectUri, {
-    state: args.state,
-    invoice_id: args.invoiceId,
-    back_url: args.backUrl,
-  });
+  let redirectUri = baseRedirectUri;
+
+  try {
+    const ru = new URL(baseRedirectUri);
+    const cleanPath = ru.pathname.replace(/\/+$/, "");
+    if (args.state && cleanPath.endsWith("/digigo/redirect")) {
+      ru.pathname = `${cleanPath}/${encodeURIComponent(String(args.state))}`;
+    }
+    if (args.invoiceId) ru.searchParams.set("invoice_id", String(args.invoiceId));
+    if (args.backUrl) ru.searchParams.set("back_url", String(args.backUrl));
+    if (args.state) ru.searchParams.set("state", String(args.state));
+    redirectUri = ru.toString();
+  } catch {
+    redirectUri = addQuery(baseRedirectUri, {
+      state: args.state,
+      invoice_id: args.invoiceId,
+      back_url: args.backUrl,
+    });
+  }
 
   const u = new URL(`${digigoProxyBaseUrl()}/oauth2/authorize`);
 
