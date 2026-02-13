@@ -70,6 +70,8 @@ export async function digigoOauthToken(args: { credentialId: string; code: strin
   const clientSecret = digigoClientSecret();
   const redirectUri = digigoRedirectUri();
 
+  // Conforme doc: /oauth2/token/{clientId}/{grantType}/{clientSecret}/{code} + body { redirectUri }
+  // credentialId n'est pas dans le path, il sert ensuite pour signHash.
   const credentialId = s(args.credentialId);
   const code = s(args.code);
 
@@ -85,10 +87,9 @@ export async function digigoOauthToken(args: { credentialId: string; code: strin
   const url =
     `${base}/services/v1/oauth2/token/` +
     `${encodeURIComponent(clientId)}/` +
-    `${encodeURIComponent(credentialId)}/` +
     `${encodeURIComponent(grantType)}/` +
-    `${encodeURIComponent(code)}/` +
-    `${encodeURIComponent(clientSecret)}`;
+    `${encodeURIComponent(clientSecret)}/` +
+    `${encodeURIComponent(code)}`;
 
   const r = await digigoFetchJson(url, {
     method: "POST",
@@ -144,8 +145,7 @@ export async function digigoSignHash(args: { credentialId: string; sad: string; 
     return { ok: false, status: r.status, error: err, data: r.data };
   }
 
-  const arr = Array.isArray(r.data) ? r.data : [];
-  const first = arr[0] || null;
+  const first = Array.isArray(r.data) ? r.data[0] : r.data;
   const value = s(first?.value || "");
   const algorithm = s(first?.algorithm || "");
 
