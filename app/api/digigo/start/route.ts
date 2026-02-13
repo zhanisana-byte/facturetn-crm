@@ -1,8 +1,7 @@
-import { NextResponse } from "next/server";
-import crypto from "crypto";
-import { createClient } from "@/lib/supabase/server";
+import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { createServiceClient } from "@/lib/supabase/service";
-import { digigoAuthorizeUrl } from "@/lib/digigo/client";
+import crypto from "crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,108 +10,51 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function isUuid(v: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
-}
-
-function isHttps(req: Request) {
-  const proto = s(req.headers.get("x-forwarded-proto") || "");
-  if (proto) return proto === "https";
-  const app = s(process.env.NEXT_PUBLIC_APP_URL || "");
-  return app.startsWith("https://");
-}
-
-export async function POST(req: Request) {
-  const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
-
-  if (!auth?.user) {
-    return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
-  }
-
+export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
 
-  const credentialId =
-    s(body.credentialId) ||
-    s(body.digigo_signer_email) ||
-    s(process.env.DIGIGO_CREDENTIAL_ID);
+  const invoiceId = s(body?.invoiceId);
+  const companyId = s(body?.companyId);
+  const credentialId = s(body?.credentialId);
+  const backUrl = s(body?.backUrl);
+  const env = s(body?.environment || "test");
 
   if (!credentialId) {
-    return NextResponse.json(
-      { ok: false, error: "CREDENTIAL_ID_MISSING" },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
+  }
+  if (!invoiceId) {
+    return NextResponse.json({ ok: false, error: "INVOICE_ID_MISSING" }, { status: 400 });
   }
 
-  const invoice_id_raw = s(body.invoice_id || body.invoiceId || "");
-  const invoice_id = invoice_id_raw && isUuid(invoice_id_raw)
-    ? invoice_id_raw
-    : null;
-
-  const back_url = s(body.back_url || body.backUrl || "/app") || "/app";
-
   const state = crypto.randomUUID();
-  const expires_at = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
   const service = createServiceClient();
 
-  const insert = await service
-    .from("digigo_sign_sessions")
-    .insert({
-      state,
-      invoice_id,
-      company_id: null,
-      created_by: auth.user.id,
-      back_url,
-      status: "pending",
-      environment: s(process.env.DIGIGO_ENV || process.env.NODE_ENV || "production"),
-      expires_at,
-    })
-    .select("id")
-    .maybeSingle();
+  const { error } = await service.from("digigo_sign_sessions").insert({
+    state,
+    invoice_id: invoiceId,
+    company_id: companyId || null,
+    credential_id: credentialId,
+    created_by: s(body?.createdBy) || null,
+    back_url: backUrl || null,
+    status: "pending",
+    environment: env || null,
+    expires_at: expiresAt,
+  } as any);
 
-  if (insert.error) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "SESSION_CREATE_FAILED",
-        message: insert.error.message,
-      },
-      { status: 500 }
-    );
+  if (error) {
+    return NextResponse.json({ ok: false, error: "DB_INSERT_FAILED", message: error.message }, { status: 500 });
   }
 
-  const authorize_url = digigoAuthorizeUrl({
-    credentialId,
-    hashBase64:
-      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", // hash dummy si OAuth only
-    numSignatures: 1,
-    state,
-  });
-
-  const res = NextResponse.json(
-    { ok: true, authorize_url, state, back_url },
-    { status: 200 }
-  );
-
-  const secure = isHttps(req);
-  const maxAge = 60 * 30;
-
-  res.cookies.set("digigo_state", state, {
+  const cookieStore = await cookies();
+  cookieStore.set("digigo_state", state, {
     httpOnly: true,
-    secure,
+    secure: true,
     sameSite: "lax",
     path: "/",
-    maxAge,
+    maxAge: 10 * 60,
   });
 
-  res.cookies.set("digigo_back_url", back_url, {
-    httpOnly: true,
-    secure,
-    sameSite: "lax",
-    path: "/",
-    maxAge,
-  });
-
-  return res;
+  return NextResponse.json({ ok: true, state }, { status: 200 });
 }
