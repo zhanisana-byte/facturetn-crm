@@ -64,14 +64,12 @@ async function digigoFetchJson(url: string, init: RequestInit) {
   return { ok: res.ok, status: res.status, data };
 }
 
-export async function digigoOauthToken(args: { credentialId: string; code: string }) {
+export async function digigoOauthToken(args: { credentialId: string; code: string; redirectUri?: string }) {
   const base = digigoProxyBaseUrl();
   const clientId = digigoClientId();
   const clientSecret = digigoClientSecret();
-  const redirectUri = digigoRedirectUri();
+  const redirectUri = s(args.redirectUri || digigoRedirectUri());
 
-  // Conforme doc: /oauth2/token/{clientId}/{grantType}/{clientSecret}/{code} + body { redirectUri }
-  // credentialId n'est pas dans le path, il sert ensuite pour signHash.
   const credentialId = s(args.credentialId);
   const code = s(args.code);
 
