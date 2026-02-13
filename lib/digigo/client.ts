@@ -45,10 +45,21 @@ type DigigoAuthorizeArgs = {
   hashBase64: string;
   numSignatures?: number;
   state?: string;
+  invoiceId?: string;
+  backUrl?: string;
 };
 
+function addQuery(baseUrl: string, params: Record<string, string | undefined>) {
+  const u = new URL(baseUrl);
+  for (const [k, v] of Object.entries(params)) {
+    const val = String(v ?? "").trim();
+    if (val) u.searchParams.set(k, val);
+  }
+  return u.toString();
+}
+
 export function digigoAuthorizeUrl(args: DigigoAuthorizeArgs): string {
-  const redirectUri = digigoRedirectUri();
+  const baseRedirectUri = digigoRedirectUri();
   const clientId = digigoClientId();
 
   const credentialId = String(args.credentialId || "").trim();
@@ -57,10 +68,16 @@ export function digigoAuthorizeUrl(args: DigigoAuthorizeArgs): string {
     ? String(args.numSignatures)
     : "1";
 
-  if (!redirectUri) throw new Error("DIGIGO_REDIRECT_URI missing");
+  if (!baseRedirectUri) throw new Error("DIGIGO_REDIRECT_URI missing");
   if (!clientId) throw new Error("DIGIGO_CLIENT_ID missing");
   if (!credentialId) throw new Error("credentialId missing");
   if (!hash) throw new Error("hashBase64 missing");
+
+  const redirectUri = addQuery(baseRedirectUri, {
+    state: args.state,
+    invoice_id: args.invoiceId,
+    back_url: args.backUrl,
+  });
 
   const u = new URL(`${digigoProxyBaseUrl()}/oauth2/authorize`);
 
