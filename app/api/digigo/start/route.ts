@@ -79,7 +79,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "INVALID_INVOICE_ID" }, { status: 400 });
     }
 
-    const safeBackUrl = s(body.back_url || body.backUrl || "") || `/invoices/${encodeURIComponent(invoice_id)}`;
+    const safeBackUrl =
+      s(body.back_url || body.backUrl || "") || `/invoices/${encodeURIComponent(invoice_id)}`;
 
     const invRes = await service.from("invoices").select("*").eq("id", invoice_id).single();
     if (!invRes.data) {
@@ -116,9 +117,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const cfg =
-      cred.signature_config && typeof cred.signature_config === "object" ? cred.signature_config : {};
-
+    const cfg = cred.signature_config && typeof cred.signature_config === "object" ? cred.signature_config : {};
     const credentialId = s(cfg.digigo_signer_email || cred.cert_email);
     if (!credentialId) {
       return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
@@ -177,11 +176,7 @@ export async function POST(req: Request) {
     const byteLen = Buffer.byteLength(unsigned_xml, "utf8");
     if (byteLen > MAX_TEIF_BYTES) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "TEIF_XML_TOO_LARGE",
-          message: `TEIF XML trop grand (${byteLen} octets). Limite: ${MAX_TEIF_BYTES}.`,
-        },
+        { ok: false, error: "TEIF_XML_TOO_LARGE", message: `TEIF XML trop grand (${byteLen} octets). Limite: ${MAX_TEIF_BYTES}.` },
         { status: 400 }
       );
     }
@@ -235,7 +230,9 @@ export async function POST(req: Request) {
       hashBase64: unsigned_hash,
       numSignatures: 1,
       state,
-    });
+      invoiceId: invoice_id,
+      backUrl: safeBackUrl,
+    } as any);
 
     const res = NextResponse.json({ ok: true, authorize_url, state }, { status: 200 });
 
