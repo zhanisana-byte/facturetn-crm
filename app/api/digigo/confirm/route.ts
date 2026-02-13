@@ -35,10 +35,9 @@ type Cred = {
   environment: "test" | "production" | string | null;
 };
 
-// Sélection globale: si env fourni => on prend ce env
-// sinon => on prend prod si dispo sinon test
 async function resolveDigigoCredentials(service: any, company_id: string, requestedEnv?: string) {
   const wanted = s(requestedEnv || "");
+
   const base = service
     .from("ttn_credentials")
     .select("signature_provider, signature_config, cert_email, environment")
@@ -49,7 +48,6 @@ async function resolveDigigoCredentials(service: any, company_id: string, reques
     return { cred: (r.data as Cred | null) ?? null, env: wanted || null };
   }
 
-  // Priorité production, sinon test
   const prod = await base.eq("environment", "production").maybeSingle();
   if (prod.data) return { cred: prod.data as Cred, env: "production" };
 
@@ -84,21 +82,29 @@ export async function POST(req: Request) {
     const safeBackUrl = s(body.back_url || body.backUrl || "") || `/invoices/${encodeURIComponent(invoice_id)}`;
 
     const invRes = await service.from("invoices").select("*").eq("id", invoice_id).single();
-    if (!invRes.data) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
+    if (!invRes.data) {
+      return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
+    }
 
     const invoice: any = invRes.data;
     const company_id = s(invoice.company_id);
-    if (!company_id) return NextResponse.json({ ok: false, error: "COMPANY_ID_MISSING" }, { status: 400 });
+    if (!company_id) {
+      return NextResponse.json({ ok: false, error: "COMPANY_ID_MISSING" }, { status: 400 });
+    }
 
     const allowed =
       (await canCompanyAction(supabase, auth.user.id, company_id, "validate_invoices" as any)) ||
       (await canCompanyAction(supabase, auth.user.id, company_id, "submit_ttn" as any)) ||
       (await canCompanyAction(supabase, auth.user.id, company_id, "create_invoices" as any));
 
-    if (!allowed) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+    if (!allowed) {
+      return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+    }
 
     const compRes = await service.from("companies").select("*").eq("id", company_id).single();
-    if (!compRes.data) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
+    if (!compRes.data) {
+      return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
+    }
 
     const requestedEnv = s(body.environment || body.env || "");
     const { cred, env } = await resolveDigigoCredentials(service, company_id, requestedEnv);
