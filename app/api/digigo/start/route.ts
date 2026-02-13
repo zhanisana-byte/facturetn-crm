@@ -28,6 +28,41 @@ function isHttps(req: Request) {
 
 const MAX_TEIF_BYTES = 50 * 1024;
 
+type Cred = {
+  signature_provider: string | null;
+  signature_config: any;
+  cert_email: string | null;
+  environment: "test" | "production" | string | null;
+};
+
+async function resolveDigigoCredentials(service: any, company_id: string, requestedEnv?: string) {
+  const wanted = s(requestedEnv || "");
+
+  const base = service
+    .from("ttn_credentials")
+    .select("signature_provider, signature_config, cert_email, environment")
+    .eq("company_id", company_id);
+
+  if (wanted) {
+    const r = await base.eq("environment", wanted).maybeSingle();
+    return { cred: (r.data as Cred | null) ?? null, env: wanted || null };
+  }
+
+  const prod = await base.eq("environment", "production").maybeSingle();
+  if (prod.data) return { cred: prod.data as Cred, env: "production" };
+
+  const test = await service
+    .from("ttn_credentials")
+    .select("signature_provider, signature_config, cert_email, environment")
+    .eq("company_id", company_id)
+    .eq("environment", "test")
+    .maybeSingle();
+
+  if (test.data) return { cred: test.data as Cred, env: "test" };
+
+  return { cred: null, env: null };
+}
+
 export async function POST(req: Request) {
   try {
     const supabase = await createClient();
@@ -44,45 +79,47 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "INVALID_INVOICE_ID" }, { status: 400 });
     }
 
-    const safeBackUrl =
-      s(body.back_url || body.backUrl || "") || `/invoices/${encodeURIComponent(invoice_id)}`;
+    const safeBackUrl = s(body.back_url || body.backUrl || "") || `/invoices/${encodeURIComponent(invoice_id)}`;
 
     const invRes = await service.from("invoices").select("*").eq("id", invoice_id).single();
-    if (!invRes.data) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
+    if (!invRes.data) {
+      return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
+    }
 
     const invoice: any = invRes.data;
     const company_id = s(invoice.company_id);
-    if (!company_id) return NextResponse.json({ ok: false, error: "COMPANY_ID_MISSING" }, { status: 400 });
+    if (!company_id) {
+      return NextResponse.json({ ok: false, error: "COMPANY_ID_MISSING" }, { status: 400 });
+    }
 
     const allowed =
       (await canCompanyAction(supabase, auth.user.id, company_id, "validate_invoices" as any)) ||
       (await canCompanyAction(supabase, auth.user.id, company_id, "submit_ttn" as any)) ||
       (await canCompanyAction(supabase, auth.user.id, company_id, "create_invoices" as any));
 
-    if (!allowed) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+    if (!allowed) {
+      return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+    }
 
     const compRes = await service.from("companies").select("*").eq("id", company_id).single();
-    if (!compRes.data) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
+    if (!compRes.data) {
+      return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
+    }
 
-    const env = s(body.environment || body.env || "") || "test";
+    const requestedEnv = s(body.environment || body.env || "");
+    const { cred, env } = await resolveDigigoCredentials(service, company_id, requestedEnv);
 
-    const credRes = await service
-      .from("ttn_credentials")
-      .select("signature_provider, signature_config, cert_email, environment")
-      .eq("company_id", company_id)
-      .eq("environment", env)
-      .maybeSingle();
-
-    if (!credRes.data || (credRes.data as any).signature_provider !== "digigo") {
-      return NextResponse.json({ ok: false, error: "DIGIGO_NOT_CONFIGURED" }, { status: 400 });
+    if (!cred || s((cred as any).signature_provider) !== "digigo") {
+      return NextResponse.json(
+        { ok: false, error: "DIGIGO_NOT_CONFIGURED", details: { requestedEnv: requestedEnv || null, resolvedEnv: env } },
+        { status: 400 }
+      );
     }
 
     const cfg =
-      (credRes.data as any)?.signature_config && typeof (credRes.data as any).signature_config === "object"
-        ? (credRes.data as any).signature_config
-        : {};
+      cred.signature_config && typeof cred.signature_config === "object" ? cred.signature_config : {};
 
-    const credentialId = s(cfg.digigo_signer_email || (credRes.data as any).cert_email);
+    const credentialId = s(cfg.digigo_signer_email || cred.cert_email);
     if (!credentialId) {
       return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
     }
@@ -155,7 +192,7 @@ export async function POST(req: Request) {
       {
         invoice_id,
         company_id,
-        environment: env,
+        environment: env || "test",
         provider: "digigo",
         state: "pending",
         unsigned_xml,
@@ -163,7 +200,7 @@ export async function POST(req: Request) {
         signed_xml: "",
         signed_hash: null,
         signer_user_id: auth.user.id,
-        meta: { credentialId, environment: env },
+        meta: { credentialId, environment: env || "test" },
       } as any,
       { onConflict: "invoice_id" }
     );
@@ -180,7 +217,7 @@ export async function POST(req: Request) {
         created_by: auth.user.id,
         back_url: safeBackUrl,
         status: "pending",
-        environment: env,
+        environment: env || "test",
         expires_at,
       })
       .select("id")
