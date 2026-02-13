@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
-import { createClient } from "@/lib/supabase/server";
+import { cookies } from "next/headers";
 import { createServiceClient } from "@/lib/supabase/service";
-import { canCompanyAction } from "@/lib/permissions/companyPerms";
-import { buildTeifInvoiceXml } from "@/lib/ttn/teifXml";
-import { sha256Base64Utf8, digigoAuthorizeUrl } from "@/lib/digigo/client";
+import { createClient } from "@/lib/supabase/server";
+import { buildTeifInvoiceXml } from "@/lib/ttn/teif";
+import { digigoAuthorizeUrl } from "@/lib/digigo/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,53 +12,60 @@ export const dynamic = "force-dynamic";
 function s(v: any) {
   return String(v ?? "").trim();
 }
-function n(v: any) {
-  const x = Number(v ?? 0);
-  return Number.isFinite(x) ? x : 0;
-}
+
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
-function isHttps(req: Request) {
-  const proto = s(req.headers.get("x-forwarded-proto") || "");
-  if (proto) return proto === "https";
-  const app = s(process.env.NEXT_PUBLIC_APP_URL || "");
-  return app.startsWith("https://");
-}
 
-const MAX_TEIF_BYTES = 50 * 1024;
+function sha256Base64Utf8(input: string) {
+  return crypto.createHash("sha256").update(input, "utf8").digest("base64");
+}
 
 export async function POST(req: Request) {
   try {
-    const supabase = await createClient();
-    const service = createServiceClient();
-
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) {
-      return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
-    }
-
+    const cookieStore = await cookies();
     const body = await req.json().catch(() => ({}));
-    const invoice_id = s(body.invoice_id || body.invoiceId);
+
+    const invoice_id = s(body.invoice_id || body.invoiceId || "");
+    const company_id = s(body.company_id || body.companyId || "");
+    const back_url = s(body.back_url || body.backUrl || body.back || "") || "/app";
+
     if (!invoice_id || !isUuid(invoice_id)) {
       return NextResponse.json({ ok: false, error: "INVALID_INVOICE_ID" }, { status: 400 });
     }
+    if (!company_id || !isUuid(company_id)) {
+      return NextResponse.json({ ok: false, error: "INVALID_COMPANY_ID" }, { status: 400 });
+    }
 
-    const safeBackUrl = s(body.back_url || body.backUrl || "") || `/invoices/${encodeURIComponent(invoice_id)}`;
+    const supabase = await createClient();
+    const userRes = await supabase.auth.getUser();
+    const user = userRes.data?.user;
+    if (!user?.id) return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
+
+    // Permission simple (à adapter selon ta logique)
+    const service = createServiceClient();
+    const mem = await service
+      .from("memberships")
+      .select("id, role, can_create_invoices, can_validate_invoices, can_submit_ttn")
+      .eq("company_id", company_id)
+      .eq("user_id", user.id)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    const allowed =
+      !!mem.data?.id &&
+      (mem.data.role === "owner" ||
+        mem.data.role === "admin" ||
+        mem.data.can_create_invoices ||
+        mem.data.can_validate_invoices ||
+        mem.data.can_submit_ttn);
+
+    if (!allowed) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
 
     const invRes = await service.from("invoices").select("*").eq("id", invoice_id).single();
     if (!invRes.data) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
     const invoice: any = invRes.data;
-    const company_id = s(invoice.company_id);
-    if (!company_id) return NextResponse.json({ ok: false, error: "COMPANY_ID_MISSING" }, { status: 400 });
-
-    const allowed =
-      (await canCompanyAction(supabase, auth.user.id, company_id, "validate_invoices" as any)) ||
-      (await canCompanyAction(supabase, auth.user.id, company_id, "submit_ttn" as any)) ||
-      (await canCompanyAction(supabase, auth.user.id, company_id, "create_invoices" as any));
-
-    if (!allowed) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
 
     const compRes = await service.from("companies").select("*").eq("id", company_id).single();
     if (!compRes.data) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
@@ -81,7 +88,15 @@ export async function POST(req: Request) {
         ? (credRes.data as any).signature_config
         : {};
 
-    const credentialId = s(cfg.digigo_signer_email || (credRes.data as any).cert_email);
+    // Résolution robuste pour éviter CREDENTIAL_ID_MISSING
+    // Priorité:
+    // 1) signature_config.digigo_signer_email
+    // 2) signature_config.credentialId
+    // 3) signature_config.signer_email
+    // 4) ttn_credentials.cert_email
+    const credentialId = s(
+      cfg.digigo_signer_email || cfg.credentialId || cfg.signer_email || (credRes.data as any).cert_email
+    );
     if (!credentialId) {
       return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
     }
@@ -110,102 +125,97 @@ export async function POST(req: Request) {
         documentType: invoice.document_type,
         number: invoice.invoice_number,
         issueDate: invoice.issue_date,
-        dueDate: invoice.due_date,
-        currency: invoice.currency,
+        currency: invoice.currency || "TND",
         customerName: invoice.customer_name,
         customerTaxId: invoice.customer_tax_id,
-        customerEmail: invoice.customer_email,
-        customerAddress: invoice.customer_address,
-      },
-      totals: {
-        ht: n(invoice.subtotal_ht),
-        tva: n(invoice.total_vat),
-        ttc: n(invoice.total_ttc),
+        subtotalHt: invoice.subtotal_ht,
+        totalVat: invoice.total_vat,
         stampEnabled: !!invoice.stamp_enabled,
-        stampAmount: n(invoice.stamp_amount),
+        stampAmount: invoice.stamp_amount,
+        totalTtc: invoice.total_ttc,
       },
-      items: (itemsRes.data as any[]).map((it: any) => ({
-        description: it.description,
-        qty: n(it.quantity),
-        price: n(it.unit_price_ht),
-        vat: n(it.vat_pct),
-      })),
-      purpose: "ttn",
-    } as any);
-
-    const byteLen = Buffer.byteLength(unsigned_xml, "utf8");
-    if (byteLen > MAX_TEIF_BYTES) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "TEIF_XML_TOO_LARGE",
-          message: `TEIF XML trop grand (${byteLen} octets). Limite: ${MAX_TEIF_BYTES}.`,
-        },
-        { status: 400 }
-      );
-    }
+      items: itemsRes.data as any[],
+    });
 
     const unsigned_hash = sha256Base64Utf8(unsigned_xml);
 
-    await service.from("invoice_signatures").upsert(
-      {
-        invoice_id,
-        company_id,
-        environment: env,
-        provider: "digigo",
-        state: "pending",
-        unsigned_xml,
-        unsigned_hash,
-        signed_xml: "",
-        signed_hash: null,
-        signer_user_id: auth.user.id,
-        meta: { credentialId, environment: env },
-      } as any,
-      { onConflict: "invoice_id" }
-    );
+    await service
+      .from("invoice_signatures")
+      .upsert(
+        {
+          invoice_id,
+          company_id,
+          provider: "digigo",
+          state: "pending",
+          unsigned_xml,
+          unsigned_hash,
+          environment: env,
+          signer_user_id: user.id,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "invoice_id" }
+      );
 
-    const state = crypto.randomUUID();
-    const expires_at = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-
-    const sessIns = await service
+    const sessionRes = await service
       .from("digigo_sign_sessions")
       .insert({
-        state,
+        state: crypto.randomUUID(),
         invoice_id,
         company_id,
-        created_by: auth.user.id,
-        back_url: safeBackUrl,
+        created_by: user.id,
+        back_url,
         status: "pending",
         environment: env,
-        expires_at,
+        expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        updated_at: new Date().toISOString(),
       })
-      .select("id")
-      .maybeSingle();
+      .select("*")
+      .single();
 
-    if (sessIns.error) {
-      return NextResponse.json(
-        { ok: false, error: "SESSION_CREATE_FAILED", message: sessIns.error.message },
-        { status: 500 }
-      );
+    if (!sessionRes.data?.state) {
+      return NextResponse.json({ ok: false, error: "SESSION_CREATE_FAILED" }, { status: 500 });
     }
 
-    const authorize_url = digigoAuthorizeUrl({
-      credentialId,
-      hashBase64: unsigned_hash,
-      numSignatures: 1,
-      state,
+    // Cookies fallback (top-level redirect DigiGo -> Vercel peut parfois perdre ces infos)
+    cookieStore.set("digigo_state", String(sessionRes.data.state), {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: true,
+      maxAge: 30 * 60,
+    });
+    cookieStore.set("digigo_invoice_id", String(invoice_id), {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: true,
+      maxAge: 30 * 60,
+    });
+    cookieStore.set("digigo_back_url", String(back_url), {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: true,
+      maxAge: 30 * 60,
     });
 
-    const res = NextResponse.json({ ok: true, authorize_url, state }, { status: 200 });
+    const authorizeUrl = digigoAuthorizeUrl({
+      credentialId,
+      numSignatures: 1,
+      hashes: [unsigned_hash],
+    });
 
-    const secure = isHttps(req);
-    const maxAge = 60 * 30;
-
-    res.cookies.set("digigo_state", state, { httpOnly: true, secure, sameSite: "lax", path: "/", maxAge });
-    res.cookies.set("digigo_invoice_id", invoice_id, { httpOnly: true, secure, sameSite: "lax", path: "/", maxAge });
-    res.cookies.set("digigo_back_url", safeBackUrl, { httpOnly: true, secure, sameSite: "lax", path: "/", maxAge });
-
-    return res;
+    return NextResponse.json(
+      {
+        ok: true,
+        authorizeUrl,
+        state: sessionRes.data.state,
+        invoice_id,
+        company_id,
+        environment: env,
+      },
+      { status: 200 }
+    );
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: "INTERNAL_ERROR", message: String(e?.message || e) },
