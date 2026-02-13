@@ -20,13 +20,22 @@ function isUuid(v: string) {
 
 const MAX_TEIF_BYTES = 50 * 1024;
 
-async function resolveCred(service: any, company_id: string) {
-  return service
-    .from("ttn_credentials")
-    .select("signature_provider, signature_config, cert_email")
-    .eq("company_id", company_id)
-    .eq("environment", "test")
-    .maybeSingle();
+async function resolveCredForCompany(service: any, company_id: string, env: string) {
+  const tryEnv = async (e: string) =>
+    service
+      .from("ttn_credentials")
+      .select("signature_provider, signature_config, cert_email, environment")
+      .eq("company_id", company_id)
+      .eq("environment", e)
+      .maybeSingle();
+
+  let r = await tryEnv(env);
+  if (r.data) return r;
+
+  r = await tryEnv("production");
+  if (r.data) return r;
+
+  return await tryEnv("test");
 }
 
 export async function POST(req: Request) {
@@ -36,42 +45,31 @@ export async function POST(req: Request) {
     const cookieStore = await cookies();
 
     const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) {
-      return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
-    }
+    if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
     const body = await req.json().catch(() => ({}));
-    const invoice_id = s(body.invoice_id);
+    const invoice_id = s(body.invoice_id || body.invoiceId);
+    const back_url = s(body.back_url || body.backUrl || body.back);
+    const env = s(body.environment || body.env || "test") || "test";
 
     if (!invoice_id || !isUuid(invoice_id)) {
       return NextResponse.json({ ok: false, error: "INVALID_INVOICE_ID" }, { status: 400 });
     }
 
     const inv = await service.from("invoices").select("*").eq("id", invoice_id).single();
-    if (!inv.data) {
-      return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
-    }
+    if (!inv.data) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
     const invoice: any = inv.data;
-    const company_id = invoice.company_id;
+    const company_id = s(invoice.company_id);
 
     const allowed =
       (await canCompanyAction(supabase, auth.user.id, company_id, "validate_invoices" as any)) ||
       (await canCompanyAction(supabase, auth.user.id, company_id, "submit_ttn" as any));
 
-    if (!allowed) {
-      return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
-    }
+    if (!allowed) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
 
-    const items = await service
-      .from("invoice_items")
-      .select("*")
-      .eq("invoice_id", invoice_id)
-      .order("line_no");
-
-    if (!items.data || items.data.length === 0) {
-      return NextResponse.json({ ok: false, error: "NO_ITEMS" }, { status: 400 });
-    }
+    const items = await service.from("invoice_items").select("*").eq("invoice_id", invoice_id).order("line_no");
+    if (!items.data || items.data.length === 0) return NextResponse.json({ ok: false, error: "NO_ITEMS" }, { status: 400 });
 
     const unsigned_xml = buildTeifInvoiceXml({
       invoiceId: invoice_id,
@@ -87,18 +85,19 @@ export async function POST(req: Request) {
     const unsigned_hash = sha256Base64Utf8(unsigned_xml);
     const state = crypto.randomUUID();
 
-    const credRes = await resolveCred(service, company_id);
-
-    if (!credRes.data || credRes.data.signature_provider !== "digigo") {
+    const credRes = await resolveCredForCompany(service, company_id, env);
+    if (!credRes.data || s((credRes.data as any).signature_provider) !== "digigo") {
       return NextResponse.json({ ok: false, error: "DIGIGO_NOT_CONFIGURED" }, { status: 400 });
     }
 
     const cfg =
-      credRes.data.signature_config && typeof credRes.data.signature_config === "object"
-        ? credRes.data.signature_config
+      (credRes.data as any)?.signature_config && typeof (credRes.data as any).signature_config === "object"
+        ? (credRes.data as any).signature_config
         : {};
 
-    const credentialId = s(cfg.digigo_signer_email || credRes.data.cert_email);
+    const credentialId = s(
+      cfg.digigo_signer_email || cfg.credentialId || cfg.signer_email || (credRes.data as any).cert_email
+    );
 
     if (!credentialId) {
       return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
@@ -113,6 +112,8 @@ export async function POST(req: Request) {
         unsigned_xml,
         unsigned_hash,
         signer_user_id: auth.user.id,
+        environment: env,
+        meta: { environment: env },
       },
       { onConflict: "invoice_id" }
     );
@@ -123,13 +124,18 @@ export async function POST(req: Request) {
       company_id,
       created_by: auth.user.id,
       status: "pending",
+      back_url: back_url || null,
+      environment: env,
       expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
     });
 
-    cookieStore.set("digigo_state", state, { path: "/", maxAge: 1800 });
-    cookieStore.set("digigo_invoice_id", invoice_id, { path: "/", maxAge: 1800 });
+    cookieStore.set("digigo_state", state, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 1800 });
+    cookieStore.set("digigo_invoice_id", invoice_id, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 1800 });
+    cookieStore.set("digigo_back_url", back_url || "/invoices", { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 1800 });
 
-    const redirectUri = process.env.DIGIGO_REDIRECT_URI!;
+    const redirectUri =
+      s(process.env.DIGIGO_REDIRECT_URI) ||
+      "https://facturetn-crm-iota.vercel.app/digigo/redirect";
 
     const authorize_url = digigoAuthorizeUrl({
       credentialId,
@@ -140,6 +146,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, state, authorize_url });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: "INTERNAL_ERROR" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "INTERNAL_ERROR", message: String(e?.message || e) },
+      { status: 500 }
+    );
   }
 }
