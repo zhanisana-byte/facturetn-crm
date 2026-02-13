@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { digigoAuthorizeUrl } from "@/lib/digigo/client";
+import { canCompanyAction } from "@/lib/permissions/companyPerms";
+import { buildTeifInvoiceXml } from "@/lib/ttn/teifXml";
+import { sha256Base64Utf8, digigoAuthorizeUrl } from "@/lib/digigo/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,11 +12,13 @@ export const dynamic = "force-dynamic";
 function s(v: any) {
   return String(v ?? "").trim();
 }
-
+function n(v: any) {
+  const x = Number(v ?? 0);
+  return Number.isFinite(x) ? x : 0;
+}
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
-
 function isHttps(req: Request) {
   const proto = s(req.headers.get("x-forwarded-proto") || "");
   if (proto) return proto === "https";
@@ -22,109 +26,190 @@ function isHttps(req: Request) {
   return app.startsWith("https://");
 }
 
+const MAX_TEIF_BYTES = 50 * 1024;
+
 export async function POST(req: Request) {
-  const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
+  try {
+    const supabase = await createClient();
+    const service = createServiceClient();
 
-  if (!auth?.user) {
-    return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
-  }
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) {
+      return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+    }
 
-  const body = await req.json().catch(() => ({}));
+    const body = await req.json().catch(() => ({}));
+    const invoice_id = s(body.invoice_id || body.invoiceId);
+    if (!invoice_id || !isUuid(invoice_id)) {
+      return NextResponse.json({ ok: false, error: "INVALID_INVOICE_ID" }, { status: 400 });
+    }
 
-  const invoice_id_raw = s(body.invoice_id || body.invoiceId || "");
-  const invoice_id = invoice_id_raw && isUuid(invoice_id_raw) ? invoice_id_raw : "";
+    const safeBackUrl = s(body.back_url || body.backUrl || "") || `/invoices/${encodeURIComponent(invoice_id)}`;
 
-  const back_url = s(body.back_url || body.backUrl || "") || `/invoices/${encodeURIComponent(invoice_id || "")}`;
+    const invRes = await service.from("invoices").select("*").eq("id", invoice_id).single();
+    if (!invRes.data) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
-  const credentialId =
-    s(body.credentialId) ||
-    s(body.digigo_signer_email) ||
-    s(process.env.DIGIGO_CREDENTIAL_ID) ||
-    s(auth.user.email);
+    const invoice: any = invRes.data;
+    const company_id = s(invoice.company_id);
+    if (!company_id) return NextResponse.json({ ok: false, error: "COMPANY_ID_MISSING" }, { status: 400 });
 
-  if (!credentialId) {
-    return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
-  }
+    const allowed =
+      (await canCompanyAction(supabase, auth.user.id, company_id, "validate_invoices" as any)) ||
+      (await canCompanyAction(supabase, auth.user.id, company_id, "submit_ttn" as any)) ||
+      (await canCompanyAction(supabase, auth.user.id, company_id, "create_invoices" as any));
 
-  const state = crypto.randomUUID();
-  const expires_at = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    if (!allowed) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
 
-  const service = createServiceClient();
+    const compRes = await service.from("companies").select("*").eq("id", company_id).single();
+    if (!compRes.data) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
 
-  async function insertSession(withCredential: boolean) {
-    const payload: any = {
-      state,
-      invoice_id: invoice_id || null,
-      company_id: null,
-      created_by: auth.user.id,
-      back_url,
-      status: "pending",
-      environment: s(process.env.DIGIGO_ENV || process.env.NODE_ENV || "production"),
-      expires_at,
-    };
-    if (withCredential) payload.credential_id = credentialId;
+    const env = s(body.environment || body.env || "") || "test";
 
-    return await service
+    const credRes = await service
+      .from("ttn_credentials")
+      .select("signature_provider, signature_config, cert_email, environment")
+      .eq("company_id", company_id)
+      .eq("environment", env)
+      .maybeSingle();
+
+    if (!credRes.data || (credRes.data as any).signature_provider !== "digigo") {
+      return NextResponse.json({ ok: false, error: "DIGIGO_NOT_CONFIGURED" }, { status: 400 });
+    }
+
+    const cfg =
+      (credRes.data as any)?.signature_config && typeof (credRes.data as any).signature_config === "object"
+        ? (credRes.data as any).signature_config
+        : {};
+
+    const credentialId = s(cfg.digigo_signer_email || (credRes.data as any).cert_email);
+    if (!credentialId) {
+      return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
+    }
+
+    const itemsRes = await service
+      .from("invoice_items")
+      .select("*")
+      .eq("invoice_id", invoice_id)
+      .order("line_no");
+
+    if (!itemsRes.data || itemsRes.data.length === 0) {
+      return NextResponse.json({ ok: false, error: "NO_ITEMS" }, { status: 400 });
+    }
+
+    const unsigned_xml = buildTeifInvoiceXml({
+      invoiceId: invoice_id,
+      company: {
+        name: s((compRes.data as any).company_name),
+        taxId: s((compRes.data as any).tax_id),
+        address: s((compRes.data as any).address),
+        city: s((compRes.data as any).city),
+        postalCode: s((compRes.data as any).postal_code),
+        country: "TN",
+      },
+      invoice: {
+        documentType: invoice.document_type,
+        number: invoice.invoice_number,
+        issueDate: invoice.issue_date,
+        dueDate: invoice.due_date,
+        currency: invoice.currency,
+        customerName: invoice.customer_name,
+        customerTaxId: invoice.customer_tax_id,
+        customerEmail: invoice.customer_email,
+        customerAddress: invoice.customer_address,
+      },
+      totals: {
+        ht: n(invoice.subtotal_ht),
+        tva: n(invoice.total_vat),
+        ttc: n(invoice.total_ttc),
+        stampEnabled: !!invoice.stamp_enabled,
+        stampAmount: n(invoice.stamp_amount),
+      },
+      items: (itemsRes.data as any[]).map((it: any) => ({
+        description: it.description,
+        qty: n(it.quantity),
+        price: n(it.unit_price_ht),
+        vat: n(it.vat_pct),
+      })),
+      purpose: "ttn",
+    } as any);
+
+    const byteLen = Buffer.byteLength(unsigned_xml, "utf8");
+    if (byteLen > MAX_TEIF_BYTES) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "TEIF_XML_TOO_LARGE",
+          message: `TEIF XML trop grand (${byteLen} octets). Limite: ${MAX_TEIF_BYTES}.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const unsigned_hash = sha256Base64Utf8(unsigned_xml);
+
+    await service.from("invoice_signatures").upsert(
+      {
+        invoice_id,
+        company_id,
+        environment: env,
+        provider: "digigo",
+        state: "pending",
+        unsigned_xml,
+        unsigned_hash,
+        signed_xml: "",
+        signed_hash: null,
+        signer_user_id: auth.user.id,
+        meta: { credentialId, environment: env },
+      } as any,
+      { onConflict: "invoice_id" }
+    );
+
+    const state = crypto.randomUUID();
+    const expires_at = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+    const sessIns = await service
       .from("digigo_sign_sessions")
-      .insert(payload)
+      .insert({
+        state,
+        invoice_id,
+        company_id,
+        created_by: auth.user.id,
+        back_url: safeBackUrl,
+        status: "pending",
+        environment: env,
+        expires_at,
+      })
       .select("id")
       .maybeSingle();
-  }
 
-  let insert = await insertSession(true);
-
-  if (insert.error) {
-    const msg = s(insert.error.message);
-    if (msg.includes("credential_id")) {
-      insert = await insertSession(false);
+    if (sessIns.error) {
+      return NextResponse.json(
+        { ok: false, error: "SESSION_CREATE_FAILED", message: sessIns.error.message },
+        { status: 500 }
+      );
     }
-  }
 
-  if (insert.error) {
+    const authorize_url = digigoAuthorizeUrl({
+      credentialId,
+      hashBase64: unsigned_hash,
+      numSignatures: 1,
+      state,
+    });
+
+    const res = NextResponse.json({ ok: true, authorize_url, state }, { status: 200 });
+
+    const secure = isHttps(req);
+    const maxAge = 60 * 30;
+
+    res.cookies.set("digigo_state", state, { httpOnly: true, secure, sameSite: "lax", path: "/", maxAge });
+    res.cookies.set("digigo_invoice_id", invoice_id, { httpOnly: true, secure, sameSite: "lax", path: "/", maxAge });
+    res.cookies.set("digigo_back_url", safeBackUrl, { httpOnly: true, secure, sameSite: "lax", path: "/", maxAge });
+
+    return res;
+  } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: "SESSION_CREATE_FAILED", message: insert.error.message },
+      { ok: false, error: "INTERNAL_ERROR", message: String(e?.message || e) },
       { status: 500 }
     );
   }
-
-  const authorize_url = digigoAuthorizeUrl({
-    credentialId,
-    hashBase64: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-    numSignatures: 1,
-    state,
-  });
-
-  const res = NextResponse.json({ ok: true, authorize_url, state, back_url }, { status: 200 });
-
-  const secure = isHttps(req);
-  const maxAge = 60 * 30;
-
-  res.cookies.set("digigo_state", state, {
-    httpOnly: true,
-    secure,
-    sameSite: "lax",
-    path: "/",
-    maxAge,
-  });
-
-  res.cookies.set("digigo_back_url", back_url, {
-    httpOnly: true,
-    secure,
-    sameSite: "lax",
-    path: "/",
-    maxAge,
-  });
-
-  if (invoice_id) {
-    res.cookies.set("digigo_invoice_id", invoice_id, {
-      httpOnly: true,
-      secure,
-      sameSite: "lax",
-      path: "/",
-      maxAge,
-    });
-  }
-
-  return res;
 }
