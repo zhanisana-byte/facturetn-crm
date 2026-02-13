@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { cookies } from "next/headers";
+import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { jwtGetJti, digigoOauthToken, digigoSignHash } from "@/lib/digigo/server";
 import { injectSignatureIntoTeifXml } from "@/lib/ttn/teifSignature";
@@ -40,15 +41,19 @@ export async function POST(req: Request) {
     const cookieStore = await cookies();
     const body = await req.json().catch(() => ({}));
 
+    // Si possible, on récupère l'utilisateur pour une résolution fallback (cookies parfois perdus après redirect)
+    const supabase = await createClient().catch(() => null);
+    const authUser = supabase ? (await supabase.auth.getUser()).data?.user : null;
+
     const token = s(body?.token || "");
     const codeParam = s(body?.code || "");
     const stateFromBody = s(body?.state || "");
     const stateFromCookie = s(cookieStore.get("digigo_state")?.value || "");
-    const state = stateFromBody || stateFromCookie;
+    let state = stateFromBody || stateFromCookie;
 
     const invoiceFromBody = s(body?.invoice_id || body?.invoiceId || "");
     const invoiceFromCookie = s(cookieStore.get("digigo_invoice_id")?.value || "");
-    const invoice_id = invoiceFromBody || invoiceFromCookie;
+    let invoice_id = invoiceFromBody || invoiceFromCookie;
 
     const back_url_body = s(body?.back_url || body?.backUrl || body?.back || "");
     const back_url_cookie = s(cookieStore.get("digigo_back_url")?.value || "");
@@ -61,29 +66,72 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "CODE_MISSING" }, { status: 400 });
     }
 
+    const service = createServiceClient();
+
+    // Résolution session
+    let session: any = null;
+
+    // 1) Par state (prioritaire)
+    if (state && isUuid(state)) {
+      const sessRes = await service.from("digigo_sign_sessions").select("*").eq("state", state).maybeSingle();
+      if (sessRes.data?.id) {
+        session = sessRes.data;
+      }
+    }
+
+    // 2) Si cookies perdus et pas d'info, fallback par user: dernière session pending non expirée
+    if (!session?.id && authUser?.id) {
+      const lastRes = await service
+        .from("digigo_sign_sessions")
+        .select("*")
+        .eq("created_by", authUser.id)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (lastRes.data?.id) {
+        session = lastRes.data;
+        state = state || s(session.state);
+        invoice_id = invoice_id || s(session.invoice_id);
+      }
+    }
+
+    // 3) Si invoice_id encore manquant, mais session trouvée, récupérer
+    if (!invoice_id && session?.invoice_id) {
+      invoice_id = s(session.invoice_id);
+    }
+
+    // Validation invoice_id
     if (!invoice_id || !isUuid(invoice_id)) {
       return NextResponse.json({ ok: false, error: "INVOICE_ID_MISSING" }, { status: 400 });
     }
 
-    const service = createServiceClient();
+    // Expiration session (si on en a une)
+    if (session?.id) {
+      const exp = new Date(s(session.expires_at)).getTime();
+      if (!Number.isFinite(exp) || exp < Date.now()) {
+        await service
+          .from("digigo_sign_sessions")
+          .update({ status: "expired", updated_at: new Date().toISOString() })
+          .eq("id", session.id);
+        return NextResponse.json({ ok: false, error: "SESSION_EXPIRED" }, { status: 400 });
+      }
 
-    let session: any = null;
-    if (state && isUuid(state)) {
-      const sessRes = await service
-        .from("digigo_sign_sessions")
-        .select("*")
-        .eq("state", state)
-        .maybeSingle();
-
-      if (sessRes.data?.id) {
-        session = sessRes.data;
-        const exp = new Date(s(session.expires_at)).getTime();
-        if (!Number.isFinite(exp) || exp < Date.now()) {
-          await service
-            .from("digigo_sign_sessions")
-            .update({ status: "expired", updated_at: new Date().toISOString() })
-            .eq("id", session.id);
-          return NextResponse.json({ ok: false, error: "SESSION_EXPIRED" }, { status: 400 });
+      // On garde une trace du jti/code côté session pour audit/debug
+      // (colonne parfois absente selon la migration) => best-effort
+      if (code) {
+        const upd: any = { updated_at: new Date().toISOString() };
+        upd.digigo_jti = code;
+        const r = await service.from("digigo_sign_sessions").update(upd).eq("id", session.id);
+        if (r?.error) {
+          const msg = s(r.error.message);
+          if (!msg.includes("column") || !msg.includes("digigo_jti")) {
+            await service
+              .from("digigo_sign_sessions")
+              .update({ updated_at: new Date().toISOString(), error_message: `digigo_jti_update_failed:${msg}` })
+              .eq("id", session.id);
+          }
         }
       }
     }
@@ -121,7 +169,9 @@ export async function POST(req: Request) {
         ? (credRes.data as any).signature_config
         : {};
 
-    const credentialId = s(cfg.digigo_signer_email || (credRes.data as any)?.cert_email);
+    const credentialId = s(
+      cfg.digigo_signer_email || cfg.credentialId || cfg.signer_email || (credRes.data as any)?.cert_email
+    );
     if (!credentialId) {
       return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
     }
@@ -187,6 +237,8 @@ export async function POST(req: Request) {
     }
 
     cookieStore.set("digigo_state", "", { path: "/", maxAge: 0 });
+    cookieStore.set("digigo_invoice_id", "", { path: "/", maxAge: 0 });
+    cookieStore.set("digigo_back_url", "", { path: "/", maxAge: 0 });
 
     return NextResponse.json({ ok: true, back_url }, { status: 200 });
   } catch (e: any) {
