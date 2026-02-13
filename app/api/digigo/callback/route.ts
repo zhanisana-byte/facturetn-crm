@@ -1,62 +1,105 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
+import { jwtGetJti, digigoOauthToken } from "@/lib/digigo/server";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function s(v: any) {
-  return typeof v === "string" ? v.trim() : "";
+  return String(v ?? "").trim();
 }
 
-export async function POST(req: Request) {
-  const cookieStore = await cookies();
-  const body = await req.json().catch(() => ({} as any));
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const token = s(body?.token);
 
-  const token = s(body.token);
-  const code = s(body.code);
-  const invoice_id = s(body.invoice_id);
-  const back_url = s(body.back_url);
+    if (!token) {
+      return NextResponse.json(
+        { error: "TOKEN_MISSING" },
+        { status: 400 }
+      );
+    }
 
-  const stateFromCookie = s(cookieStore.get("digigo_state")?.value);
-  const state = s(body.state) || stateFromCookie;
+    const cookieStore = await cookies();
+    const state = s(cookieStore.get("digigo_state")?.value);
 
-  if (!state) {
-    return NextResponse.json({ error: "MISSING_STATE" }, { status: 400 });
+    if (!state) {
+      return NextResponse.json(
+        { error: "INVALID_STATE" },
+        { status: 400 }
+      );
+    }
+
+    const service = createServiceClient();
+
+    const { data: session } = await service
+      .from("digigo_sign_sessions")
+      .select("*")
+      .eq("state", state)
+      .maybeSingle();
+
+    if (!session?.id) {
+      return NextResponse.json(
+        { error: "SESSION_NOT_FOUND" },
+        { status: 400 }
+      );
+    }
+
+    const jti = jwtGetJti(token);
+
+    if (!jti) {
+      return NextResponse.json(
+        { error: "JWT_JTI_MISSING" },
+        { status: 400 }
+      );
+    }
+
+    const oauth = await digigoOauthToken({
+      credentialId: process.env.DIGIGO_CLIENT_ID as string,
+      code: jti,
+    });
+
+    if (!oauth.ok) {
+      await service
+        .from("digigo_sign_sessions")
+        .update({
+          status: "failed",
+          error_message: oauth.error || "OAUTH_FAILED",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", session.id);
+
+      return NextResponse.json(
+        { error: "OAUTH_FAILED" },
+        { status: 400 }
+      );
+    }
+
+    await service
+      .from("invoices")
+      .update({
+        signature_status: "signed",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", session.invoice_id);
+
+    await service
+      .from("digigo_sign_sessions")
+      .update({
+        status: "done",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", session.id);
+
+    cookieStore.delete("digigo_state");
+
+    return NextResponse.json({ ok: true }, { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: "INTERNAL_ERROR", message: String(e?.message || e) },
+      { status: 500 }
+    );
   }
-
-  const supabase = await createClient();
-
-  const { data: sess } = await supabase.auth.getUser();
-  if (!sess?.user?.id) {
-    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
-  }
-
-  const { data: stRow } = await supabase
-    .from("digigo_oauth_states")
-    .select("id,state,user_id,company_id,invoice_id,back_url,created_at")
-    .eq("state", state)
-    .maybeSingle();
-
-  if (!stRow?.id) {
-    return NextResponse.json({ error: "INVALID_STATE" }, { status: 400 });
-  }
-
-  const resolvedInvoiceId = invoice_id || s(stRow.invoice_id);
-  const resolvedBackUrl = back_url || s(stRow.back_url);
-
-  if (!resolvedInvoiceId) {
-    return NextResponse.json({ error: "MISSING_INVOICE_ID" }, { status: 400 });
-  }
-
-  await supabase.from("digigo_oauth_states").delete().eq("id", stRow.id);
-
-  cookieStore.set("digigo_state", "", { path: "/", maxAge: 0 });
-
-  await supabase
-    .from("invoices")
-    .update({
-      signature_status: "signed",
-      state: "pending",
-    })
-    .eq("id", resolvedInvoiceId);
-
-  return NextResponse.json({ ok: true, back_url: resolvedBackUrl });
 }
