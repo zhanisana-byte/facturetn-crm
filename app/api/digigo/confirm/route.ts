@@ -83,22 +83,24 @@ export async function POST(req: Request) {
     step = "params";
     const token = s(body?.token || "");
     const codeParam = s(body?.code || "");
-
     const stateFromBody = s(body?.state || "");
-    const stateFromCookie = s(cookieStore.get("digigo_state")?.value || "");
-    let state = stateFromBody || stateFromCookie;
-
     const invoiceFromBody = s(body?.invoice_id || body?.invoiceId || "");
-    const invoiceFromCookie = s(cookieStore.get("digigo_invoice_id")?.value || "");
-    let invoice_id = invoiceFromBody || invoiceFromCookie;
+    const backUrlFromBody = s(body?.back_url || body?.backUrl || body?.back || "");
 
-    const back_url_body = s(body?.back_url || body?.backUrl || body?.back || "");
-    const back_url_cookie = s(cookieStore.get("digigo_back_url")?.value || "");
-    const back_url = back_url_body || back_url_cookie || "/app";
+    const stateFromCookie = s(cookieStore.get("digigo_state")?.value || "");
+    const invoiceFromCookie = s(cookieStore.get("digigo_invoice_id")?.value || "");
+    const backFromCookie = s(cookieStore.get("digigo_back_url")?.value || "");
+
+    let state = stateFromBody || stateFromCookie;
+    let invoice_id = invoiceFromBody || invoiceFromCookie;
+    const back_url = backUrlFromBody || backFromCookie || "/app";
 
     const jti = token ? s(jwtGetJti(token)) : "";
     const code = codeParam || jti;
 
+    if (!token && !codeParam) {
+      return NextResponse.json({ ok: false, error: "MISSING_TOKEN_OR_CODE" }, { status: 400 });
+    }
     if (!code) {
       return NextResponse.json({ ok: false, error: "CODE_MISSING" }, { status: 400 });
     }
@@ -289,18 +291,19 @@ export async function POST(req: Request) {
     cookieStore.set("digigo_invoice_id", "", { path: "/", maxAge: 0 });
     cookieStore.set("digigo_back_url", "", { path: "/", maxAge: 0 });
 
-    return NextResponse.json({ ok: true, back_url }, { status: 200 });
+    return NextResponse.json({ ok: true, redirect: back_url }, { status: 200 });
   } catch (e: any) {
     const msg = s(e?.message || e);
     if (session?.id) {
       await service
         .from("digigo_sign_sessions")
-        .update({ status: "failed", error_message: `INTERNAL_ERROR:${step}:${msg}`, updated_at: new Date().toISOString() })
+        .update({
+          status: "failed",
+          error_message: `INTERNAL_ERROR:${step}:${msg}`,
+          updated_at: new Date().toISOString(),
+        })
         .eq("id", session.id);
     }
-    return NextResponse.json(
-      { ok: false, error: "INTERNAL_ERROR", details: { step, message: msg } },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "INTERNAL_ERROR", details: { step, message: msg } }, { status: 500 });
   }
 }
