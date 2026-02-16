@@ -116,6 +116,7 @@ export async function digigoOauthToken(params: { code: string; credentialId?: st
 }
 
 export async function digigoSignHash(params: {
+  token: string;
   credentialId?: string;
   sad: string;
   hashes: string[];
@@ -126,6 +127,7 @@ export async function digigoSignHash(params: {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      authorization: `Bearer ${s(params.token)}`,
     },
     body: JSON.stringify({
       credentialId: params.credentialId ?? undefined,
