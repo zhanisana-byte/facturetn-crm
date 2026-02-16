@@ -1,73 +1,141 @@
+// app/api/signature/digigo/start/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { createServiceClient } from "@/lib/supabase/service";
-import { digigoAuthorizeUrl } from "@/lib/digigo/server";
+import { digigoAuthorizeUrl, sha256Base64Utf8 } from "@/lib/digigo/server";
+
+function s(v: any) {
+  return String(v ?? "").trim();
+}
+
+function addMinutes(min: number) {
+  return new Date(Date.now() + min * 60 * 1000).toISOString();
+}
+
+async function resolveCredentialId(service: any, companyId: string, env: "test" | "production") {
+  let r = await service
+    .from("ttn_credentials")
+    .select("signature_config, updated_at, environment, is_active")
+    .eq("company_id", companyId)
+    .eq("environment", env)
+    .order("updated_at", { ascending: false })
+    .limit(1);
+
+  let cfg: any = r.data?.[0]?.signature_config || {};
+  let credentialId = s(cfg?.digigo_signer_email || cfg?.credentialId || cfg?.email || "");
+
+  if (!credentialId) {
+    const other = env === "test" ? "production" : "test";
+    r = await service
+      .from("ttn_credentials")
+      .select("signature_config, updated_at, environment, is_active")
+      .eq("company_id", companyId)
+      .eq("environment", other)
+      .order("updated_at", { ascending: false })
+      .limit(1);
+
+    cfg = r.data?.[0]?.signature_config || {};
+    credentialId = s(cfg?.digigo_signer_email || cfg?.credentialId || cfg?.email || "");
+  }
+
+  if (!credentialId) {
+    r = await service
+      .from("ttn_credentials")
+      .select("signature_config, updated_at, environment, is_active")
+      .eq("company_id", companyId)
+      .eq("is_active", true)
+      .order("updated_at", { ascending: false })
+      .limit(1);
+
+    cfg = r.data?.[0]?.signature_config || {};
+    credentialId = s(cfg?.digigo_signer_email || cfg?.credentialId || cfg?.email || "");
+  }
+
+  return credentialId;
+}
 
 export async function POST(req: NextRequest) {
   const service = createServiceClient();
 
   try {
-    const body = await req.json();
-    const invoice_id = body?.invoice_id;
+    const body = await req.json().catch(() => ({}));
+    const invoice_id = s(body?.invoice_id || body?.invoiceId || "");
+    const back_url = s(body?.back_url || body?.backUrl || body?.back || "");
+    const host = s(req.headers.get("host") || "");
+    const inferredEnv: "test" | "production" = host.includes("facturetn.com") ? "production" : "test";
+    const environment = (s(body?.environment) as any) || inferredEnv;
 
     if (!invoice_id) {
-      return NextResponse.json(
-        { ok: false, error: "INVOICE_ID_MISSING" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "INVOICE_ID_MISSING" }, { status: 400 });
     }
 
-    const { data: invoice, error: invoiceError } = await service
+    const inv = await service
       .from("invoices")
-      .select("id, company_id, unsigned_hash")
+      .select("id, company_id")
       .eq("id", invoice_id)
-      .single();
+      .maybeSingle();
 
-    if (invoiceError || !invoice) {
-      return NextResponse.json(
-        { ok: false, error: "INVOICE_NOT_FOUND" },
-        { status: 404 }
-      );
+    if (!inv.data?.id) {
+      return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
     }
 
-    const { data: company, error: companyError } = await service
-      .from("companies")
-      .select("digigo_signer_email")
-      .eq("id", invoice.company_id)
-      .single();
+    const sig = await service
+      .from("invoice_signatures")
+      .select("unsigned_xml, unsigned_hash")
+      .eq("invoice_id", invoice_id)
+      .maybeSingle();
 
-    if (companyError || !company?.digigo_signer_email) {
-      return NextResponse.json(
-        { ok: false, error: "DIGIGO_SIGNER_EMAIL_NOT_CONFIGURED" },
-        { status: 400 }
-      );
+    const unsigned_xml = s(sig.data?.unsigned_xml || "");
+    let unsigned_hash = s(sig.data?.unsigned_hash || "");
+
+    if (!unsigned_hash && unsigned_xml) unsigned_hash = sha256Base64Utf8(unsigned_xml);
+    if (!unsigned_hash) return NextResponse.json({ ok: false, error: "UNSIGNED_HASH_MISSING" }, { status: 400 });
+
+    const credentialId = await resolveCredentialId(service, inv.data.company_id, environment);
+
+    if (!credentialId) {
+      return NextResponse.json({ ok: false, error: "DIGIGO_SIGNER_EMAIL_NOT_CONFIGURED" }, { status: 400 });
     }
-
-    const credentialId = company.digigo_signer_email;
 
     const state = crypto.randomUUID();
+    const expires_at = addMinutes(10);
+    const backUrlFinal = back_url || `/invoices/${invoice_id}`;
 
     await service.from("digigo_sign_sessions").insert({
-      invoice_id,
       state,
+      invoice_id,
+      company_id: inv.data.company_id,
+      created_by: null,
+      back_url: backUrlFinal,
       status: "pending",
+      environment,
+      expires_at,
       created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    await service.from("invoice_signatures").upsert({
+      invoice_id,
+      provider: "digigo",
+      state: "pending",
+      unsigned_xml: unsigned_xml || null,
+      unsigned_hash,
+      signer_user_id: null,
+      company_id: inv.data.company_id,
+      environment,
+      meta: { credentialId, state },
+      updated_at: new Date().toISOString(),
     });
 
     const authorize_url = digigoAuthorizeUrl({
       state,
-      hash: invoice.unsigned_hash,
+      hash: unsigned_hash,
       credentialId,
       numSignatures: 1,
     });
 
-    return NextResponse.json({
-      ok: true,
-      authorize_url,
-    });
+    return NextResponse.json({ ok: true, authorize_url });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "INTERNAL_ERROR" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: s(e?.message || "INTERNAL_ERROR") }, { status: 500 });
   }
 }
