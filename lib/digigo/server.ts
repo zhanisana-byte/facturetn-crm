@@ -89,11 +89,20 @@ function proxyUrl() {
   return s(process.env.DIGIGO_PROXY_URL || "");
 }
 
+function needsInsecureFor(url: string) {
+  if (!insecureTlsEnabled()) return false;
+  return url.includes("193.95.63.230");
+}
+
 function makeAgentFor(url: string) {
   const proxy = proxyUrl();
-  if (proxy) return new HttpsProxyAgent(proxy);
+  const insecure = needsInsecureFor(url);
 
-  if (insecureTlsEnabled() && url.includes("193.95.63.230")) {
+  if (proxy) {
+    return new HttpsProxyAgent(proxy, insecure ? { rejectUnauthorized: false } : undefined);
+  }
+
+  if (insecure) {
     return new https.Agent({ rejectUnauthorized: false });
   }
 
