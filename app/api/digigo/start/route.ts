@@ -182,6 +182,8 @@ export async function POST(req: Request) {
 
     await service.from("invoice_signatures").upsert({
       invoice_id,
+      company_id,
+      environment: s(cred.environment || env),
       provider: "digigo",
       state: "pending",
       unsigned_xml,
