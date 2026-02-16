@@ -7,22 +7,6 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function getStored(key: string) {
-  let v = "";
-  try {
-    v = s(window.localStorage.getItem(key) || "");
-  } catch {}
-  if (v) return v;
-  try {
-    v = s(window.sessionStorage.getItem(key) || "");
-  } catch {}
-  return v;
-}
-
-function isUuid(v: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
-}
-
 export default function DigigoRootRedirect() {
   const router = useRouter();
   const params = useSearchParams();
@@ -38,28 +22,10 @@ export default function DigigoRootRedirect() {
 
     if (!token && !code && !error) return;
 
-    const qs = new URLSearchParams(params.toString());
+    const qs = new URLSearchParams();
 
-    let state = s(qs.get("state") || "");
-    if (!isUuid(state)) {
-      const st = getStored("digigo_state");
-      if (isUuid(st)) {
-        state = st;
-        qs.set("state", st);
-      } else {
-        qs.delete("state");
-      }
-    }
-
-    let invoiceId = s(qs.get("invoice_id") || "");
-    if (!isUuid(invoiceId)) {
-      const inv = getStored("digigo_invoice_id");
-      if (isUuid(inv)) {
-        invoiceId = inv;
-        qs.set("invoice_id", inv);
-      } else {
-        qs.delete("invoice_id");
-      }
+    for (const [k, v] of params.entries()) {
+      qs.set(k, v);
     }
 
     router.replace("/digigo/redirect?" + qs.toString());
