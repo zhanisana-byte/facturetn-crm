@@ -1,153 +1,152 @@
-import https from "https";
+import crypto from "crypto";
+import { Agent as UndiciAgent } from "undici";
+
+type JsonValue = any;
 
 function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function base64UrlDecodeToString(b64url: string) {
-  const pad = b64url.length % 4 === 0 ? "" : "=".repeat(4 - (b64url.length % 4));
-  const b64 = (b64url + pad).replace(/-/g, "+").replace(/_/g, "/");
-  return Buffer.from(b64, "base64").toString("utf8");
-}
-
-export function jwtGetJti(token: string): string {
-  const t = s(token);
-  const parts = t.split(".");
-  if (parts.length < 2) return "";
-  try {
-    const payload = JSON.parse(base64UrlDecodeToString(parts[1]));
-    return s(payload?.jti || payload?.JTI || "");
-  } catch {
-    return "";
-  }
-}
-
 function env(name: string, fallback = "") {
-  return String(process.env[name] ?? fallback).trim();
+  return s(process.env[name] ?? fallback);
 }
 
-function digigoBaseUrl() {
-  return env("DIGIGO_BASE_URL").replace(/\/$/, "");
+function boolEnv(name: string, fallback = "false") {
+  return s(process.env[name] ?? fallback).toLowerCase() === "true";
 }
 
-function digigoProxyBaseUrl() {
-  return `${digigoBaseUrl()}/tunsign-proxy-webapp`;
+function baseUrl() {
+  const u = env("DIGIGO_BASE_URL");
+  return u.replace(/\/+$/, "");
 }
 
-function digigoClientId() {
+function allowInsecure() {
+  return boolEnv("DIGIGO_ALLOW_INSECURE", "false");
+}
+
+function clientId() {
   return env("DIGIGO_CLIENT_ID");
 }
 
-function digigoClientSecret() {
+function clientSecret() {
   return env("DIGIGO_CLIENT_SECRET");
 }
 
-function digigoRedirectUri() {
+function redirectUri() {
   return env("DIGIGO_REDIRECT_URI");
 }
 
-function digigoAllowInsecure() {
-  return env("DIGIGO_ALLOW_INSECURE", "true").toLowerCase() === "true";
+function scope() {
+  return env("DIGIGO_SCOPE", "openid");
 }
 
-async function digigoFetchJson(url: string, init: RequestInit) {
-  const agent = digigoAllowInsecure() ? new https.Agent({ rejectUnauthorized: false }) : undefined;
-  const reqInit: any = { ...init };
-  if (agent) reqInit.agent = agent;
+function timeoutMs() {
+  const v = Number(env("DIGIGO_TIMEOUT_MS", "20000"));
+  return Number.isFinite(v) && v > 0 ? v : 20000;
+}
 
-  const res = await fetch(url, reqInit);
-  const txt = await res.text();
-  let data: any = txt;
+function buildDispatcher() {
+  if (!allowInsecure()) return undefined;
+  return new UndiciAgent({ connect: { rejectUnauthorized: false } });
+}
+
+async function fetchJson(url: string, init: RequestInit) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs());
+
   try {
-    data = JSON.parse(txt);
-  } catch {}
-  return { ok: res.ok, status: res.status, data };
+    const dispatcher = buildDispatcher();
+    const res = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      ...(dispatcher ? ({ dispatcher } as any) : {}),
+    } as any);
+
+    const txt = await res.text().catch(() => "");
+    let data: JsonValue = txt;
+    try {
+      data = txt ? JSON.parse(txt) : null;
+    } catch {
+      data = txt;
+    }
+    return { ok: res.ok, status: res.status, data };
+  } finally {
+    clearTimeout(t);
+  }
 }
 
-export async function digigoOauthToken(args: { credentialId: string; code: string; redirectUri?: string }) {
-  const base = digigoProxyBaseUrl();
-  const clientId = digigoClientId();
-  const clientSecret = digigoClientSecret();
-  const redirectUri = s(args.redirectUri || digigoRedirectUri());
+export function digigoAuthorizeUrl(params: {
+  state: string;
+  login_hint?: string;
+  credential_id?: string;
+}) {
+  const u = new URL(baseUrl() + "/oauth2/authorize");
+  u.searchParams.set("response_type", "code");
+  u.searchParams.set("client_id", clientId());
+  u.searchParams.set("redirect_uri", redirectUri());
+  u.searchParams.set("scope", scope());
+  u.searchParams.set("state", s(params.state));
 
-  const credentialId = s(args.credentialId);
-  const code = s(args.code);
+  const loginHint = s(params.login_hint);
+  if (loginHint) u.searchParams.set("login_hint", loginHint);
 
-  if (!base) return { ok: false, status: 0, error: "DIGIGO_BASE_URL_MISSING" };
-  if (!clientId) return { ok: false, status: 0, error: "DIGIGO_CLIENT_ID_MISSING" };
-  if (!clientSecret) return { ok: false, status: 0, error: "DIGIGO_CLIENT_SECRET_MISSING" };
-  if (!redirectUri) return { ok: false, status: 0, error: "DIGIGO_REDIRECT_URI_MISSING" };
-  if (!credentialId) return { ok: false, status: 0, error: "CREDENTIAL_ID_MISSING" };
-  if (!code) return { ok: false, status: 0, error: "CODE_MISSING" };
+  const credentialId = s(params.credential_id);
+  if (credentialId) u.searchParams.set("credential_id", credentialId);
 
-  const grantType = "authorization_code";
+  return u.toString();
+}
 
-  const url =
-    `${base}/services/v1/oauth2/token/` +
-    `${encodeURIComponent(clientId)}/` +
-    `${encodeURIComponent(grantType)}/` +
-    `${encodeURIComponent(clientSecret)}/` +
-    `${encodeURIComponent(code)}`;
+export async function digigoOauthToken(params: { code: string }) {
+  const url = baseUrl() + "/oauth2/token";
 
-  const r = await digigoFetchJson(url, {
+  const body = new URLSearchParams();
+  body.set("grant_type", "authorization_code");
+  body.set("client_id", clientId());
+  body.set("client_secret", clientSecret());
+  body.set("redirect_uri", redirectUri());
+  body.set("code", s(params.code));
+
+  const r = await fetchJson(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ redirectUri }),
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body,
   });
 
   if (!r.ok) {
-    const err = s((r.data as any)?.error || (r.data as any)?.message || `HTTP_${r.status}`);
-    return { ok: false, status: r.status, error: err, data: r.data };
+    const msg = typeof r.data === "string" ? r.data : JSON.stringify(r.data ?? {});
+    throw new Error(`DIGIGO_OAUTH_TOKEN_${r.status}:${msg}`);
   }
 
-  const sad = s((r.data as any)?.sad || (r.data as any)?.SAD || "");
-  if (!sad) return { ok: false, status: r.status, error: "SAD_MISSING", data: r.data };
-
-  return { ok: true, status: r.status, sad };
+  return r.data;
 }
 
-export async function digigoSignHash(args: { credentialId: string; sad: string; hashes: string[] }) {
-  const base = digigoProxyBaseUrl();
-  const clientId = digigoClientId();
+export function sha256Base64Utf8(input: string) {
+  return crypto.createHash("sha256").update(Buffer.from(input, "utf8")).digest("base64");
+}
 
-  const credentialId = s(args.credentialId);
-  const sad = s(args.sad);
+export async function digigoSignHash(params: {
+  access_token: string;
+  sad: string;
+  hash: string;
+}) {
+  const url = baseUrl() + "/api/signHash";
 
-  if (!base) return { ok: false, status: 0, error: "DIGIGO_BASE_URL_MISSING" };
-  if (!clientId) return { ok: false, status: 0, error: "DIGIGO_CLIENT_ID_MISSING" };
-  if (!credentialId) return { ok: false, status: 0, error: "CREDENTIAL_ID_MISSING" };
-  if (!sad) return { ok: false, status: 0, error: "SAD_MISSING" };
-
-  const hashes = Array.isArray(args.hashes) ? args.hashes.map(s).filter(Boolean) : [];
-  if (!hashes.length) return { ok: false, status: 0, error: "HASHES_MISSING" };
-
-  const hashAlgo = "SHA256";
-  const signAlgo = "RSA";
-
-  const url =
-    `${base}/services/v1/signatures/signHash/` +
-    `${encodeURIComponent(clientId)}/` +
-    `${encodeURIComponent(credentialId)}/` +
-    `${encodeURIComponent(sad)}/` +
-    `${encodeURIComponent(hashAlgo)}/` +
-    `${encodeURIComponent(signAlgo)}`;
-
-  const r = await digigoFetchJson(url, {
+  const r = await fetchJson(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(hashes),
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${s(params.access_token)}`,
+    },
+    body: JSON.stringify({
+      sad: s(params.sad),
+      hash: s(params.hash),
+    }),
   });
 
   if (!r.ok) {
-    const err = s((r.data as any)?.error || (r.data as any)?.message || `HTTP_${r.status}`);
-    return { ok: false, status: r.status, error: err, data: r.data };
+    const msg = typeof r.data === "string" ? r.data : JSON.stringify(r.data ?? {});
+    throw new Error(`DIGIGO_SIGNHASH_${r.status}:${msg}`);
   }
 
-  const first = Array.isArray(r.data) ? r.data[0] : r.data;
-  const value = s(first?.value || "");
-  const algorithm = s(first?.algorithm || "");
-
-  if (!value) return { ok: false, status: r.status, error: "SIGNATURE_VALUE_MISSING", data: r.data };
-
-  return { ok: true, status: r.status, value, algorithm };
+  return r.data;
 }
