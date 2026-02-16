@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { digigoAuthorizeUrl } from "@/lib/digigo/server";
+import { digigoAuthorizeUrl, sha256Base64Utf8 } from "@/lib/digigo/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,25 +12,19 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function sha256Base64Utf8(input: string) {
-  return crypto.createHash("sha256").update(Buffer.from(input, "utf8")).digest("base64");
+function uuid() {
+  return crypto.randomUUID();
 }
 
 function addMinutes(min: number) {
   return new Date(Date.now() + min * 60 * 1000).toISOString();
 }
 
-function uuid() {
-  if (crypto.randomUUID) return crypto.randomUUID();
-  return crypto.randomBytes(16).toString("hex");
-}
-
 export async function POST(req: Request) {
-  const origin = new URL(req.url).origin;
   const cookieStore = await cookies();
   const service = createServiceClient();
-
   const supabase = await createClient();
+
   const user = (await supabase.auth.getUser()).data.user;
   if (!user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
@@ -41,12 +35,17 @@ export async function POST(req: Request) {
 
   if (!invoice_id) return NextResponse.json({ ok: false, error: "INVOICE_ID_MISSING" }, { status: 400 });
 
-  const inv = await service.from("invoices").select("id, company_id, invoice_number").eq("id", invoice_id).maybeSingle();
+  const inv = await service
+    .from("invoices")
+    .select("id, company_id")
+    .eq("id", invoice_id)
+    .maybeSingle();
+
   if (!inv.data?.id) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
   const sig = await service
     .from("invoice_signatures")
-    .select("invoice_id, unsigned_xml, unsigned_hash, meta")
+    .select("unsigned_xml, unsigned_hash")
     .eq("invoice_id", invoice_id)
     .maybeSingle();
 
@@ -58,13 +57,17 @@ export async function POST(req: Request) {
 
   const credRes = await service
     .from("ttn_credentials")
-    .select("signature_config, cert_email")
+    .select("signature_config")
     .eq("company_id", inv.data.company_id)
     .eq("environment", environment)
     .maybeSingle();
 
-  const cfg = (credRes.data?.signature_config as any) || {};
-  const credentialId = s(cfg.digigo_signer_email || cfg.credentialId || credRes.data?.cert_email || user.email || "");
+  const signatureConfig: any = credRes.data?.signature_config || {};
+  const credentialId = s(signatureConfig?.digigo_signer_email || signatureConfig?.credentialId || "");
+
+  if (!credentialId) {
+    return NextResponse.json({ ok: false, error: "DIGIGO_SIGNER_EMAIL_NOT_CONFIGURED" }, { status: 400 });
+  }
 
   const state = uuid();
 
@@ -82,18 +85,14 @@ export async function POST(req: Request) {
 
   cookieStore.set("digigo_state", state, { path: "/", httpOnly: true, sameSite: "lax", secure: true, maxAge: 600 });
   cookieStore.set("digigo_invoice_id", invoice_id, { path: "/", httpOnly: true, sameSite: "lax", secure: true, maxAge: 600 });
-  cookieStore.set("digigo_back_url", back_url, { path: "/", httpOnly: true, sameSite: "lax", secure: true, maxAge: 600 });
+  if (back_url) cookieStore.set("digigo_back_url", back_url, { path: "/", httpOnly: true, sameSite: "lax", secure: true, maxAge: 600 });
 
-  const redirect = `/digigo/redirect`;
   const authorize_url = digigoAuthorizeUrl({
     state,
     hash: unsigned_hash,
-    credentialId: credentialId || undefined,
-    redirectUri: `${origin}${redirect}`,
+    credentialId,
     numSignatures: 1,
-    responseType: "code",
-    scope: "credential",
   });
 
-  return NextResponse.json({ ok: true, authorize_url, state, invoice_id, redirect });
+  return NextResponse.json({ ok: true, authorize_url, state, invoice_id, redirect: "/digigo/redirect" });
 }
