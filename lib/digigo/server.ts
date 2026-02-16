@@ -28,8 +28,9 @@ function baseUrl(env?: DigigoEnv) {
     s(process.env.DIGIGO_BASE_URL_TEST) ||
     s(process.env.DIGIGO_BASE_URL);
 
-  const b = (e === "production" ? prod : test) || "";
-  return b.replace(/\/+$/, "");
+  let b = ((e === "production" ? prod : test) || "").replace(/\/+$/, "");
+  b = b.replace(/\/tunsign-proxy-webapp$/i, "");
+  return b;
 }
 
 function clientId() {
@@ -109,10 +110,15 @@ function makeAgentFor(url: string) {
   return undefined;
 }
 
-async function fetchJson(url: string, init: RequestInit) {
+async function fetchText(url: string, init: RequestInit) {
   const agent = makeAgentFor(url);
   const res = await fetch(url, { ...init, agent } as any);
   const text = await res.text();
+  return { res, text };
+}
+
+async function fetchJson(url: string, init: RequestInit) {
+  const { res, text } = await fetchText(url, init);
   let json: any = null;
   try {
     json = JSON.parse(text);
@@ -160,14 +166,13 @@ export async function digigoOauthToken(params: {
   const secret = ensure(clientSecret(), "DIGIGO_CLIENT_SECRET");
   const code = ensure(s(params.code), "CODE");
 
-  const url = new URL(
-    `/tunsign-proxy-webapp/oauth2/token/${encodeURIComponent(cid)}/authorization_code/${encodeURIComponent(
-      secret
-    )}/${encodeURIComponent(code)}`,
-    b
-  );
+  const url =
+    `${b}/tunsign-proxy-webapp/oauth2/token/` +
+    `${encodeURIComponent(cid)}/authorization_code/` +
+    `${encodeURIComponent(secret)}/` +
+    `${encodeURIComponent(code)}`;
 
-  const { res, text, json } = await fetchJson(url.toString(), {
+  const { res, text, json } = await fetchJson(url, {
     method: "POST",
     headers: { Accept: "application/json" },
   });
@@ -197,14 +202,13 @@ export async function digigoSignHash(params: {
   const hashes = Array.isArray(params.hashes) ? params.hashes.map(s).filter(Boolean) : [];
   if (!hashes.length) return { ok: false as const, error: "HASHES_MISSING" };
 
-  const url = new URL(
-    `/tunsign-proxy-webapp/signHash/${encodeURIComponent(cid)}/${encodeURIComponent(credentialId)}/${encodeURIComponent(
-      sad
-    )}`,
-    b
-  );
+  const url =
+    `${b}/tunsign-proxy-webapp/signHash/` +
+    `${encodeURIComponent(cid)}/` +
+    `${encodeURIComponent(credentialId)}/` +
+    `${encodeURIComponent(sad)}`;
 
-  const { res, text, json } = await fetchJson(url.toString(), {
+  const { res, text, json } = await fetchJson(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ hashes }),
