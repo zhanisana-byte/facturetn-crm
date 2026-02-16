@@ -13,32 +13,54 @@ function isUuid(v: string) {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const token = s(url.searchParams.get("token") || "");
-  const code = s(url.searchParams.get("code") || "");
-  const state_qs = s(url.searchParams.get("state") || "");
-  const back_qs = s(url.searchParams.get("back_url") || url.searchParams.get("back") || "");
+async function findLastPendingSession(service: any) {
+  const nowIso = new Date().toISOString();
 
+  const r = await service
+    .from("digigo_sign_sessions")
+    .select("id,state,invoice_id,back_url,status,expires_at,created_at")
+    .eq("status", "pending")
+    .gt("expires_at", nowIso)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return r.data || null;
+}
+
+export async function POST(req: Request) {
   const cookieStore = await cookies();
-  const state_cookie = s(cookieStore.get("digigo_state")?.value || "");
-  const invoice_cookie = s(cookieStore.get("digigo_invoice_id")?.value || "");
-  const back_cookie = s(cookieStore.get("digigo_back_url")?.value || "");
-
-  const state = state_qs || state_cookie;
-  const back_url = back_qs || back_cookie || "/app";
-
-  if (!state || !isUuid(state)) {
-    return NextResponse.json({ ok: false, error: "MISSING_STATE" }, { status: 400 });
-  }
+  const body = await req.json().catch(() => ({} as any));
 
   const service = createServiceClient();
 
-  const { data: session } = await service
-    .from("digigo_sign_sessions")
-    .select("id,invoice_id,back_url,status,expires_at")
-    .eq("state", state)
-    .maybeSingle();
+  const stateFromBody = s(body?.state || "");
+  const stateFromCookie = s(cookieStore.get("digigo_state")?.value || "");
+  const state = stateFromBody || stateFromCookie;
+
+  const invoiceFromBody = s(body?.invoice_id || body?.invoiceId || "");
+  const invoiceFromCookie = s(cookieStore.get("digigo_invoice_id")?.value || "");
+  let invoice_id = invoiceFromBody || invoiceFromCookie;
+
+  const backFromBody = s(body?.back_url || body?.backUrl || body?.back || "");
+  const backFromCookie = s(cookieStore.get("digigo_back_url")?.value || "");
+  let back_url = backFromBody || backFromCookie || "/app";
+
+  let session: any = null;
+
+  if (state && isUuid(state)) {
+    const r = await service
+      .from("digigo_sign_sessions")
+      .select("id,state,invoice_id,back_url,status,expires_at")
+      .eq("state", state)
+      .maybeSingle();
+
+    if (r.data?.id) session = r.data;
+  }
+
+  if (!session?.id) {
+    session = await findLastPendingSession(service);
+  }
 
   if (!session?.id) {
     return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 400 });
@@ -54,23 +76,19 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "SESSION_EXPIRED" }, { status: 400 });
   }
 
-  const invoice_id = s(session.invoice_id || "") || invoice_cookie;
+  invoice_id = invoice_id || s(session.invoice_id || "");
+  back_url = s(session.back_url || "") || back_url;
+
   if (!invoice_id || !isUuid(invoice_id)) {
     return NextResponse.json({ ok: false, error: "INVOICE_ID_MISSING" }, { status: 400 });
   }
-
-  const final_back = s(session.back_url || "") || back_url;
 
   cookieStore.set("digigo_state", "", { path: "/", maxAge: 0 });
   cookieStore.set("digigo_invoice_id", "", { path: "/", maxAge: 0 });
   cookieStore.set("digigo_back_url", "", { path: "/", maxAge: 0 });
 
   return NextResponse.json(
-    { ok: true, state, invoice_id, back_url: final_back, token, code },
+    { ok: true, state: s(session.state || state), invoice_id, back_url },
     { status: 200 }
   );
-}
-
-export async function POST(req: Request) {
-  return GET(req);
 }
