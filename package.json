@@ -38,3 +38,10 @@
   },
   "packageManager": "npm@10"
 }
+{
+  "dependencies": {
+    "node-fetch": "^3.3.2",
+    "https-proxy-agent": "^7.0.6"
+  }
+}
+
