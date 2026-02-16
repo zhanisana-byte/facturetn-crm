@@ -47,15 +47,6 @@ function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
 
-function requestOrigin(req: Request) {
-  const proto = s(req.headers.get("x-forwarded-proto") || "") || "https";
-  const host = s(req.headers.get("x-forwarded-host") || req.headers.get("host") || "");
-  if (!host) return "";
-  return `${proto}://${host}`;
-}
-
-const MAX_TEIF_BYTES = 50 * 1024;
-
 async function resolveCredForCompany(service: any, company_id: string, env: string) {
   const tryEnv = async (e: string) =>
     service
@@ -117,10 +108,6 @@ export async function POST(req: Request) {
     }
     invoice.invoice_number = invoice_number;
 
-    if (!invoice.issue_date) {
-      return NextResponse.json({ ok: false, error: "ISSUE_DATE_MISSING" }, { status: 400 });
-    }
-
     const items = await service.from("invoice_items").select("*").eq("invoice_id", invoice_id).order("line_no");
     if (!items.data || items.data.length === 0) {
       return NextResponse.json({ ok: false, error: "NO_ITEMS" }, { status: 400 });
@@ -181,11 +168,6 @@ export async function POST(req: Request) {
       purpose: "ttn",
     } as any);
 
-    const teifBytes = Buffer.byteLength(unsigned_xml, "utf8");
-    if (teifBytes > MAX_TEIF_BYTES) {
-      return NextResponse.json({ ok: false, error: "TEIF_TOO_LARGE" }, { status: 400 });
-    }
-
     const hash = sha256Base64Utf8(unsigned_xml);
 
     await service.from("invoice_signatures").upsert({
@@ -224,12 +206,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const origin = requestOrigin(req);
-    if (!origin) {
-      return NextResponse.json({ ok: false, error: "ORIGIN_MISSING" }, { status: 500 });
+    const redirectUri = s(process.env.DIGIGO_REDIRECT_URI);
+    if (!redirectUri) {
+      return NextResponse.json({ ok: false, error: "DIGIGO_REDIRECT_URI_MISSING" }, { status: 500 });
     }
-
-    const redirectUri = `${origin}/digigo/redirect`;
 
     const authorize_url = digigoAuthorizeUrl({
       credentialId,
