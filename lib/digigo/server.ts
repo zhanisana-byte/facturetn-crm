@@ -115,24 +115,28 @@ export async function digigoOauthToken(params: { code: string; credentialId?: st
   return r.data;
 }
 
-export async function digigoSignHash(params: {
-  token: string;
-  credentialId?: string;
-  sad: string;
-  hashes: string[];
-}) {
+type SignHashArgs =
+  | { token: string; credentialId?: string; sad: string; hashes: string[] }
+  | { credentialId?: string; sad: string; hashes: string[] };
+
+export async function digigoSignHash(args: SignHashArgs) {
   const url = baseUrl() + "/api/signHash";
+
+  const anyArgs: any = args as any;
+  const token = s(anyArgs.token || anyArgs.access_token || anyArgs.bearer || "");
+
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (token) headers.authorization = `Bearer ${token}`;
 
   const r = await fetchJson(url, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${s(params.token)}`,
-    },
+    headers,
     body: JSON.stringify({
-      credentialId: params.credentialId ?? undefined,
-      sad: s(params.sad),
-      hashes: params.hashes,
+      credentialId: anyArgs.credentialId ?? undefined,
+      sad: s(anyArgs.sad),
+      hashes: anyArgs.hashes,
     }),
   });
 
