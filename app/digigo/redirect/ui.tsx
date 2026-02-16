@@ -45,7 +45,7 @@ export default function DigiGoRedirectUI() {
       try {
         if (!token && !code) throw new Error("MISSING_TOKEN_OR_CODE");
 
-        const res = await fetch("/api/digigo/callback", {
+        const res = await fetch("/api/digigo/confirm", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ token, code, state, invoice_id, back_url }),
@@ -55,7 +55,6 @@ export default function DigiGoRedirectUI() {
 
         const { j, txt } = await readJsonOrText(res);
 
-        // Si l’API renvoie du HTML (ex: page Next), on sort un message clair
         if (txt && txt.startsWith("<!DOCTYPE html")) {
           throw new Error(`API_RETURNED_HTML_HTTP_${res.status}`);
         }
@@ -65,7 +64,7 @@ export default function DigiGoRedirectUI() {
           throw new Error(details);
         }
 
-        const redirect = s(j?.redirect || back_url || "/app");
+        const redirect = s(j?.redirect || "/app");
         router.replace(redirect);
       } catch (e: any) {
         if (cancelled) return;
@@ -94,9 +93,7 @@ export default function DigiGoRedirectUI() {
       >
         <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 10 }}>Connexion DigiGo</div>
 
-        {status === "loading" && (
-          <div style={{ fontSize: 14, opacity: 0.85 }}>Finalisation en cours...</div>
-        )}
+        {status === "loading" && <div style={{ fontSize: 14, opacity: 0.85 }}>Finalisation en cours...</div>}
 
         {status === "error" && (
           <div style={{ fontSize: 14, color: "#b91c1c" }}>
