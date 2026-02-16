@@ -232,8 +232,18 @@ export async function POST(req: Request) {
       );
     }
 
+    const accessToken = s((tok as any).access_token || (tok as any).token || "");
+    const sad = s((tok as any).sad || "");
+
+    if (!accessToken) {
+      return NextResponse.json({ ok: false, error: "ACCESS_TOKEN_MISSING" }, { status: 400 });
+    }
+    if (!sad) {
+      return NextResponse.json({ ok: false, error: "SAD_MISSING" }, { status: 400 });
+    }
+
     step = "sign_hash";
-    const sign = await digigoSignHash({ credentialId, sad: (tok as any).sad, hashes: [unsigned_hash] });
+    const sign = await digigoSignHash({ token: accessToken, credentialId, sad, hashes: [unsigned_hash] });
     if (!sign.ok) {
       if (session?.id) {
         await service
@@ -249,6 +259,10 @@ export async function POST(req: Request) {
 
     step = "inject_signature";
     const signatureValue = s((sign as any).value);
+    if (!signatureValue) {
+      throw new Error("SIGNATURE_EMPTY");
+    }
+
     const signed_xml = injectSignatureIntoTeifXml(unsigned_xml, signatureValue);
     const signed_hash = sha256Base64Utf8(signed_xml);
 
@@ -267,8 +281,8 @@ export async function POST(req: Request) {
           credentialId,
           environment: env,
           digigo: {
-            sad: (tok as any).sad,
-            algorithm: s((sign as any).algorithm),
+            sad,
+            algorithm: s((sign as any).raw?.algorithm) || s((sign as any).algorithm),
           },
         },
         updated_at: new Date().toISOString(),
