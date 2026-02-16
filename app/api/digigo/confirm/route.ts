@@ -1,14 +1,7 @@
 import { NextResponse } from "next/server";
-import crypto from "crypto";
 import { cookies } from "next/headers";
 import { createServiceClient } from "@/lib/supabase/service";
-import { createClient } from "@/lib/supabase/server";
-import {
-  jwtGetJti,
-  digigoOauthToken,
-  digigoSignHash,
-} from "@/lib/digigo/server";
-import { injectSignatureIntoTeifXml } from "@/lib/ttn/teifSignature";
+import { digigoOauthToken, digigoSignHash, jwtGetJti } from "@/lib/digigo/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,15 +10,19 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function sha256Base64Utf8(input: string) {
-  return crypto
-    .createHash("sha256")
-    .update(String(input ?? ""), "utf8")
-    .digest("base64");
+function isUuid(v: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v || ""));
 }
 
-function isUuid(v: string) {
-  return /^[0-9a-f-]{36}$/i.test(v);
+async function readJsonOrText(res: Response) {
+  const txt = await res.text().catch(() => "");
+  let j: any = null;
+  try {
+    j = txt ? JSON.parse(txt) : null;
+  } catch {
+    j = null;
+  }
+  return { j, txt };
 }
 
 export async function POST(req: Request) {
@@ -42,7 +39,7 @@ export async function POST(req: Request) {
     const token = s(body?.token);
     const codeParam = s(body?.code);
     const state = s(body?.state || cookieStore.get("digigo_state")?.value);
-    const invoice_id = s(body?.invoice_id || cookieStore.get("digigo_invoice_id")?.value);
+    let invoice_id = s(body?.invoice_id || cookieStore.get("digigo_invoice_id")?.value);
     const back_url = s(body?.back_url || cookieStore.get("digigo_back_url")?.value || "/app");
 
     const jti = token ? s(jwtGetJti(token)) : "";
@@ -50,6 +47,16 @@ export async function POST(req: Request) {
 
     if (!code) {
       return NextResponse.json({ ok: false, error: "CODE_MISSING" }, { status: 400 });
+    }
+
+    if ((!invoice_id || !isUuid(invoice_id)) && state) {
+      const ss = await service
+        .from("digigo_sign_sessions")
+        .select("invoice_id")
+        .eq("state", state)
+        .maybeSingle();
+
+      if (ss.data?.invoice_id) invoice_id = s(ss.data.invoice_id);
     }
 
     if (!invoice_id || !isUuid(invoice_id)) {
@@ -76,119 +83,89 @@ export async function POST(req: Request) {
     const environment = s(sig.environment || "test");
 
     if (!company_id || !unsigned_xml || !unsigned_hash) {
-      return NextResponse.json(
-        { ok: false, error: "INVALID_SIGNATURE_CONTEXT" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "INVALID_SIGNATURE_CONTEXT" }, { status: 400 });
     }
 
     step = "resolve_credentials";
 
     const credRes = await service
       .from("ttn_credentials")
-      .select("signature_config, cert_email")
+      .select("signature_config, digigo_token")
       .eq("company_id", company_id)
       .eq("environment", environment)
       .maybeSingle();
 
-    if (!credRes.data) {
-      return NextResponse.json({ ok: false, error: "DIGIGO_NOT_CONFIGURED" }, { status: 400 });
-    }
-
-    const cfg = credRes.data.signature_config || {};
-    const credentialId = s(
-      cfg.digigo_signer_email ||
-        cfg.credentialId ||
-        credRes.data.cert_email
-    );
+    const cfg = (credRes.data?.signature_config as any) || {};
+    const credentialId = s(cfg.digigo_signer_email || cfg.credentialId || "");
 
     if (!credentialId) {
       return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
     }
 
-    step = "oauth_token";
+    step = "oauth2_token";
+    const oauth = await digigoOauthToken({ code });
 
-    const tok = await digigoOauthToken({ code });
-
-    if (!tok.ok) {
-      return NextResponse.json(
-        { ok: false, error: "DIGIGO_TOKEN_FAILED", message: s((tok as any).error) },
-        { status: 400 }
-      );
+    if (!oauth.ok) {
+      return NextResponse.json({ ok: false, error: oauth.error, details: { step } }, { status: 400 });
     }
 
-    const accessToken = s((tok as any).access_token);
-    const sad = s((tok as any).sad);
+    const access_token = s((oauth as any)?.access_token || (oauth as any)?.token || "");
+    const sad = s((oauth as any)?.sad || "");
 
-    if (!accessToken) {
-      return NextResponse.json({ ok: false, error: "ACCESS_TOKEN_MISSING" }, { status: 400 });
-    }
-
-    if (!sad) {
-      return NextResponse.json({ ok: false, error: "SAD_MISSING" }, { status: 400 });
+    if (!access_token || !sad) {
+      return NextResponse.json({ ok: false, error: "OAUTH_TOKEN_INVALID", details: { step } }, { status: 400 });
     }
 
     step = "sign_hash";
-
     const sign = await digigoSignHash({
-      token: accessToken,
+      token: access_token,
       credentialId,
       sad,
       hashes: [unsigned_hash],
     });
 
     if (!sign.ok) {
-      return NextResponse.json(
-        { ok: false, error: "DIGIGO_SIGNHASH_FAILED", message: s((sign as any).error) },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: sign.error, details: { step } }, { status: 400 });
     }
 
-    const signatureValue = s((sign as any).value);
-
+    const signatureValue = s((sign as any)?.value || "");
     if (!signatureValue) {
-      throw new Error("SIGNATURE_EMPTY");
+      return NextResponse.json({ ok: false, error: "SIGNATURE_EMPTY", details: { step } }, { status: 400 });
     }
 
-    step = "inject_signature";
-
-    const signed_xml = injectSignatureIntoTeifXml(unsigned_xml, signatureValue);
-    const signed_hash = sha256Base64Utf8(signed_xml);
-
-    step = "update_db";
-
+    step = "persist";
     await service
       .from("invoice_signatures")
       .update({
+        signed_xml: unsigned_xml,
+        signed_hash: unsigned_hash,
+        signature_value: signatureValue,
         state: "signed",
-        signed_xml,
-        signed_hash,
-        signed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       })
       .eq("invoice_id", invoice_id);
 
     await service
       .from("invoices")
-      .update({
-        signature_status: "signed",
-        updated_at: new Date().toISOString(),
-      })
+      .update({ signature_status: "signed", updated_at: new Date().toISOString() })
       .eq("id", invoice_id);
 
-    cookieStore.set("digigo_state", "", { path: "/", maxAge: 0 });
-    cookieStore.set("digigo_invoice_id", "", { path: "/", maxAge: 0 });
-    cookieStore.set("digigo_back_url", "", { path: "/", maxAge: 0 });
+    if (state) {
+      await service
+        .from("digigo_sign_sessions")
+        .update({ status: "signed", updated_at: new Date().toISOString() })
+        .eq("state", state);
+    }
 
-    return NextResponse.json({ ok: true, redirect: back_url });
-
+    return NextResponse.json({ ok: true, invoice_id, redirect: back_url });
   } catch (e: any) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "INTERNAL_ERROR",
-        details: { step, message: s(e?.message) },
-      },
-      { status: 500 }
-    );
+    const msg = s(e?.message || "INTERNAL_ERROR");
+    if (state) {
+      await service
+        .from("digigo_sign_sessions")
+        .update({ status: "failed", error_message: `${step}:${msg}`, updated_at: new Date().toISOString() })
+        .eq("state", state);
+    }
+    return NextResponse.json({ ok: false, error: msg, details: { step } }, { status: 500 });
   }
 }
