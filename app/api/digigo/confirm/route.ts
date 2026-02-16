@@ -28,7 +28,6 @@ async function safeUpdateInvoiceSigned(service: any, invoiceId: string) {
     { ...payload, signature_status: "signed", signature_provider: "digigo" },
     { ...payload, signature_status: "signed", signature_provider: "digigo", ttn_signed: true },
   ];
-
   for (const p of tries) {
     const r = await service.from("invoices").update(p).eq("id", invoiceId);
     if (!r.error) return true;
@@ -45,17 +44,13 @@ async function resolveCredForCompany(service: any, company_id: string, env: stri
       .eq("environment", e)
       .maybeSingle();
 
-  // 1) env demandé
   let credRes = await tryEnv(env);
   if (credRes.data) return credRes;
 
-  // 2) fallback production
   const prod = await tryEnv("production");
   if (prod.data) return prod;
 
-  // 3) fallback test
-  const test = await tryEnv("test");
-  return test;
+  return await tryEnv("test");
 }
 
 export async function POST(req: Request) {
@@ -64,51 +59,39 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
 
     const service = createServiceClient();
-
-    // User (fallback only)
     const supabase = await createClient().catch(() => null);
     const authUser = supabase ? (await supabase.auth.getUser()).data?.user : null;
 
     const token = s(body?.token || "");
     const codeParam = s(body?.code || "");
 
-    // state: body -> cookie
     const stateFromBody = s(body?.state || "");
     const stateFromCookie = s(cookieStore.get("digigo_state")?.value || "");
     let state = stateFromBody || stateFromCookie;
 
-    // invoice_id: body -> cookie
     const invoiceFromBody = s(body?.invoice_id || body?.invoiceId || "");
     const invoiceFromCookie = s(cookieStore.get("digigo_invoice_id")?.value || "");
     let invoice_id = invoiceFromBody || invoiceFromCookie;
 
-    // back_url: body -> cookie -> default
     const back_url_body = s(body?.back_url || body?.backUrl || body?.back || "");
     const back_url_cookie = s(cookieStore.get("digigo_back_url")?.value || "");
     const back_url = back_url_body || back_url_cookie || "/app";
 
-    // DigiGo renvoie parfois token uniquement => on utilise jti comme code
-    const jti = token ? jwtGetJti(token) : "";
+    const jti = token ? s(jwtGetJti(token)) : "";
     const code = codeParam || jti;
 
     if (!code) {
       return NextResponse.json({ ok: false, error: "CODE_MISSING" }, { status: 400 });
     }
 
-    // 1) Résolution session prioritaire via state (même si invoice_id absent)
     let session: any = null;
 
     if (state && isUuid(state)) {
       const sessRes = await service.from("digigo_sign_sessions").select("*").eq("state", state).maybeSingle();
       if (sessRes.data?.id) session = sessRes.data;
-
-      // ✅ FIX: si invoice_id manquant, le récupérer depuis la session
-      if (!invoice_id && sessRes.data?.invoice_id) {
-        invoice_id = s(sessRes.data.invoice_id);
-      }
+      if (!invoice_id && sessRes.data?.invoice_id) invoice_id = s(sessRes.data.invoice_id);
     }
 
-    // 2) Fallback: dernière session pending de l’utilisateur si state/cookies perdus
     if (!session?.id && authUser?.id) {
       const lastRes = await service
         .from("digigo_sign_sessions")
@@ -126,21 +109,10 @@ export async function POST(req: Request) {
       }
     }
 
-    // 3) Si invoice_id toujours manquant MAIS state existe, retenter uniquement invoice_id via state
-    if (!invoice_id && state && isUuid(state)) {
-      const sess2 = await service.from("digigo_sign_sessions").select("invoice_id").eq("state", state).maybeSingle();
-      if (sess2.data?.invoice_id) invoice_id = s(sess2.data.invoice_id);
-    }
-
-    // Validation invoice_id
     if (!invoice_id || !isUuid(invoice_id)) {
-      return NextResponse.json(
-        { ok: false, error: "INVOICE_ID_MISSING", details: { hasState: !!state, hasCookie: !!stateFromCookie } },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "INVOICE_ID_MISSING" }, { status: 400 });
     }
 
-    // Expiration session (si on en a une)
     if (session?.id) {
       const exp = new Date(s(session.expires_at)).getTime();
       if (!Number.isFinite(exp) || exp < Date.now()) {
@@ -151,7 +123,6 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: false, error: "SESSION_EXPIRED" }, { status: 400 });
       }
 
-      // best-effort audit digigo_jti
       if (code) {
         const upd: any = { updated_at: new Date().toISOString(), digigo_jti: code };
         const r = await service.from("digigo_sign_sessions").update(upd).eq("id", session.id);
@@ -167,7 +138,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // Signature context
     const sigRes = await service
       .from("invoice_signatures")
       .select("company_id, environment, provider, state, unsigned_xml, unsigned_hash, meta")
@@ -189,7 +159,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "INVALID_SIGNATURE_CONTEXT" }, { status: 400 });
     }
 
-    // Credentials (avec fallback prod/test)
     const credRes = await resolveCredForCompany(service, company_id, env);
 
     if (!credRes.data || s((credRes.data as any).signature_provider) !== "digigo") {
@@ -209,7 +178,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
     }
 
-    // Token oauth
     const tok = await digigoOauthToken({ credentialId, code });
     if (!tok.ok) {
       if (session?.id) {
@@ -224,7 +192,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Sign hash
     const sign = await digigoSignHash({ credentialId, sad: (tok as any).sad, hashes: [unsigned_hash] });
     if (!sign.ok) {
       if (session?.id) {
@@ -277,9 +244,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, back_url }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: "INTERNAL_ERROR", message: String(e?.message || e) },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "INTERNAL_ERROR", message: String(e?.message || e) }, { status: 500 });
   }
 }
