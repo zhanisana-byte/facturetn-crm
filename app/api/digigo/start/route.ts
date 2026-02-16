@@ -33,27 +33,40 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "INVOICE_ID_MISSING" }, { status: 400 });
     }
 
+    let company_id = "";
+    let environment = s(body?.environment || "") || "";
+
     const invRes = await service
       .from("invoices")
       .select("company_id, environment")
       .eq("id", invoice_id)
       .maybeSingle();
 
-    const company_id = s(invRes.data?.company_id || "");
-    const environment = s(invRes.data?.environment || body?.environment || "test") || "test";
-
-    if (!company_id) {
-      return NextResponse.json({ ok: false, error: "COMPANY_ID_MISSING" }, { status: 400 });
+    if (invRes.data) {
+      company_id = s((invRes.data as any).company_id || "");
+      if (!environment) environment = s((invRes.data as any).environment || "");
     }
 
     const sigRes = await service
       .from("invoice_signatures")
-      .select("unsigned_hash, meta")
+      .select("company_id, environment, unsigned_hash, meta")
       .eq("invoice_id", invoice_id)
       .maybeSingle();
 
-    const unsigned_hash = s(sigRes.data?.unsigned_hash || "");
-    const meta: any = sigRes.data?.meta && typeof sigRes.data.meta === "object" ? sigRes.data.meta : {};
+    const unsigned_hash = s((sigRes.data as any)?.unsigned_hash || "");
+    const meta: any = (sigRes.data as any)?.meta && typeof (sigRes.data as any).meta === "object" ? (sigRes.data as any).meta : {};
+
+    if (!company_id) company_id = s((sigRes.data as any)?.company_id || "");
+    if (!environment) environment = s((sigRes.data as any)?.environment || "");
+
+    if (!environment) environment = "production";
+
+    if (!company_id) {
+      return NextResponse.json(
+        { ok: false, error: "COMPANY_ID_MISSING", details: { invoice_found: !!invRes.data, signature_found: !!sigRes.data } },
+        { status: 400 }
+      );
+    }
 
     if (!unsigned_hash) {
       return NextResponse.json({ ok: false, error: "UNSIGNED_HASH_MISSING" }, { status: 400 });
@@ -61,14 +74,17 @@ export async function POST(req: Request) {
 
     const credRes = await service
       .from("ttn_credentials")
-      .select("signature_provider, signature_config, cert_email")
+      .select("signature_provider, signature_config, cert_email, environment")
       .eq("company_id", company_id)
       .eq("environment", environment)
       .maybeSingle();
 
     const provider = s((credRes.data as any)?.signature_provider || "");
     if (provider !== "digigo") {
-      return NextResponse.json({ ok: false, error: "DIGIGO_NOT_CONFIGURED" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "DIGIGO_NOT_CONFIGURED", details: { company_id, environment } },
+        { status: 400 }
+      );
     }
 
     const cfg =
