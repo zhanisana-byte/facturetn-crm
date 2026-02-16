@@ -15,11 +15,28 @@ async function readJsonOrText(res: Response) {
   return { j, txt };
 }
 
-export type DigigoStartResponse =
-  | { ok: true; authorize_url: string; state: string; invoice_id?: string; redirect?: string }
-  | { ok: false; error: string; message?: string; details?: any };
+export type DigigoStartOk = {
+  ok: true;
+  authorize_url: string;
+  state: string;
+  invoice_id?: string;
+  redirect?: string;
+};
 
-export async function digigoStart(args: { invoice_id: string; back_url?: string; environment?: "test" | "production" }) {
+export type DigigoStartKo = {
+  ok: false;
+  error: string;
+  message?: string;
+  details?: any;
+};
+
+export type DigigoStartResponse = DigigoStartOk | DigigoStartKo;
+
+export async function digigoStart(args: {
+  invoice_id: string;
+  back_url?: string;
+  environment?: "test" | "production";
+}): Promise<DigigoStartResponse> {
   const res = await fetch("/api/digigo/start", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -35,13 +52,30 @@ export async function digigoStart(args: { invoice_id: string; back_url?: string;
   const { j, txt } = await readJsonOrText(res);
 
   if (!res.ok || !j?.ok) {
-    return { ok: false, error: s(j?.error || `HTTP_${res.status}`), message: s(j?.message || txt || ""), details: j?.details };
+    return {
+      ok: false,
+      error: s(j?.error || `HTTP_${res.status}`),
+      message: s(j?.message || txt || ""),
+      details: j?.details,
+    };
+  }
+
+  const authorize_url = s(j?.authorize_url || j?.url || "");
+  const state = s(j?.state || "");
+
+  if (!authorize_url || !state) {
+    return {
+      ok: false,
+      error: "INVALID_START_RESPONSE",
+      message: "authorize_url/state missing",
+      details: j,
+    };
   }
 
   return {
     ok: true,
-    authorize_url: s(j?.authorize_url || ""),
-    state: s(j?.state || ""),
+    authorize_url,
+    state,
     invoice_id: s(j?.invoice_id || ""),
     redirect: s(j?.redirect || ""),
   };
@@ -53,7 +87,11 @@ export function digigoRedirectToAuthorize(authorizeUrl: string) {
   window.location.assign(url);
 }
 
-export async function digigoStartAndRedirect(args: { invoice_id: string; back_url?: string; environment?: "test" | "production" }) {
+export async function digigoStartAndRedirect(args: {
+  invoice_id: string;
+  back_url?: string;
+  environment?: "test" | "production";
+}): Promise<DigigoStartResponse> {
   const r = await digigoStart(args);
   if (!r.ok) return r;
   digigoRedirectToAuthorize(r.authorize_url);
@@ -80,7 +118,13 @@ export type DigigoConfirmResponse =
   | { ok: true; redirect?: string }
   | { ok: false; error: string; message?: string; details?: any };
 
-export async function digigoConfirm(args: { token?: string; code?: string; state?: string; invoice_id?: string; back_url?: string }) {
+export async function digigoConfirm(args: {
+  token?: string;
+  code?: string;
+  state?: string;
+  invoice_id?: string;
+  back_url?: string;
+}): Promise<DigigoConfirmResponse> {
   const res = await fetch("/api/digigo/confirm", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -98,7 +142,12 @@ export async function digigoConfirm(args: { token?: string; code?: string; state
   const { j, txt } = await readJsonOrText(res);
 
   if (!res.ok || !j?.ok) {
-    return { ok: false, error: s(j?.error || `HTTP_${res.status}`), message: s(j?.message || txt || ""), details: j?.details };
+    return {
+      ok: false,
+      error: s(j?.error || `HTTP_${res.status}`),
+      message: s(j?.message || txt || ""),
+      details: j?.details,
+    };
   }
 
   return { ok: true, redirect: s(j?.redirect || "") };
