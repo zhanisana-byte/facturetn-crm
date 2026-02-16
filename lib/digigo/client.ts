@@ -1,77 +1,158 @@
-import crypto from "crypto";
+"use client";
 
-function env(name: string, fallback = "") {
-  return String(process.env[name] ?? fallback).trim();
+type Json = any;
+
+function s(v: any) {
+  return String(v ?? "").trim();
 }
 
-export function digigoBaseUrl() {
-  return env("DIGIGO_BASE_URL").replace(/\/$/, "");
+async function readJsonOrText(res: Response) {
+  const txt = await res.text().catch(() => "");
+  let j: any = null;
+  try {
+    j = txt ? JSON.parse(txt) : null;
+  } catch {
+    j = null;
+  }
+  return { j, txt };
 }
 
-export function digigoProxyBaseUrl() {
-  return `${digigoBaseUrl()}/tunsign-proxy-webapp`;
-}
-
-export function digigoClientId() {
-  return env("DIGIGO_CLIENT_ID");
-}
-
-export function digigoClientSecret() {
-  return env("DIGIGO_CLIENT_SECRET");
-}
-
-export function digigoRedirectUri() {
-  return env("DIGIGO_REDIRECT_URI");
-}
-
-export function digigoGrantType() {
-  return env("DIGIGO_GRANT_TYPE", "authorization_code");
-}
-
-export function digigoAllowInsecure() {
-  return env("DIGIGO_ALLOW_INSECURE", "true").toLowerCase() === "true";
-}
-
-export function ttnProxyUrl() {
-  return env("TTN_PROXY_URL");
-}
-
-export function sha256Base64Utf8(input: string) {
-  return crypto.createHash("sha256").update(String(input ?? ""), "utf8").digest("base64");
-}
-
-type AuthorizeArgs = {
-  credentialId: string;
-  hashBase64: string;
-  numSignatures?: number;
-  responseType?: "code";
-  scope?: "credential";
+export type DigigoStartResponse = {
+  ok: true;
+  authorize_url: string;
+  state: string;
+  invoice_id?: string;
+  redirect?: string;
 };
 
-export function digigoAuthorizeUrl(args: AuthorizeArgs) {
-  const base = digigoProxyBaseUrl();
-  const redirectUri = digigoRedirectUri();
-  const clientId = digigoClientId();
+export type DigigoStartError = {
+  ok: false;
+  error: string;
+  message?: string;
+  details?: any;
+};
 
-  const credentialId = String(args.credentialId ?? "").trim();
-  const hashBase64 = String(args.hashBase64 ?? "").trim();
+export async function digigoStart(args: {
+  invoice_id: string;
+  back_url?: string;
+  environment?: "test" | "production";
+}) {
+  const res = await fetch("/api/digigo/start", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    cache: "no-store",
+    body: JSON.stringify({
+      invoice_id: s(args.invoice_id),
+      back_url: s(args.back_url || ""),
+      environment: s(args.environment || ""),
+    }),
+  });
 
-  const responseType = args.responseType || "code";
-  const scope = args.scope || "credential";
-  const numSignatures = Number.isFinite(Number(args.numSignatures)) ? Number(args.numSignatures) : 1;
+  const { j, txt } = await readJsonOrText(res);
 
-  if (!base || !redirectUri || !clientId || !credentialId || !hashBase64) {
-    throw new Error("DIGIGO_MISSING_PARAMS");
+  if (!res.ok || !j?.ok) {
+    const err: DigigoStartError = {
+      ok: false,
+      error: s(j?.error || `HTTP_${res.status}`),
+      message: s(j?.message || txt || ""),
+      details: j?.details,
+    };
+    return err;
   }
 
-  const u = new URL(`${base}/oauth2/authorize`);
-  u.searchParams.set("redirectUri", redirectUri);
-  u.searchParams.set("responseType", responseType);
-  u.searchParams.set("scope", scope);
-  u.searchParams.set("credentialId", credentialId);
-  u.searchParams.set("clientId", clientId);
-  u.searchParams.set("numSignatures", String(numSignatures));
-  u.searchParams.set("hash", hashBase64);
+  const out: DigigoStartResponse = {
+    ok: true,
+    authorize_url: s(j.authorize_url || j.url || ""),
+    state: s(j.state || ""),
+    invoice_id: s(j.invoice_id || ""),
+    redirect: s(j.redirect || ""),
+  };
 
-  return u.toString();
+  if (!out.authorize_url || !out.state) {
+    const err: DigigoStartError = {
+      ok: false,
+      error: "INVALID_START_RESPONSE",
+      message: "authorize_url/state missing",
+      details: j,
+    };
+    return err;
+  }
+
+  return out;
+}
+
+export function digigoRedirectToAuthorize(authorizeUrl: string) {
+  const url = s(authorizeUrl);
+  if (!url) throw new Error("AUTHORIZE_URL_MISSING");
+  window.location.assign(url);
+}
+
+export async function digigoStartAndRedirect(args: {
+  invoice_id: string;
+  back_url?: string;
+  environment?: "test" | "production";
+}) {
+  const r = await digigoStart(args);
+  if (!r.ok) return r;
+  digigoRedirectToAuthorize(r.authorize_url);
+  return r;
+}
+
+export function digigoParseRedirectParams(input?: {
+  search?: string;
+  hash?: string;
+}) {
+  const search = typeof input?.search === "string" ? input!.search : window.location.search || "";
+  const hash = typeof input?.hash === "string" ? input!.hash : window.location.hash || "";
+
+  const qs = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  const hs = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+
+  const token = s(qs.get("token") || hs.get("token") || qs.get("access_token") || hs.get("access_token") || "");
+  const code = s(qs.get("code") || hs.get("code") || "");
+  const state = s(qs.get("state") || hs.get("state") || "");
+  const invoice_id = s(qs.get("invoice_id") || hs.get("invoice_id") || "");
+  const back_url = s(qs.get("back_url") || hs.get("back_url") || qs.get("back") || hs.get("back") || "");
+
+  return { token, code, state, invoice_id, back_url };
+}
+
+export type DigigoConfirmResponse =
+  | { ok: true; redirect?: string }
+  | { ok: false; error: string; message?: string; details?: any };
+
+export async function digigoConfirm(args: {
+  token?: string;
+  code?: string;
+  state?: string;
+  invoice_id?: string;
+  back_url?: string;
+}) {
+  const res = await fetch("/api/digigo/confirm", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    cache: "no-store",
+    body: JSON.stringify({
+      token: s(args.token || ""),
+      code: s(args.code || ""),
+      state: s(args.state || ""),
+      invoice_id: s(args.invoice_id || ""),
+      back_url: s(args.back_url || ""),
+    }),
+  });
+
+  const { j, txt } = await readJsonOrText(res);
+
+  if (!res.ok || !j?.ok) {
+    return {
+      ok: false,
+      error: s(j?.error || `HTTP_${res.status}`),
+      message: s(j?.message || txt || ""),
+      details: j?.details,
+    } as DigigoConfirmResponse;
+  }
+
+  return { ok: true, redirect: s(j?.redirect || "") } as DigigoConfirmResponse;
 }
