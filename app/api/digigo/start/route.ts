@@ -65,6 +65,12 @@ async function resolveCredForCompany(service: any, company_id: string, env: stri
   return await tryEnv("test");
 }
 
+function normalizeRootRedirectUri(v: string) {
+  const t = s(v);
+  if (!t) return "";
+  return t.endsWith("/") ? t : t + "/";
+}
+
 export async function POST(req: Request) {
   try {
     const supabase = await createClient();
@@ -108,7 +114,12 @@ export async function POST(req: Request) {
     }
     invoice.invoice_number = invoice_number;
 
-    const items = await service.from("invoice_items").select("*").eq("invoice_id", invoice_id).order("line_no");
+    const items = await service
+      .from("invoice_items")
+      .select("*")
+      .eq("invoice_id", invoice_id)
+      .order("line_no");
+
     if (!items.data || items.data.length === 0) {
       return NextResponse.json({ ok: false, error: "NO_ITEMS" }, { status: 400 });
     }
@@ -206,7 +217,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const redirectUri = s(process.env.DIGIGO_REDIRECT_URI);
+    const redirectUri = normalizeRootRedirectUri(process.env.DIGIGO_REDIRECT_URI || "");
     if (!redirectUri) {
       return NextResponse.json({ ok: false, error: "DIGIGO_REDIRECT_URI_MISSING" }, { status: 500 });
     }
