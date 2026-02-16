@@ -123,17 +123,15 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: false, error: "SESSION_EXPIRED" }, { status: 400 });
       }
 
-      if (code) {
-        const upd: any = { updated_at: new Date().toISOString(), digigo_jti: code };
-        const r = await service.from("digigo_sign_sessions").update(upd).eq("id", session.id);
-        if (r?.error) {
-          const msg = s(r.error.message);
-          if (!msg.includes("column") || !msg.includes("digigo_jti")) {
-            await service
-              .from("digigo_sign_sessions")
-              .update({ updated_at: new Date().toISOString(), error_message: `digigo_jti_update_failed:${msg}` })
-              .eq("id", session.id);
-          }
+      const upd: any = { updated_at: new Date().toISOString(), digigo_jti: code };
+      const r = await service.from("digigo_sign_sessions").update(upd).eq("id", session.id);
+      if (r?.error) {
+        const msg = s(r.error.message);
+        if (!msg.includes("column") || !msg.includes("digigo_jti")) {
+          await service
+            .from("digigo_sign_sessions")
+            .update({ updated_at: new Date().toISOString(), error_message: `digigo_jti_update_failed:${msg}` })
+            .eq("id", session.id);
         }
       }
     }
