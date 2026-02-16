@@ -6,6 +6,17 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
+function stringify(v: any) {
+  if (v == null) return "";
+  if (typeof v === "string") return v.trim();
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
+}
+
 export default function DigigoSignButton({
   invoiceId,
   backUrl,
@@ -42,13 +53,13 @@ export default function DigigoSignButton({
     const msg =
       s(j?.message) ||
       s(j?.details?.message) ||
-      s(j?.details) ||
+      stringify(j?.details) ||
       s(j?.error_description) ||
       "";
 
     const code = s(j?.error);
 
-    if (msg && code && msg !== code) return `${msg}`;
+    if (msg && code && msg !== code) return msg;
     if (msg) return msg;
     if (code) return code;
 
@@ -76,6 +87,7 @@ export default function DigigoSignButton({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ invoice_id: inv, back_url: safeBackUrl }),
         cache: "no-store",
+        credentials: "include",
       });
 
       const j = await r.json().catch(() => ({}));
@@ -115,7 +127,7 @@ export default function DigigoSignButton({
       </button>
 
       {err ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800 break-words">
           {err}
         </div>
       ) : null}
