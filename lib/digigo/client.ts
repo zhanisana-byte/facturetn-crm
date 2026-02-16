@@ -15,22 +15,9 @@ async function readJsonOrText(res: Response) {
   return { j, txt };
 }
 
-export type DigigoStartOk = {
-  ok: true;
-  authorize_url: string;
-  state: string;
-  invoice_id?: string;
-  redirect?: string;
-};
-
-export type DigigoStartKo = {
-  ok: false;
-  error: string;
-  message?: string;
-  details?: any;
-};
-
-export type DigigoStartResponse = DigigoStartOk | DigigoStartKo;
+export type DigigoStartResponse =
+  | { ok: true; authorize_url: string; state: string; invoice_id?: string; redirect?: string }
+  | { ok: false; error: string; message?: string; details?: any };
 
 export async function digigoStart(args: {
   invoice_id: string;
@@ -60,22 +47,10 @@ export async function digigoStart(args: {
     };
   }
 
-  const authorize_url = s(j?.authorize_url || j?.url || "");
-  const state = s(j?.state || "");
-
-  if (!authorize_url || !state) {
-    return {
-      ok: false,
-      error: "INVALID_START_RESPONSE",
-      message: "authorize_url/state missing",
-      details: j,
-    };
-  }
-
   return {
     ok: true,
-    authorize_url,
-    state,
+    authorize_url: s(j?.authorize_url || ""),
+    state: s(j?.state || ""),
     invoice_id: s(j?.invoice_id || ""),
     redirect: s(j?.redirect || ""),
   };
@@ -91,9 +66,18 @@ export async function digigoStartAndRedirect(args: {
   invoice_id: string;
   back_url?: string;
   environment?: "test" | "production";
-}): Promise<DigigoStartResponse> {
+}) {
   const r = await digigoStart(args);
   if (!r.ok) return r;
+
+  try {
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("digigo_invoice_id", String(args.invoice_id || ""));
+      sessionStorage.setItem("digigo_back_url", String(args.back_url || ""));
+      sessionStorage.setItem("digigo_state", String((r as any).state || ""));
+    }
+  } catch {}
+
   digigoRedirectToAuthorize(r.authorize_url);
   return r;
 }
@@ -124,7 +108,7 @@ export async function digigoConfirm(args: {
   state?: string;
   invoice_id?: string;
   back_url?: string;
-}): Promise<DigigoConfirmResponse> {
+}) {
   const res = await fetch("/api/digigo/confirm", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -142,12 +126,7 @@ export async function digigoConfirm(args: {
   const { j, txt } = await readJsonOrText(res);
 
   if (!res.ok || !j?.ok) {
-    return {
-      ok: false,
-      error: s(j?.error || `HTTP_${res.status}`),
-      message: s(j?.message || txt || ""),
-      details: j?.details,
-    };
+    return { ok: false, error: s(j?.error || `HTTP_${res.status}`), message: s(j?.message || txt || ""), details: j?.details };
   }
 
   return { ok: true, redirect: s(j?.redirect || "") };
