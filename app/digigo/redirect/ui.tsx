@@ -25,6 +25,14 @@ function getHashParams() {
   return new URLSearchParams(raw);
 }
 
+function extractErr(j: any, txt: string, status: number) {
+  const base = s(j?.message || j?.error || txt || `HTTP_${status}`);
+  const step = s(j?.details?.step || "");
+  const detailMsg = s(j?.details?.message || "");
+  if (step || detailMsg) return s([base, step ? `STEP=${step}` : "", detailMsg].filter(Boolean).join(" | "));
+  return base;
+}
+
 export default function DigiGoRedirectUI() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -78,8 +86,7 @@ export default function DigiGoRedirectUI() {
         const { j, txt } = await readJsonOrText(res);
 
         if (!res.ok || !j?.ok) {
-          const msg = s(j?.message || j?.error || txt || `HTTP_${res.status}`);
-          throw new Error(msg);
+          throw new Error(extractErr(j, txt, res.status));
         }
 
         const redirect = s(j?.redirect || back_url || "/");
@@ -116,7 +123,7 @@ export default function DigiGoRedirectUI() {
         ) : (
           <>
             <div style={{ fontSize: 14, color: "#b91c1c", marginBottom: 8 }}>Erreur</div>
-            <div style={{ fontSize: 14, color: "#b91c1c" }}>{message}</div>
+            <div style={{ fontSize: 14, color: "#b91c1c", whiteSpace: "pre-wrap" }}>{message}</div>
           </>
         )}
       </div>
