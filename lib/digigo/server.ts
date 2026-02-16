@@ -1,5 +1,4 @@
 import crypto from "crypto";
-import { Agent as UndiciAgent } from "undici";
 
 type JsonValue = any;
 
@@ -45,22 +44,20 @@ function timeoutMs() {
   return Number.isFinite(v) && v > 0 ? v : 20000;
 }
 
-function buildDispatcher() {
-  if (!allowInsecure()) return undefined;
-  return new UndiciAgent({ connect: { rejectUnauthorized: false } });
-}
-
 async function fetchJson(url: string, init: RequestInit) {
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), timeoutMs());
 
+  const prevTls = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+  const insecure = allowInsecure();
+
   try {
-    const dispatcher = buildDispatcher();
+    if (insecure) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
     const res = await fetch(url, {
       ...init,
       signal: controller.signal,
-      ...(dispatcher ? ({ dispatcher } as any) : {}),
-    } as any);
+    });
 
     const txt = await res.text().catch(() => "");
     let data: JsonValue = txt;
@@ -71,15 +68,15 @@ async function fetchJson(url: string, init: RequestInit) {
     }
     return { ok: res.ok, status: res.status, data };
   } finally {
+    if (insecure) {
+      if (prevTls === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+      else process.env.NODE_TLS_REJECT_UNAUTHORIZED = prevTls;
+    }
     clearTimeout(t);
   }
 }
 
-export function digigoAuthorizeUrl(params: {
-  state: string;
-  login_hint?: string;
-  credential_id?: string;
-}) {
+export function digigoAuthorizeUrl(params: { state: string; login_hint?: string; credential_id?: string }) {
   const u = new URL(baseUrl() + "/oauth2/authorize");
   u.searchParams.set("response_type", "code");
   u.searchParams.set("client_id", clientId());
@@ -124,11 +121,7 @@ export function sha256Base64Utf8(input: string) {
   return crypto.createHash("sha256").update(Buffer.from(input, "utf8")).digest("base64");
 }
 
-export async function digigoSignHash(params: {
-  access_token: string;
-  sad: string;
-  hash: string;
-}) {
+export async function digigoSignHash(params: { access_token: string; sad: string; hash: string }) {
   const url = baseUrl() + "/api/signHash";
 
   const r = await fetchJson(url, {
