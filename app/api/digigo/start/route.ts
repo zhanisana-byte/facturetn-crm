@@ -1,82 +1,69 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import crypto from "crypto";
-import { createClient } from "@/lib/supabase/server";
-import { createServiceClient } from "@/lib/supabase/service";
 import { digigoAuthorizeUrl } from "@/lib/digigo/server";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+import { createClient } from "@supabase/supabase-js";
+import crypto from "crypto";
 
 function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function sha256Base64Utf8(input: string) {
-  return crypto.createHash("sha256").update(Buffer.from(input, "utf8")).digest("base64");
-}
-
-function addMinutes(min: number) {
-  return new Date(Date.now() + min * 60 * 1000).toISOString();
-}
-
 function uuid() {
-  if (crypto.randomUUID) return crypto.randomUUID();
-  return crypto.randomBytes(16).toString("hex");
+  return crypto.randomUUID();
 }
 
 export async function POST(req: Request) {
-  const cookieStore = await cookies();
-  const service = createServiceClient();
+  try {
+    const body = await req.json().catch(() => ({}));
+    const invoice_id = s(body?.invoice_id);
+    if (!invoice_id) {
+      return NextResponse.json({ ok: false, error: "BAD_REQUEST" }, { status: 400 });
+    }
 
-  const supabase = await createClient();
-  const user = (await supabase.auth.getUser()).data.user;
-  if (!user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
 
-  const body = await req.json().catch(() => ({}));
-  const invoice_id = s(body?.invoice_id || body?.invoiceId || "");
-  const back_url = s(body?.back_url || body?.backUrl || body?.back || "");
-  const environment = s(body?.environment || "test") || "test";
+    const sig = await supabase
+      .from("invoice_signatures")
+      .select("unsigned_xml, unsigned_hash")
+      .eq("invoice_id", invoice_id)
+      .maybeSingle();
 
-  if (!invoice_id) return NextResponse.json({ ok: false, error: "INVOICE_ID_MISSING" }, { status: 400 });
+    const unsigned_xml = s(sig.data?.unsigned_xml || "");
+    let unsigned_hash = s(sig.data?.unsigned_hash || "");
 
-  const inv = await service.from("invoices").select("id, company_id, invoice_number").eq("id", invoice_id).maybeSingle();
-  if (!inv.data?.id) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
+    if (!unsigned_hash && unsigned_xml) {
+      unsigned_hash = crypto
+        .createHash("sha256")
+        .update(Buffer.from(unsigned_xml, "utf8"))
+        .digest("base64");
+    }
 
-  const sig = await service
-    .from("invoice_signatures")
-    .select("invoice_id, unsigned_xml, unsigned_hash, meta")
-    .eq("invoice_id", invoice_id)
-    .maybeSingle();
+    if (!unsigned_hash) {
+      return NextResponse.json(
+        { ok: false, error: "UNSIGNED_HASH_MISSING" },
+        { status: 400 }
+      );
+    }
 
-  const unsigned_xml = s(sig.data?.unsigned_xml || "");
-  let unsigned_hash = s(sig.data?.unsigned_hash || "");
+    const state = uuid();
 
-  if (!unsigned_hash && unsigned_xml) unsigned_hash = sha256Base64Utf8(unsigned_xml);
-  if (!unsigned_hash) return NextResponse.json({ ok: false, error: "UNSIGNED_HASH_MISSING" }, { status: 400 });
+    const authorize_url = digigoAuthorizeUrl({
+      state,
+      hash: unsigned_hash,
+    });
 
-  const state = uuid();
-
-  await service.from("digigo_sign_sessions").insert({
-    state,
-    invoice_id,
-    company_id: inv.data.company_id,
-    created_by: user.id,
-    status: "pending",
-    environment,
-    expires_at: addMinutes(10),
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  });
-
-  cookieStore.set("digigo_state", state, { path: "/", httpOnly: true, sameSite: "lax", secure: true, maxAge: 600 });
-  cookieStore.set("digigo_invoice_id", invoice_id, { path: "/", httpOnly: true, sameSite: "lax", secure: true, maxAge: 600 });
-  cookieStore.set("digigo_back_url", back_url, { path: "/", httpOnly: true, sameSite: "lax", secure: true, maxAge: 600 });
-
-  const authorize_url = digigoAuthorizeUrl({
-    state,
-    login_hint: user.email || undefined,
-  });
-
-  return NextResponse.json({ ok: true, authorize_url, state, invoice_id, redirect: "/digigo/redirect" });
+    return NextResponse.json({
+      ok: true,
+      authorize_url,
+      state,
+      invoice_id,
+    });
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: "START_FAILED", message: e?.message || "" },
+      { status: 500 }
+    );
+  }
 }
