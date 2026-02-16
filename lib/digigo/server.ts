@@ -1,5 +1,6 @@
 // lib/digigo/server.ts
 import crypto from "crypto";
+import { Agent, ProxyAgent } from "undici";
 
 type DigigoEnv = "test" | "production";
 
@@ -15,19 +16,15 @@ function pickEnv(explicit?: any): DigigoEnv {
 
 function baseUrl(env?: DigigoEnv) {
   const e = env ?? pickEnv(process.env.DIGIGO_ENV);
-
   const prod =
     s(process.env.DIGIGO_PROD_BASE_URL) ||
     s(process.env.DIGIGO_BASE_URL_PROD) ||
     s(process.env.DIGIGO_BASE_URL);
-
   const test =
     s(process.env.DIGIGO_TEST_BASE_URL) ||
     s(process.env.DIGIGO_BASE_URL_TEST) ||
     s(process.env.DIGIGO_BASE_URL);
-
-  const b = (e === "production" ? prod : test) || "";
-  return b.replace(/\/+$/, "");
+  return ((e === "production" ? prod : test) || "").replace(/\/+$/, "");
 }
 
 function clientId() {
@@ -78,6 +75,33 @@ export function jwtGetJti(token: string): string {
   }
 }
 
+function getDispatcher(env: DigigoEnv) {
+  const proxy = s(process.env.DIGIGO_PROXY_URL || process.env.HTTPS_PROXY || process.env.HTTP_PROXY || "");
+  if (proxy) return new ProxyAgent(proxy);
+
+  const insecure =
+    s(process.env.DIGIGO_INSECURE_TLS || "") === "1" ||
+    s(process.env.DIGIGO_INSECURE_TLS || "").toLowerCase() === "true";
+
+  if (env === "test" && insecure) {
+    return new Agent({ connect: { rejectUnauthorized: false } });
+  }
+
+  return undefined;
+}
+
+async function fetchJson(url: string, init: RequestInit & { dispatcher?: any }) {
+  const res = await fetch(url, init as any);
+  const text = await res.text();
+  let json: any = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
+  return { res, text, json };
+}
+
 export function digigoAuthorizeUrl(args: {
   state: string;
   hash: string;
@@ -123,18 +147,13 @@ export async function digigoOauthToken(params: {
     b
   );
 
-  const res = await fetch(url.toString(), {
+  const dispatcher = getDispatcher(env);
+
+  const { res, text, json } = await fetchJson(url.toString(), {
     method: "POST",
     headers: { Accept: "application/json" },
+    dispatcher,
   });
-
-  const text = await res.text();
-  let json: any = null;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    json = null;
-  }
 
   if (!res.ok) {
     return { ok: false as const, error: json?.message || json?.error || text || `HTTP_${res.status}` };
@@ -168,19 +187,14 @@ export async function digigoSignHash(params: {
     b
   );
 
-  const res = await fetch(url.toString(), {
+  const dispatcher = getDispatcher(env);
+
+  const { res, text, json } = await fetchJson(url.toString(), {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ hashes }),
+    dispatcher,
   });
-
-  const text = await res.text();
-  let json: any = null;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    json = null;
-  }
 
   if (!res.ok) {
     return { ok: false as const, error: json?.message || json?.error || text || `HTTP_${res.status}` };
@@ -193,7 +207,6 @@ export async function digigoSignHash(params: {
     s(Array.isArray(json?.values) ? json.values?.[0] : "");
 
   const algorithm = s(json?.algorithm || json?.alg || "");
-
   if (!value) return { ok: false as const, error: "SIGNATURE_VALUE_MISSING" };
 
   return { ok: true as const, value, algorithm, raw: json };
