@@ -66,6 +66,7 @@ async function fetchJson(url: string, init: RequestInit) {
     } catch {
       data = txt;
     }
+
     return { ok: res.ok, status: res.status, data };
   } finally {
     if (insecure) {
@@ -84,11 +85,8 @@ export function digigoAuthorizeUrl(params: { state: string; login_hint?: string;
   u.searchParams.set("scope", scope());
   u.searchParams.set("state", s(params.state));
 
-  const loginHint = s(params.login_hint);
-  if (loginHint) u.searchParams.set("login_hint", loginHint);
-
-  const credentialId = s(params.credential_id);
-  if (credentialId) u.searchParams.set("credential_id", credentialId);
+  if (params.login_hint) u.searchParams.set("login_hint", s(params.login_hint));
+  if (params.credential_id) u.searchParams.set("credential_id", s(params.credential_id));
 
   return u.toString();
 }
@@ -117,22 +115,22 @@ export async function digigoOauthToken(params: { code: string; credentialId?: st
   return r.data;
 }
 
-export function sha256Base64Utf8(input: string) {
-  return crypto.createHash("sha256").update(Buffer.from(input, "utf8")).digest("base64");
-}
-
-export async function digigoSignHash(params: { access_token: string; sad: string; hash: string }) {
+export async function digigoSignHash(params: {
+  credentialId?: string;
+  sad: string;
+  hashes: string[];
+}) {
   const url = baseUrl() + "/api/signHash";
 
   const r = await fetchJson(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${s(params.access_token)}`,
     },
     body: JSON.stringify({
+      credentialId: params.credentialId ?? undefined,
       sad: s(params.sad),
-      hash: s(params.hash),
+      hashes: params.hashes,
     }),
   });
 
@@ -142,6 +140,10 @@ export async function digigoSignHash(params: { access_token: string; sad: string
   }
 
   return r.data;
+}
+
+export function sha256Base64Utf8(input: string) {
+  return crypto.createHash("sha256").update(Buffer.from(input, "utf8")).digest("base64");
 }
 
 export function jwtGetJti(token: string) {
