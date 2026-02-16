@@ -1,5 +1,7 @@
 import crypto from "crypto";
 
+type JsonValue = any;
+
 function s(v: any) {
   return String(v ?? "").trim();
 }
@@ -8,33 +10,32 @@ function env(name: string, fallback = "") {
   return s(process.env[name] ?? fallback);
 }
 
+function boolEnv(name: string, fallback = "false") {
+  return s(process.env[name] ?? fallback).toLowerCase() === "true";
+}
+
 function baseUrl() {
-  const raw = env("DIGIGO_BASE_URL").replace(/\/+$/, "");
-  if (!raw) throw new Error("DIGIGO_BASE_URL_MISSING");
-  if (raw.includes("/tunsign-proxy-webapp")) return raw;
-  return raw + "/tunsign-proxy-webapp";
+  return env("DIGIGO_BASE_URL").replace(/\/+$/, "");
 }
 
 function clientId() {
-  const v = env("DIGIGO_CLIENT_ID");
-  if (!v) throw new Error("DIGIGO_CLIENT_ID_MISSING");
-  return v;
+  return env("DIGIGO_CLIENT_ID");
 }
 
 function clientSecret() {
-  const v = env("DIGIGO_CLIENT_SECRET");
-  if (!v) throw new Error("DIGIGO_CLIENT_SECRET_MISSING");
-  return v;
+  return env("DIGIGO_CLIENT_SECRET");
 }
 
 function redirectUri() {
-  const v = env("DIGIGO_REDIRECT_URI");
-  if (!v) throw new Error("DIGIGO_REDIRECT_URI_MISSING");
-  return v;
+  return env("DIGIGO_REDIRECT_URI");
+}
+
+function scope() {
+  return env("DIGIGO_SCOPE", "credential");
 }
 
 function allowInsecure() {
-  return env("DIGIGO_ALLOW_INSECURE", "false").toLowerCase() === "true";
+  return boolEnv("DIGIGO_ALLOW_INSECURE", "false");
 }
 
 function timeoutMs() {
@@ -53,9 +54,9 @@ async function fetchJson(url: string, init: RequestInit) {
     if (insecure) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
     const res = await fetch(url, { ...init, signal: controller.signal });
-    const txt = await res.text().catch(() => "");
 
-    let data: any = null;
+    const txt = await res.text().catch(() => "");
+    let data: JsonValue = txt;
     try {
       data = txt ? JSON.parse(txt) : null;
     } catch {
@@ -73,50 +74,38 @@ async function fetchJson(url: string, init: RequestInit) {
 }
 
 export function sha256Base64Utf8(input: string) {
-  return crypto
-    .createHash("sha256")
-    .update(Buffer.from(String(input ?? ""), "utf8"))
-    .digest("base64");
+  return crypto.createHash("sha256").update(Buffer.from(String(input ?? ""), "utf8")).digest("base64");
+}
+
+function proxyBaseUrl() {
+  const b = baseUrl();
+  if (!b) return "";
+  if (b.includes("/tunsign-proxy-webapp")) return b;
+  return b + "/tunsign-proxy-webapp";
 }
 
 export function digigoAuthorizeUrl(params: {
   state: string;
   hash: string;
   credentialId?: string;
+  redirectUri?: string;
+  numSignatures?: number;
+  responseType?: string;
+  scope?: string;
 }) {
-  const u = new URL(baseUrl() + "/oauth2/authorize");
+  const u = new URL(proxyBaseUrl() + "/oauth2/authorize");
 
-  u.searchParams.set("redirectUri", redirectUri());
-  u.searchParams.set("responseType", "code");
-  u.searchParams.set("scope", "credential");
+  u.searchParams.set("redirectUri", s(params.redirectUri || redirectUri()));
+  u.searchParams.set("responseType", s(params.responseType || "code"));
+  u.searchParams.set("scope", s(params.scope || scope()));
   u.searchParams.set("clientId", clientId());
-  u.searchParams.set("numSignatures", "1");
+  u.searchParams.set("numSignatures", String(params.numSignatures ?? 1));
   u.searchParams.set("hash", s(params.hash));
   u.searchParams.set("state", s(params.state));
 
-  const cred = s(params.credentialId) || env("DIGIGO_CREDENTIAL_ID");
-  if (cred) u.searchParams.set("credentialId", cred);
+  if (params.credentialId) u.searchParams.set("credentialId", s(params.credentialId));
 
   return u.toString();
-}
-
-export function jwtGetJti(token: string) {
-  const t = s(token);
-  if (!t) return "";
-
-  const parts = t.split(".");
-  if (parts.length < 2) return "";
-
-  const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-  const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
-
-  try {
-    const json = Buffer.from(b64 + pad, "base64").toString("utf8");
-    const payload = JSON.parse(json);
-    return s(payload?.jti);
-  } catch {
-    return "";
-  }
 }
 
 export async function digigoOauthToken(params: { code: string }) {
@@ -137,7 +126,7 @@ export async function digigoOauthToken(params: { code: string }) {
 
   if (!r.ok) {
     const msg = typeof r.data === "string" ? r.data : JSON.stringify(r.data ?? {});
-    return { ok: false as const, status: r.status, error: msg, raw: r.data };
+    return { ok: false as const, status: r.status, error: `DIGIGO_OAUTH_TOKEN_${r.status}:${msg}` };
   }
 
   return { ok: true as const, ...(r.data || {}) };
@@ -152,12 +141,12 @@ export async function digigoSignHash(args: {
   const token = s(args.token);
   const credentialId = s(args.credentialId);
   const sad = s(args.sad);
-  const hashes = Array.isArray(args.hashes) ? args.hashes.map(s).filter(Boolean) : [];
+  const hashes = Array.isArray(args.hashes) ? args.hashes.map((h) => s(h)).filter(Boolean) : [];
 
-  if (!token) return { ok: false as const, status: 400, error: "MISSING_TOKEN" };
-  if (!credentialId) return { ok: false as const, status: 400, error: "MISSING_CREDENTIAL_ID" };
-  if (!sad) return { ok: false as const, status: 400, error: "MISSING_SAD" };
-  if (!hashes.length) return { ok: false as const, status: 400, error: "MISSING_HASHES" };
+  if (!token) return { ok: false as const, status: 400, error: "DIGIGO_SIGNHASH_MISSING_TOKEN" };
+  if (!credentialId) return { ok: false as const, status: 400, error: "DIGIGO_SIGNHASH_MISSING_CREDENTIAL" };
+  if (!sad) return { ok: false as const, status: 400, error: "DIGIGO_SIGNHASH_MISSING_SAD" };
+  if (!hashes.length) return { ok: false as const, status: 400, error: "DIGIGO_SIGNHASH_MISSING_HASH" };
 
   const url =
     baseUrl() +
@@ -176,10 +165,11 @@ export async function digigoSignHash(args: {
 
   if (!r.ok) {
     const msg = typeof r.data === "string" ? r.data : JSON.stringify(r.data ?? {});
-    return { ok: false as const, status: r.status, error: msg, raw: r.data };
+    return { ok: false as const, status: r.status, error: `DIGIGO_SIGNHASH_${r.status}:${msg}` };
   }
 
   const d: any = r.data || {};
+
   const signature =
     s(d?.signature) ||
     s(d?.signatures?.[0]?.signature) ||
@@ -190,8 +180,27 @@ export async function digigoSignHash(args: {
 
   if (!signature) {
     const dump = typeof r.data === "string" ? r.data : JSON.stringify(r.data ?? {});
-    return { ok: false as const, status: 200, error: dump, raw: d };
+    return { ok: false as const, status: 200, error: `SIGNATURE_EMPTY:${dump}` };
   }
 
   return { ok: true as const, value: signature, raw: d };
+}
+
+export function jwtGetJti(token: string) {
+  const t = s(token);
+  if (!t) return "";
+
+  const parts = t.split(".");
+  if (parts.length < 2) return "";
+
+  const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+  const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
+
+  try {
+    const json = Buffer.from(b64 + pad, "base64").toString("utf8");
+    const payload = JSON.parse(json);
+    return s(payload?.jti);
+  } catch {
+    return "";
+  }
 }
