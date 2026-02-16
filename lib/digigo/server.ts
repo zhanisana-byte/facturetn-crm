@@ -116,29 +116,35 @@ export async function digigoOauthToken(params: { code: string; credentialId?: st
   return { ok: true, ...d };
 }
 
-type SignHashArgs =
-  | { token: string; credentialId?: string; sad: string; hashes: string[] }
-  | { credentialId?: string; sad: string; hashes: string[] };
+type SignHashArgs = { token: string; credentialId: string; sad: string; hashes: string[] };
 
 export async function digigoSignHash(args: SignHashArgs) {
-  const url = baseUrl() + "/api/signHash";
+  const token = s(args.token);
+  const credentialId = s(args.credentialId);
+  const sad = s(args.sad);
+  const hashes = Array.isArray(args.hashes) ? args.hashes.map((h) => s(h)).filter(Boolean) : [];
 
-  const anyArgs: any = args as any;
-  const token = s(anyArgs.token || anyArgs.access_token || anyArgs.bearer || "");
+  if (!token) return { ok: false, status: 400, error: "DIGIGO_SIGNHASH_MISSING_TOKEN" };
+  if (!credentialId) return { ok: false, status: 400, error: "DIGIGO_SIGNHASH_MISSING_CREDENTIAL" };
+  if (!sad) return { ok: false, status: 400, error: "DIGIGO_SIGNHASH_MISSING_SAD" };
+  if (!hashes.length) return { ok: false, status: 400, error: "DIGIGO_SIGNHASH_MISSING_HASH" };
 
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-  };
-  if (token) headers.authorization = `Bearer ${token}`;
+  const hashAlgo = "SHA-256";
+  const signAlgo = "RSA";
+
+  const url =
+    baseUrl() +
+    `/signatures/signHash/${encodeURIComponent(clientId())}/${encodeURIComponent(credentialId)}/${encodeURIComponent(
+      sad
+    )}/${hashAlgo}/${signAlgo}`;
 
   const r = await fetchJson(url, {
     method: "POST",
-    headers,
-    body: JSON.stringify({
-      credentialId: anyArgs.credentialId ?? undefined,
-      sad: s(anyArgs.sad),
-      hashes: anyArgs.hashes,
-    }),
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ hashes }),
   });
 
   if (!r.ok) {
@@ -147,7 +153,20 @@ export async function digigoSignHash(args: SignHashArgs) {
   }
 
   const d: any = r.data || {};
-  return { ok: true, ...d };
+  const sig =
+    s(d?.signature) ||
+    s(d?.signatures?.[0]?.signature) ||
+    s(d?.values?.[0]) ||
+    s(d?.value) ||
+    s(d?.data?.signature) ||
+    s(d?.data?.signatures?.[0]?.signature);
+
+  if (!sig) {
+    const dump = typeof r.data === "string" ? r.data : JSON.stringify(r.data ?? {});
+    return { ok: false, status: 200, error: `SIGNATURE_EMPTY:${dump}` };
+  }
+
+  return { ok: true, value: sig, raw: d };
 }
 
 export function sha256Base64Utf8(input: string) {
