@@ -65,12 +65,6 @@ async function resolveCredForCompany(service: any, company_id: string, env: stri
   return await tryEnv("test");
 }
 
-function normalizeRootRedirectUri(v: string) {
-  const t = s(v);
-  if (!t) return "";
-  return t.endsWith("/") ? t : t + "/";
-}
-
 export async function POST(req: Request) {
   try {
     const supabase = await createClient();
@@ -140,6 +134,11 @@ export async function POST(req: Request) {
     const credentialId = s(cfg.digigo_signer_email || cred.cert_email);
     if (!credentialId) {
       return NextResponse.json({ ok: false, error: "DIGIGO_EMAIL_MISSING" }, { status: 400 });
+    }
+
+    const redirectUri = s(process.env.DIGIGO_REDIRECT_URI);
+    if (!redirectUri) {
+      return NextResponse.json({ ok: false, error: "DIGIGO_REDIRECT_URI_MISSING" }, { status: 500 });
     }
 
     const unsigned_xml = buildTeifInvoiceXml({
@@ -217,16 +216,12 @@ export async function POST(req: Request) {
       );
     }
 
-    const redirectUri = normalizeRootRedirectUri(process.env.DIGIGO_REDIRECT_URI || "");
-    if (!redirectUri) {
-      return NextResponse.json({ ok: false, error: "DIGIGO_REDIRECT_URI_MISSING" }, { status: 500 });
-    }
-
     const authorize_url = digigoAuthorizeUrl({
       credentialId,
       hashBase64: hash,
       redirectUri,
       numSignatures: 1,
+      state,
     });
 
     const res = NextResponse.json({ ok: true, authorize_url, state, redirectUri }, { status: 200 });
