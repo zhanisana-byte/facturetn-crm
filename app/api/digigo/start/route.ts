@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { digigoAuthorizeUrl } from "@/lib/digigo/server";
+import { digigoAuthorizeUrl } from "@/lib/digigo/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,9 +23,7 @@ export async function POST(req: Request) {
     const supabase = await createClient();
     const { data } = await supabase.auth.getUser();
     const user = data?.user;
-    if (!user) {
-      return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
-    }
+    if (!user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
     const body = await req.json().catch(() => ({}));
     const invoice_id = s(body?.invoice_id || body?.invoiceId || "");
@@ -48,11 +46,50 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "COMPANY_ID_MISSING" }, { status: 400 });
     }
 
-    const state =
-      typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : crypto.randomBytes(16).toString("hex");
+    const sigRes = await service
+      .from("invoice_signatures")
+      .select("unsigned_hash, meta")
+      .eq("invoice_id", invoice_id)
+      .maybeSingle();
 
+    const unsigned_hash = s(sigRes.data?.unsigned_hash || "");
+    const meta: any = sigRes.data?.meta && typeof sigRes.data.meta === "object" ? sigRes.data.meta : {};
+
+    if (!unsigned_hash) {
+      return NextResponse.json({ ok: false, error: "UNSIGNED_HASH_MISSING" }, { status: 400 });
+    }
+
+    const credRes = await service
+      .from("ttn_credentials")
+      .select("signature_provider, signature_config, cert_email")
+      .eq("company_id", company_id)
+      .eq("environment", environment)
+      .maybeSingle();
+
+    const provider = s((credRes.data as any)?.signature_provider || "");
+    if (provider !== "digigo") {
+      return NextResponse.json({ ok: false, error: "DIGIGO_NOT_CONFIGURED" }, { status: 400 });
+    }
+
+    const cfg =
+      (credRes.data as any)?.signature_config && typeof (credRes.data as any).signature_config === "object"
+        ? (credRes.data as any).signature_config
+        : {};
+
+    const credentialId = s(
+      meta?.credentialId ||
+        meta?.digigo?.credentialId ||
+        cfg?.digigo_signer_email ||
+        cfg?.credentialId ||
+        cfg?.signer_email ||
+        (credRes.data as any)?.cert_email
+    );
+
+    if (!credentialId) {
+      return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
+    }
+
+    const state = typeof crypto.randomUUID === "function" ? crypto.randomUUID() : crypto.randomBytes(16).toString("hex");
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
     await service.from("digigo_sign_sessions").insert({
@@ -70,45 +107,22 @@ export async function POST(req: Request) {
     const jar = await cookies();
     const secure = true;
 
-    jar.set("digigo_state", state, {
-      path: "/",
-      httpOnly: true,
-      sameSite: "lax",
-      secure,
-      maxAge: 60 * 15,
-    });
-
-    jar.set("digigo_invoice_id", invoice_id, {
-      path: "/",
-      httpOnly: true,
-      sameSite: "lax",
-      secure,
-      maxAge: 60 * 15,
-    });
-
-    jar.set("digigo_back_url", back_url || "", {
-      path: "/",
-      httpOnly: true,
-      sameSite: "lax",
-      secure,
-      maxAge: 60 * 15,
-    });
+    jar.set("digigo_state", state, { path: "/", httpOnly: true, sameSite: "lax", secure, maxAge: 60 * 15 });
+    jar.set("digigo_invoice_id", invoice_id, { path: "/", httpOnly: true, sameSite: "lax", secure, maxAge: 60 * 15 });
+    jar.set("digigo_back_url", back_url || "", { path: "/", httpOnly: true, sameSite: "lax", secure, maxAge: 60 * 15 });
 
     const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/digigo/redirect`;
 
     const authorize_url = digigoAuthorizeUrl({
+      credentialId,
+      hashBase64: unsigned_hash,
       redirectUri,
+      numSignatures: 1,
       state,
     });
 
-    return NextResponse.json(
-      { ok: true, authorize_url, state },
-      { status: 200 }
-    );
+    return NextResponse.json({ ok: true, authorize_url, state }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: "INTERNAL_ERROR", message: s(e?.message || e) },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "INTERNAL_ERROR", message: s(e?.message || e) }, { status: 500 });
   }
 }
