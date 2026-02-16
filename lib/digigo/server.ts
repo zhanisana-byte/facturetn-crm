@@ -109,10 +109,11 @@ export async function digigoOauthToken(params: { code: string; credentialId?: st
 
   if (!r.ok) {
     const msg = typeof r.data === "string" ? r.data : JSON.stringify(r.data ?? {});
-    throw new Error(`DIGIGO_OAUTH_TOKEN_${r.status}:${msg}`);
+    return { ok: false, status: r.status, error: `DIGIGO_OAUTH_TOKEN_${r.status}:${msg}` };
   }
 
-  return r.data;
+  const d: any = r.data || {};
+  return { ok: true, ...d };
 }
 
 type SignHashArgs =
@@ -142,10 +143,11 @@ export async function digigoSignHash(args: SignHashArgs) {
 
   if (!r.ok) {
     const msg = typeof r.data === "string" ? r.data : JSON.stringify(r.data ?? {});
-    throw new Error(`DIGIGO_SIGNHASH_${r.status}:${msg}`);
+    return { ok: false, status: r.status, error: `DIGIGO_SIGNHASH_${r.status}:${msg}` };
   }
 
-  return r.data;
+  const d: any = r.data || {};
+  return { ok: true, ...d };
 }
 
 export function sha256Base64Utf8(input: string) {
