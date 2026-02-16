@@ -11,17 +11,15 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
+function uuid() {
+  return crypto.randomUUID();
+}
+
 function addMinutes(min: number) {
   return new Date(Date.now() + min * 60 * 1000).toISOString();
 }
 
-function uuid() {
-  if (crypto.randomUUID) return crypto.randomUUID();
-  return crypto.randomBytes(16).toString("hex");
-}
-
 export async function POST(req: Request) {
-  const origin = new URL(req.url).origin;
   const cookieStore = await cookies();
   const service = createServiceClient();
 
@@ -31,10 +29,19 @@ export async function POST(req: Request) {
   const environment = s(body?.environment || "test") || "test";
   const created_by = s(body?.created_by || body?.user_id || "");
 
-  if (!invoice_id) return NextResponse.json({ ok: false, error: "INVOICE_ID_MISSING" }, { status: 400 });
+  if (!invoice_id) {
+    return NextResponse.json({ ok: false, error: "INVOICE_ID_MISSING" }, { status: 400 });
+  }
 
-  const inv = await service.from("invoices").select("id, company_id").eq("id", invoice_id).maybeSingle();
-  if (!inv.data?.id) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
+  const inv = await service
+    .from("invoices")
+    .select("id, company_id")
+    .eq("id", invoice_id)
+    .maybeSingle();
+
+  if (!inv.data?.id) {
+    return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
+  }
 
   const sig = await service
     .from("invoice_signatures")
@@ -43,17 +50,23 @@ export async function POST(req: Request) {
     .maybeSingle();
 
   const unsigned_hash = s(sig.data?.unsigned_hash || "");
-  if (!unsigned_hash) return NextResponse.json({ ok: false, error: "UNSIGNED_HASH_MISSING" }, { status: 400 });
+  if (!unsigned_hash) {
+    return NextResponse.json({ ok: false, error: "UNSIGNED_HASH_MISSING" }, { status: 400 });
+  }
 
   const credRes = await service
     .from("ttn_credentials")
-    .select("signature_config, cert_email")
+    .select("signature_config")
     .eq("company_id", inv.data.company_id)
     .eq("environment", environment)
     .maybeSingle();
 
-  const cfg = (credRes.data?.signature_config as any) || {};
-  const credentialId = s(cfg.digigo_signer_email || cfg.credentialId || credRes.data?.cert_email || "");
+  const signatureConfig: any = credRes.data?.signature_config || {};
+  const credentialId = s(signatureConfig?.digigo_signer_email || signatureConfig?.credentialId || "");
+
+  if (!credentialId) {
+    return NextResponse.json({ ok: false, error: "DIGIGO_SIGNER_EMAIL_NOT_CONFIGURED" }, { status: 400 });
+  }
 
   const state = uuid();
 
@@ -69,20 +82,38 @@ export async function POST(req: Request) {
     updated_at: new Date().toISOString(),
   });
 
-  cookieStore.set("digigo_state", state, { path: "/", httpOnly: true, sameSite: "lax", secure: true, maxAge: 600 });
-  cookieStore.set("digigo_invoice_id", invoice_id, { path: "/", httpOnly: true, sameSite: "lax", secure: true, maxAge: 600 });
-  cookieStore.set("digigo_back_url", back_url, { path: "/", httpOnly: true, sameSite: "lax", secure: true, maxAge: 600 });
+  cookieStore.set("digigo_state", state, {
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: true,
+    maxAge: 600,
+  });
 
-  const redirect = `/digigo/redirect`;
+  cookieStore.set("digigo_invoice_id", invoice_id, {
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: true,
+    maxAge: 600,
+  });
+
+  if (back_url) {
+    cookieStore.set("digigo_back_url", back_url, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: true,
+      maxAge: 600,
+    });
+  }
+
   const authorize_url = digigoAuthorizeUrl({
     state,
     hash: unsigned_hash,
-    credentialId: credentialId || undefined,
-    redirectUri: `${origin}${redirect}`,
+    credentialId: credentialId,
     numSignatures: 1,
-    responseType: "code",
-    scope: "credential",
   });
 
-  return NextResponse.json({ ok: true, authorize_url, state, invoice_id, redirect });
+  return NextResponse.json({ ok: true, authorize_url, state, invoice_id, redirect: "/digigo/redirect" });
 }
