@@ -4,7 +4,18 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams, useParams } from "next/navigation";
 
 function s(v: any) {
-  return typeof v === "string" ? v.trim() : "";
+  return String(v ?? "").trim();
+}
+
+async function readJsonOrText(res: Response) {
+  const txt = await res.text().catch(() => "");
+  let j: any = null;
+  try {
+    j = txt ? JSON.parse(txt) : null;
+  } catch {
+    j = null;
+  }
+  return { j, txt };
 }
 
 export default function DigiGoRedirectUI() {
@@ -21,96 +32,56 @@ export default function DigiGoRedirectUI() {
     return fromQuery || fromPath;
   }, [sp, params]);
 
-  const invoice_id_qs = useMemo(() => s(sp.get("invoice_id") || ""), [sp]);
-  const back_url_qs = useMemo(() => s(sp.get("back_url") || sp.get("back") || ""), [sp]);
+  const invoice_id = useMemo(() => s(sp.get("invoice_id") || ""), [sp]);
+  const back_url = useMemo(() => s(sp.get("back_url") || sp.get("back") || ""), [sp]);
 
-  const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
-  const [message, setMessage] = useState<string>("");
+  const [status, setStatus] = useState<"loading" | "error">("loading");
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     let cancelled = false;
 
     async function run() {
-      if (!token && !code) {
-        setStatus("error");
-        setMessage("Paramètre DigiGo manquant.");
-        return;
-      }
-
       try {
-        let invoice_id = invoice_id_qs;
-        let back_url = back_url_qs;
+        if (!token && !code) throw new Error("MISSING_TOKEN_OR_CODE");
 
-        const cb = await fetch("/api/digigo/callback", {
+        const res = await fetch("/api/digigo/callback", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ state, invoice_id, back_url }),
+          body: JSON.stringify({ token, code, state, invoice_id, back_url }),
           cache: "no-store",
           credentials: "include",
         });
 
-        const cbj = await cb.json().catch(() => null);
-        if (!cb.ok) {
-          setStatus("error");
-          setMessage(String(cbj?.error || cbj?.message || `Erreur ${cb.status}`));
-          return;
+        const { j, txt } = await readJsonOrText(res);
+
+        // Si l’API renvoie du HTML (ex: page Next), on sort un message clair
+        if (txt && txt.startsWith("<!DOCTYPE html")) {
+          throw new Error(`API_RETURNED_HTML_HTTP_${res.status}`);
         }
 
-        invoice_id = s(cbj?.invoice_id || invoice_id);
-        back_url = s(cbj?.back_url || back_url);
-
-        const r = await fetch("/api/digigo/confirm", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            token,
-            code,
-            state: s(cbj?.state || state),
-            invoice_id,
-            back_url,
-          }),
-          cache: "no-store",
-          credentials: "include",
-        });
-
-        const j = await r.json().catch(() => null);
-
-        if (cancelled) return;
-
-        if (!r.ok) {
-          setStatus("error");
-          setMessage(String(j?.error || j?.message || `Erreur ${r.status}`));
-          return;
+        if (!res.ok || !j?.ok) {
+          const details = s(j?.error || j?.message || j?.details || txt || `HTTP_${res.status}`);
+          throw new Error(details);
         }
 
-        setStatus("ok");
-        setMessage("Connexion DigiGo validée. Signature finalisée.");
-
-        const go = s(j?.back_url) || back_url || "/app";
-        router.replace(go);
+        const redirect = s(j?.redirect || back_url || "/app");
+        router.replace(redirect);
       } catch (e: any) {
         if (cancelled) return;
         setStatus("error");
-        setMessage(String(e?.message || "Erreur inattendue."));
+        setMessage(s(e?.message || e || "Erreur"));
       }
     }
 
     run();
-
     return () => {
       cancelled = true;
     };
-  }, [token, code, state, invoice_id_qs, back_url_qs, router]);
+  }, [token, code, state, invoice_id, back_url, router]);
 
   return (
-    <div
-      style={{
-        minHeight: "60vh",
-        display: "grid",
-        placeItems: "center",
-        padding: 24,
-      }}
-    >
+    <div style={{ minHeight: "60vh", display: "grid", placeItems: "center", padding: 24 }}>
       <div
         style={{
           maxWidth: 640,
@@ -121,26 +92,16 @@ export default function DigiGoRedirectUI() {
           background: "rgba(255,255,255,.85)",
         }}
       >
-        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 10 }}>
-          Connexion DigiGo
-        </div>
+        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 10 }}>Connexion DigiGo</div>
 
         {status === "loading" && (
-          <div style={{ fontSize: 14, opacity: 0.85 }}>
-            Finalisation en cours...
-          </div>
-        )}
-
-        {status === "ok" && (
-          <div style={{ fontSize: 14, opacity: 0.9 }}>
-            {message}
-          </div>
+          <div style={{ fontSize: 14, opacity: 0.85 }}>Finalisation en cours...</div>
         )}
 
         {status === "error" && (
           <div style={{ fontSize: 14, color: "#b91c1c" }}>
             Erreur
-            <div style={{ marginTop: 6, opacity: 0.9 }}>
+            <div style={{ marginTop: 6, opacity: 0.9, wordBreak: "break-word", whiteSpace: "pre-wrap" }}>
               {message}
             </div>
           </div>
