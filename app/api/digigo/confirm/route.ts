@@ -53,12 +53,28 @@ async function resolveCredForCompany(service: any, company_id: string, env: stri
   return await tryEnv("test");
 }
 
+async function findLastPendingSession(service: any) {
+  const nowIso = new Date().toISOString();
+
+  const r = await service
+    .from("digigo_sign_sessions")
+    .select("*")
+    .eq("status", "pending")
+    .gt("expires_at", nowIso)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return r.data || null;
+}
+
 export async function POST(req: Request) {
   try {
     const cookieStore = await cookies();
     const body = await req.json().catch(() => ({}));
 
     const service = createServiceClient();
+
     const supabase = await createClient().catch(() => null);
     const authUser = supabase ? (await supabase.auth.getUser()).data?.user : null;
 
@@ -104,6 +120,14 @@ export async function POST(req: Request) {
 
       if (lastRes.data?.id) {
         session = lastRes.data;
+        state = state || s(session.state);
+        invoice_id = invoice_id || s(session.invoice_id);
+      }
+    }
+
+    if (!session?.id) {
+      session = await findLastPendingSession(service);
+      if (session?.id) {
         state = state || s(session.state);
         invoice_id = invoice_id || s(session.invoice_id);
       }
