@@ -78,8 +78,10 @@ async function fetchJson(url: string, init: RequestInit) {
 
 export async function digigoAuthorizeUrl(params: {
   credentialId: string;
-  environment?: DigigoEnv;
   state: string;
+  environment?: DigigoEnv;
+  hash?: string;
+  numSignatures?: number;
 }) {
   const env = params.environment ?? pickEnv(process.env.DIGIGO_ENV);
   const b = baseUrl(env);
