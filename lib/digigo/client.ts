@@ -1,3 +1,8 @@
+Remplace complètement :
+
+`lib/digigo/client.ts`
+
+```ts
 "use client";
 
 type Json = any;
@@ -17,20 +22,9 @@ async function readJsonOrText(res: Response) {
   return { j, txt };
 }
 
-export type DigigoStartResponse = {
-  ok: true;
-  authorize_url: string;
-  state: string;
-  invoice_id?: string;
-  redirect?: string;
-};
-
-export type DigigoStartError = {
-  ok: false;
-  error: string;
-  message?: string;
-  details?: any;
-};
+export type DigigoStartResponse =
+  | { ok: true; authorize_url: string; state: string; invoice_id?: string; redirect?: string }
+  | { ok: false; error: string; message?: string; details?: any };
 
 export async function digigoStart(args: {
   invoice_id: string;
@@ -52,34 +46,21 @@ export async function digigoStart(args: {
   const { j, txt } = await readJsonOrText(res);
 
   if (!res.ok || !j?.ok) {
-    const err: DigigoStartError = {
+    return {
       ok: false,
       error: s(j?.error || `HTTP_${res.status}`),
       message: s(j?.message || txt || ""),
       details: j?.details,
-    };
-    return err;
+    } as const;
   }
 
-  const out: DigigoStartResponse = {
+  return {
     ok: true,
-    authorize_url: s(j.authorize_url || j.url || ""),
-    state: s(j.state || ""),
-    invoice_id: s(j.invoice_id || ""),
-    redirect: s(j.redirect || ""),
-  };
-
-  if (!out.authorize_url || !out.state) {
-    const err: DigigoStartError = {
-      ok: false,
-      error: "INVALID_START_RESPONSE",
-      message: "authorize_url/state missing",
-      details: j,
-    };
-    return err;
-  }
-
-  return out;
+    authorize_url: s(j?.authorize_url || j?.url || ""),
+    state: s(j?.state || ""),
+    invoice_id: s(j?.invoice_id || ""),
+    redirect: s(j?.redirect || ""),
+  } as const;
 }
 
 export function digigoRedirectToAuthorize(authorizeUrl: string) {
@@ -99,10 +80,7 @@ export async function digigoStartAndRedirect(args: {
   return r;
 }
 
-export function digigoParseRedirectParams(input?: {
-  search?: string;
-  hash?: string;
-}) {
+export function digigoParseRedirectParams(input?: { search?: string; hash?: string }) {
   const search = typeof input?.search === "string" ? input!.search : window.location.search || "";
   const hash = typeof input?.hash === "string" ? input!.hash : window.location.hash || "";
 
@@ -156,3 +134,4 @@ export async function digigoConfirm(args: {
 
   return { ok: true, redirect: s(j?.redirect || "") } as DigigoConfirmResponse;
 }
+```
