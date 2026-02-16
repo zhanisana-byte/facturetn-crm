@@ -63,8 +63,8 @@ export default function DigiGoRedirectUI() {
         const invoice_id = invoice_idQ;
         const back_url = back_urlQ;
 
-        if (!code) {
-          throw new Error("CODE_MISSING");
+        if (!token && !code) {
+          throw new Error("MISSING_TOKEN_OR_CODE");
         }
 
         const res = await fetch("/api/digigo/confirm", {
