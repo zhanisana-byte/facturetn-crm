@@ -93,7 +93,7 @@ export function digigoAuthorizeUrl(params: { state: string; login_hint?: string;
   return u.toString();
 }
 
-export async function digigoOauthToken(params: { code: string }) {
+export async function digigoOauthToken(params: { code: string; credentialId?: string }) {
   const url = baseUrl() + "/oauth2/token";
 
   const body = new URLSearchParams();
