@@ -14,23 +14,12 @@ function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v || ""));
 }
 
-async function readJsonOrText(res: Response) {
-  const txt = await res.text().catch(() => "");
-  let j: any = null;
-  try {
-    j = txt ? JSON.parse(txt) : null;
-  } catch {
-    j = null;
-  }
-  return { j, txt };
-}
-
 export async function POST(req: Request) {
   const service = createServiceClient();
   const cookieStore = await cookies();
 
   let step = "init";
-  let session: any = null;
+  let state = "";
 
   try {
     step = "read_body";
@@ -38,7 +27,8 @@ export async function POST(req: Request) {
 
     const token = s(body?.token);
     const codeParam = s(body?.code);
-    const state = s(body?.state || cookieStore.get("digigo_state")?.value);
+
+    state = s(body?.state || cookieStore.get("digigo_state")?.value);
     let invoice_id = s(body?.invoice_id || cookieStore.get("digigo_invoice_id")?.value);
     const back_url = s(body?.back_url || cookieStore.get("digigo_back_url")?.value || "/app");
 
@@ -134,6 +124,7 @@ export async function POST(req: Request) {
     }
 
     step = "persist";
+
     await service
       .from("invoice_signatures")
       .update({
@@ -160,12 +151,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, invoice_id, redirect: back_url });
   } catch (e: any) {
     const msg = s(e?.message || "INTERNAL_ERROR");
+
     if (state) {
       await service
         .from("digigo_sign_sessions")
         .update({ status: "failed", error_message: `${step}:${msg}`, updated_at: new Date().toISOString() })
         .eq("state", state);
     }
+
     return NextResponse.json({ ok: false, error: msg, details: { step } }, { status: 500 });
   }
 }
