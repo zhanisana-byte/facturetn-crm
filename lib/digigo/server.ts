@@ -1,5 +1,7 @@
-// lib/digigo/server.ts
 import crypto from "crypto";
+import https from "https";
+import fetch, { RequestInit } from "node-fetch";
+import { HttpsProxyAgent } from "https-proxy-agent";
 
 type DigigoEnv = "test" | "production";
 
@@ -78,31 +80,37 @@ export function jwtGetJti(token: string): string {
   }
 }
 
-function isInsecureTlsEnabled() {
+function insecureTlsEnabled() {
   const v = s(process.env.DIGIGO_INSECURE_TLS || "");
   return v === "1" || v.toLowerCase() === "true";
 }
 
+function proxyUrl() {
+  return s(process.env.DIGIGO_PROXY_URL || "");
+}
+
+function makeAgentFor(url: string) {
+  const proxy = proxyUrl();
+  if (proxy) return new HttpsProxyAgent(proxy);
+
+  if (insecureTlsEnabled() && url.includes("193.95.63.230")) {
+    return new https.Agent({ rejectUnauthorized: false });
+  }
+
+  return undefined;
+}
+
 async function fetchJson(url: string, init: RequestInit) {
-  const prev = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-
-  if (isInsecureTlsEnabled() && url.includes("193.95.63.230")) {
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-  }
-
+  const agent = makeAgentFor(url);
+  const res = await fetch(url, { ...init, agent } as any);
+  const text = await res.text();
+  let json: any = null;
   try {
-    const res = await fetch(url, init);
-    const text = await res.text();
-    let json: any = null;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      json = null;
-    }
-    return { res, text, json };
-  } finally {
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = prev;
+    json = JSON.parse(text);
+  } catch {
+    json = null;
   }
+  return { res, text, json };
 }
 
 export function digigoAuthorizeUrl(args: {
@@ -117,7 +125,7 @@ export function digigoAuthorizeUrl(args: {
   const cid = ensure(clientId(), "DIGIGO_CLIENT_ID");
   const ru = ensure(redirectUri(), "DIGIGO_REDIRECT_URI");
 
-  const url = new URL("/oauth2/authorize", b);
+  const url = new URL("/tunsign-proxy-webapp/oauth2/authorize", b);
   url.search = qs({
     redirectUri: ru,
     responseType: "code",
@@ -144,9 +152,9 @@ export async function digigoOauthToken(params: {
   const code = ensure(s(params.code), "CODE");
 
   const url = new URL(
-    `/oauth2/token/${encodeURIComponent(cid)}/authorization_code/${encodeURIComponent(secret)}/${encodeURIComponent(
-      code
-    )}`,
+    `/tunsign-proxy-webapp/oauth2/token/${encodeURIComponent(cid)}/authorization_code/${encodeURIComponent(
+      secret
+    )}/${encodeURIComponent(code)}`,
     b
   );
 
@@ -181,7 +189,9 @@ export async function digigoSignHash(params: {
   if (!hashes.length) return { ok: false as const, error: "HASHES_MISSING" };
 
   const url = new URL(
-    `/signHash/${encodeURIComponent(cid)}/${encodeURIComponent(credentialId)}/${encodeURIComponent(sad)}`,
+    `/tunsign-proxy-webapp/signHash/${encodeURIComponent(cid)}/${encodeURIComponent(credentialId)}/${encodeURIComponent(
+      sad
+    )}`,
     b
   );
 
