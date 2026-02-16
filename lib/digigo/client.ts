@@ -1,141 +1,82 @@
-"use client";
+import crypto from "crypto";
 
-function s(v: any) {
-  return String(v ?? "").trim();
+function env(name: string, fallback = "") {
+  return String(process.env[name] ?? fallback).trim();
 }
 
-async function readJsonOrText(res: Response) {
-  const txt = await res.text().catch(() => "");
-  let j: any = null;
-  try {
-    j = txt ? JSON.parse(txt) : null;
-  } catch {
-    j = null;
-  }
-  return { j, txt };
+export function digigoBaseUrl() {
+  return env("DIGIGO_BASE_URL").replace(/\/$/, "");
 }
 
-export type DigigoStartResponse =
-  | { ok: true; authorize_url: string; state: string; invoice_id?: string; redirect?: string }
-  | { ok: false; error: string; message?: string; details?: any };
-
-export async function digigoStart(args: {
-  invoice_id: string;
-  back_url?: string;
-  environment?: "test" | "production";
-}): Promise<DigigoStartResponse> {
-  const res = await fetch("/api/digigo/start", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    credentials: "include",
-    cache: "no-store",
-    body: JSON.stringify({
-      invoice_id: s(args.invoice_id),
-      back_url: s(args.back_url || ""),
-      environment: s(args.environment || ""),
-    }),
-  });
-
-  const { j, txt } = await readJsonOrText(res);
-
-  if (!res.ok || !j?.ok) {
-    return {
-      ok: false,
-      error: s(j?.error || `HTTP_${res.status}`),
-      message: s(j?.message || txt || ""),
-      details: j?.details,
-    };
-  }
-
-  return {
-    ok: true,
-    authorize_url: s(j?.authorize_url || ""),
-    state: s(j?.state || ""),
-    invoice_id: s(j?.invoice_id || ""),
-    redirect: s(j?.redirect || ""),
-  };
+export function digigoProxyBaseUrl() {
+  return `${digigoBaseUrl()}/tunsign-proxy-webapp`;
 }
 
-export function digigoRedirectToAuthorize(authorizeUrl: string) {
-  const url = s(authorizeUrl);
-  if (!url) throw new Error("AUTHORIZE_URL_MISSING");
-  window.location.assign(url);
+export function digigoClientId() {
+  return env("DIGIGO_CLIENT_ID");
 }
 
-function ssSet(key: string, value: string) {
-  try {
-    if (typeof window === "undefined") return;
-    sessionStorage.setItem(key, value);
-  } catch {}
+export function digigoClientSecret() {
+  return env("DIGIGO_CLIENT_SECRET");
 }
 
-export async function digigoStartAndRedirect(args: {
-  invoice_id: string;
-  back_url?: string;
-  environment?: "test" | "production";
-}) {
-  const r = await digigoStart(args);
-  if (!r.ok) return r;
+export function digigoRedirectUri() {
+  const forced = env("DIGIGO_REDIRECT_URI_FORCE");
+  if (forced) return forced;
 
-  ssSet("digigo_invoice_id", s(args.invoice_id));
-  ssSet("digigo_back_url", s(args.back_url || ""));
-  ssSet("digigo_state", s((r as any).state || ""));
+  const configured = env("DIGIGO_REDIRECT_URI");
+  if (configured) return configured;
 
-  digigoRedirectToAuthorize(r.authorize_url);
-  return r;
+  return "https://facturetn-crm-iota.vercel.app/digigo/redirect";
 }
 
-export function digigoParseRedirectParams(input?: { search?: string; hash?: string }) {
-  const search = typeof input?.search === "string" ? input.search : window.location.search || "";
-  const hash = typeof input?.hash === "string" ? input.hash : window.location.hash || "";
-
-  const qs = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
-  const hs = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
-
-  const token = s(qs.get("token") || hs.get("token") || qs.get("access_token") || hs.get("access_token") || "");
-  const code = s(qs.get("code") || hs.get("code") || "");
-  const state = s(qs.get("state") || hs.get("state") || "");
-  const invoice_id = s(qs.get("invoice_id") || hs.get("invoice_id") || "");
-  const back_url = s(qs.get("back_url") || hs.get("back_url") || qs.get("back") || hs.get("back") || "");
-
-  return { token, code, state, invoice_id, back_url };
+export function digigoGrantType() {
+  return env("DIGIGO_GRANT_TYPE", "authorization_code");
 }
 
-export type DigigoConfirmResponse =
-  | { ok: true; redirect?: string }
-  | { ok: false; error: string; message?: string; details?: any };
+export function digigoAllowInsecure() {
+  return env("DIGIGO_ALLOW_INSECURE", "true").toLowerCase() === "true";
+}
 
-export async function digigoConfirm(args: {
-  token?: string;
-  code?: string;
+export function ttnProxyUrl() {
+  return env("TTN_PROXY_URL");
+}
+
+export function sha256Base64Utf8(input: string): string {
+  return crypto.createHash("sha256").update(input, "utf8").digest("base64");
+}
+
+type DigigoAuthorizeArgs = {
+  credentialId: string;
+  hashBase64: string;
+  numSignatures?: number;
   state?: string;
-  invoice_id?: string;
-  back_url?: string;
-}) {
-  const res = await fetch("/api/digigo/confirm", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    credentials: "include",
-    cache: "no-store",
-    body: JSON.stringify({
-      token: s(args.token || ""),
-      code: s(args.code || ""),
-      state: s(args.state || ""),
-      invoice_id: s(args.invoice_id || ""),
-      back_url: s(args.back_url || ""),
-    }),
-  });
+};
 
-  const { j, txt } = await readJsonOrText(res);
+export function digigoAuthorizeUrl(args: DigigoAuthorizeArgs): string {
+  const redirectUri = digigoRedirectUri();
+  const clientId = digigoClientId();
 
-  if (!res.ok || !j?.ok) {
-    return {
-      ok: false,
-      error: s(j?.error || `HTTP_${res.status}`),
-      message: s(j?.message || txt || ""),
-      details: j?.details,
-    };
-  }
+  const credentialId = String(args.credentialId || "").trim();
+  const hash = String(args.hashBase64 || "").trim();
+  const numSignatures = Number.isFinite(args.numSignatures as number) ? String(args.numSignatures) : "1";
 
-  return { ok: true, redirect: s(j?.redirect || "") };
+  if (!redirectUri) throw new Error("DIGIGO_REDIRECT_URI missing");
+  if (!clientId) throw new Error("DIGIGO_CLIENT_ID missing");
+  if (!credentialId) throw new Error("credentialId missing");
+  if (!hash) throw new Error("hashBase64 missing");
+
+  const u = new URL(`${digigoProxyBaseUrl()}/oauth2/authorize`);
+
+  u.searchParams.set("redirectUri", redirectUri);
+  u.searchParams.set("responseType", "code");
+  u.searchParams.set("scope", "credential");
+  u.searchParams.set("credentialId", credentialId);
+  u.searchParams.set("clientId", clientId);
+  u.searchParams.set("numSignatures", numSignatures);
+  u.searchParams.set("hash", hash);
+
+  if (args.state) u.searchParams.set("state", String(args.state));
+
+  return u.toString();
 }
