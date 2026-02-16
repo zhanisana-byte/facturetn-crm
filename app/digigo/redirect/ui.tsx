@@ -21,8 +21,8 @@ export default function DigiGoRedirectUI() {
     return fromQuery || fromPath;
   }, [sp, params]);
 
-  const invoice_id = useMemo(() => s(sp.get("invoice_id") || ""), [sp]);
-  const back_url = useMemo(() => s(sp.get("back_url") || sp.get("back") || ""), [sp]);
+  const invoice_id_qs = useMemo(() => s(sp.get("invoice_id") || ""), [sp]);
+  const back_url_qs = useMemo(() => s(sp.get("back_url") || sp.get("back") || ""), [sp]);
 
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
   const [message, setMessage] = useState<string>("");
@@ -31,20 +31,41 @@ export default function DigiGoRedirectUI() {
     let cancelled = false;
 
     async function run() {
-      if (!token) {
+      if (!token && !code) {
         setStatus("error");
-        setMessage("Token DigiGo manquant.");
+        setMessage("Paramètre DigiGo manquant.");
         return;
       }
 
       try {
+        let invoice_id = invoice_id_qs;
+        let back_url = back_url_qs;
+
+        const cb = await fetch("/api/digigo/callback", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ state, invoice_id, back_url }),
+          cache: "no-store",
+          credentials: "include",
+        });
+
+        const cbj = await cb.json().catch(() => null);
+        if (!cb.ok) {
+          setStatus("error");
+          setMessage(String(cbj?.error || cbj?.message || `Erreur ${cb.status}`));
+          return;
+        }
+
+        invoice_id = s(cbj?.invoice_id || invoice_id);
+        back_url = s(cbj?.back_url || back_url);
+
         const r = await fetch("/api/digigo/confirm", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             token,
             code,
-            state,
+            state: s(cbj?.state || state),
             invoice_id,
             back_url,
           }),
@@ -79,7 +100,7 @@ export default function DigiGoRedirectUI() {
     return () => {
       cancelled = true;
     };
-  }, [token, code, state, invoice_id, back_url, router]);
+  }, [token, code, state, invoice_id_qs, back_url_qs, router]);
 
   return (
     <div
