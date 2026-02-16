@@ -14,6 +14,35 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
+function ymdYear(v: any) {
+  const t = String(v ?? "").trim();
+  const m = t.match(/^(\d{4})-\d{2}-\d{2}$/);
+  return m ? m[1] : String(new Date().getFullYear());
+}
+
+function makeInvoiceNumber(invoice: any) {
+  const year = ymdYear(invoice?.issue_date);
+  const tail = String(invoice?.id ?? "").replace(/-/g, "").slice(0, 6).toUpperCase();
+  return `FACT-${year}-${tail || "000000"}`;
+}
+
+async function ensureInvoiceNumber(service: any, invoice: any) {
+  const current = String(invoice?.invoice_number ?? "").trim();
+  if (current) return current;
+
+  const fallback = makeInvoiceNumber(invoice);
+
+  const upd = await service
+    .from("invoices")
+    .update({ invoice_number: fallback })
+    .eq("id", invoice.id)
+    .select("invoice_number")
+    .single();
+
+  const saved = String(upd.data?.invoice_number ?? "").trim();
+  return saved || fallback;
+}
+
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
@@ -75,15 +104,18 @@ export async function POST(req: Request) {
 
     const allowed =
       (await canCompanyAction(supabase, auth.user.id, company_id, "validate_invoices" as any)) ||
-      (await canCompanyAction(supabase, auth.user.id, company_id, "submit_ttn" as any));
+      (await canCompanyAction(supabase, auth.user.id, company_id, "submit_ttn" as any)) ||
+      (await canCompanyAction(supabase, auth.user.id, company_id, "create_invoices" as any));
 
     if (!allowed) {
       return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
     }
 
-    if (!s(invoice.invoice_number)) {
+    const invoice_number = await ensureInvoiceNumber(service, invoice);
+    if (!invoice_number) {
       return NextResponse.json({ ok: false, error: "INVOICE_NUMBER_MISSING" }, { status: 400 });
     }
+    invoice.invoice_number = invoice_number;
 
     if (!invoice.issue_date) {
       return NextResponse.json({ ok: false, error: "ISSUE_DATE_MISSING" }, { status: 400 });
@@ -94,64 +126,103 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "NO_ITEMS" }, { status: 400 });
     }
 
-    const unsigned_xml = buildTeifInvoiceXml({
-      invoiceId: invoice_id,
-      invoice,
-      items: items.data,
-      purpose: "ttn",
-    } as any);
-
-    if (Buffer.byteLength(unsigned_xml, "utf8") > MAX_TEIF_BYTES) {
-      return NextResponse.json({ ok: false, error: "TEIF_XML_TOO_LARGE" }, { status: 400 });
+    const comp = await service.from("companies").select("*").eq("id", company_id).single();
+    if (!comp.data) {
+      return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
     }
 
-    const unsigned_hash = sha256Base64Utf8(unsigned_xml);
-
     const credRes = await resolveCredForCompany(service, company_id, env);
-    if (!credRes.data || s((credRes.data as any).signature_provider) !== "digigo") {
+    const cred: any = credRes.data;
+
+    if (!cred || cred.signature_provider !== "digigo") {
       return NextResponse.json({ ok: false, error: "DIGIGO_NOT_CONFIGURED" }, { status: 400 });
     }
 
-    const cfg =
-      (credRes.data as any)?.signature_config && typeof (credRes.data as any).signature_config === "object"
-        ? (credRes.data as any).signature_config
-        : {};
-
-    const credentialId = s(
-      cfg.digigo_signer_email || cfg.credentialId || cfg.signer_email || (credRes.data as any)?.cert_email
-    );
-
+    const cfg = cred.signature_config && typeof cred.signature_config === "object" ? cred.signature_config : {};
+    const credentialId = s(cfg.digigo_signer_email || cred.cert_email);
     if (!credentialId) {
-      return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "DIGIGO_EMAIL_MISSING" }, { status: 400 });
     }
 
-    const state = crypto.randomUUID();
+    const unsigned_xml = buildTeifInvoiceXml({
+      invoiceId: invoice_id,
+      company: {
+        name: s(comp.data.company_name),
+        taxId: s(comp.data.tax_id),
+        address: s(comp.data.address),
+        city: s(comp.data.city),
+        postalCode: s(comp.data.postal_code),
+        country: "TN",
+      },
+      invoice: {
+        documentType: invoice.document_type,
+        number: invoice.invoice_number,
+        issueDate: invoice.issue_date,
+        dueDate: invoice.due_date,
+        currency: invoice.currency,
+        customerName: invoice.customer_name,
+        customerTaxId: invoice.customer_tax_id,
+        customerEmail: invoice.customer_email,
+        customerAddress: invoice.customer_address,
+      },
+      totals: {
+        ht: Number(invoice.subtotal_ht ?? 0),
+        tva: Number(invoice.total_vat ?? 0),
+        ttc: Number(invoice.total_ttc ?? 0),
+        stampEnabled: !!invoice.stamp_enabled,
+        stampAmount: Number(invoice.stamp_amount ?? 0),
+      },
+      items: items.data.map((it: any) => ({
+        description: it.description,
+        qty: Number(it.quantity ?? 0),
+        price: Number(it.unit_price_ht ?? 0),
+        vat: Number(it.vat_pct ?? 0),
+      })),
+      purpose: "ttn",
+    } as any);
 
-    await service.from("invoice_signatures").upsert(
-      {
+    const teifBytes = Buffer.byteLength(unsigned_xml, "utf8");
+    if (teifBytes > MAX_TEIF_BYTES) {
+      return NextResponse.json({ ok: false, error: "TEIF_TOO_LARGE" }, { status: 400 });
+    }
+
+    const hash = sha256Base64Utf8(unsigned_xml);
+
+    await service.from("invoice_signatures").upsert({
+      invoice_id,
+      provider: "digigo",
+      state: "pending",
+      unsigned_xml,
+      unsigned_hash: hash,
+      signer_user_id: auth.user.id,
+      meta: { credentialId, environment: s(cred.environment || env) },
+    });
+
+    const state = crypto.randomUUID();
+    const expires_at = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    const final_back_url = back_url || `/invoices/${invoice_id}`;
+
+    const sessIns = await service
+      .from("digigo_sign_sessions")
+      .insert({
+        state,
         invoice_id,
         company_id,
-        provider: "digigo",
-        state: "pending",
-        unsigned_xml,
-        unsigned_hash,
-        signer_user_id: auth.user.id,
-        environment: env,
-        meta: { environment: env },
-      },
-      { onConflict: "invoice_id" }
-    );
+        created_by: auth.user.id,
+        back_url: final_back_url,
+        status: "pending",
+        expires_at,
+        environment: s(cred.environment || env),
+      })
+      .select("id")
+      .maybeSingle();
 
-    await service.from("digigo_sign_sessions").insert({
-      state,
-      invoice_id,
-      company_id,
-      created_by: auth.user.id,
-      status: "pending",
-      back_url: back_url || null,
-      environment: env,
-      expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-    });
+    if (sessIns.error) {
+      return NextResponse.json(
+        { ok: false, error: "SESSION_CREATE_FAILED", details: sessIns.error.message },
+        { status: 500 }
+      );
+    }
 
     const origin = requestOrigin(req);
     if (!origin) {
@@ -160,23 +231,22 @@ export async function POST(req: Request) {
 
     const redirectUri = `${origin}/digigo/redirect`;
 
-    cookieStore.set("digigo_state", state, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 1800 });
-    cookieStore.set("digigo_invoice_id", invoice_id, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 1800 });
-    cookieStore.set("digigo_back_url", back_url || "/invoices", { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 1800 });
-    cookieStore.set("digigo_redirect_uri", redirectUri, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 1800 });
-
     const authorize_url = digigoAuthorizeUrl({
       credentialId,
-      hashBase64: unsigned_hash,
+      hashBase64: hash,
       redirectUri,
       numSignatures: 1,
     });
 
-    return NextResponse.json({ ok: true, state, authorize_url, redirectUri });
+    const res = NextResponse.json({ ok: true, authorize_url, state, redirectUri }, { status: 200 });
+
+    cookieStore.set("digigo_state", state, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 1800 });
+    cookieStore.set("digigo_invoice_id", invoice_id, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 1800 });
+    cookieStore.set("digigo_back_url", final_back_url, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 1800 });
+    cookieStore.set("digigo_redirect_uri", redirectUri, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 1800 });
+
+    return res;
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: "INTERNAL_ERROR", message: String(e?.message || e) },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "UNKNOWN_ERROR", message: s(e?.message) }, { status: 500 });
   }
 }
