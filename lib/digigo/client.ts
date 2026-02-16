@@ -1,8 +1,3 @@
-Remplace complètement :
-
-`lib/digigo/client.ts`
-
-```ts
 "use client";
 
 type Json = any;
@@ -134,4 +129,3 @@ export async function digigoConfirm(args: {
 
   return { ok: true, redirect: s(j?.redirect || "") } as DigigoConfirmResponse;
 }
-```
