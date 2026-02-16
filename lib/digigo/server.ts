@@ -1,5 +1,4 @@
 import crypto from "crypto";
-import { Agent, ProxyAgent } from "undici";
 
 type DigigoEnv = "test" | "production";
 
@@ -75,31 +74,35 @@ export function jwtGetJti(token: string): string {
   }
 }
 
-function getDispatcher(env: DigigoEnv) {
-  const proxy = s(process.env.DIGIGO_PROXY_URL || process.env.HTTPS_PROXY || process.env.HTTP_PROXY || "");
-  if (proxy) return new ProxyAgent(proxy);
-
+function shouldInsecureTls(env: DigigoEnv, url: string) {
   const insecure =
     s(process.env.DIGIGO_INSECURE_TLS || "") === "1" ||
     s(process.env.DIGIGO_INSECURE_TLS || "").toLowerCase() === "true";
-
-  if (env === "test" && insecure) {
-    return new Agent({ connect: { rejectUnauthorized: false } });
-  }
-
-  return undefined;
+  if (!insecure) return false;
+  if (env !== "test") return false;
+  return url.includes("193.95.63.230");
 }
 
-async function fetchText(url: string, init: any) {
-  const res = await fetch(url, init);
-  const text = await res.text();
-  let json: any = null;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    json = null;
+async function fetchJson(url: string, init: RequestInit) {
+  const prev = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+
+  if (shouldInsecureTls(pickEnv(process.env.DIGIGO_ENV), url)) {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
   }
-  return { res, text, json };
+
+  try {
+    const res = await fetch(url, init);
+    const text = await res.text();
+    let json: any = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = null;
+    }
+    return { res, text, json };
+  } finally {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = prev;
+  }
 }
 
 export function digigoAuthorizeUrl(args: {
@@ -147,12 +150,9 @@ export async function digigoOauthToken(params: {
     b
   );
 
-  const dispatcher = getDispatcher(env);
-
-  const { res, text, json } = await fetchText(url.toString(), {
+  const { res, text, json } = await fetchJson(url.toString(), {
     method: "POST",
     headers: { Accept: "application/json" },
-    dispatcher,
   });
 
   if (!res.ok) {
@@ -187,13 +187,10 @@ export async function digigoSignHash(params: {
     b
   );
 
-  const dispatcher = getDispatcher(env);
-
-  const { res, text, json } = await fetchText(url.toString(), {
+  const { res, text, json } = await fetchJson(url.toString(), {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ hashes }),
-    dispatcher,
   });
 
   if (!res.ok) {
