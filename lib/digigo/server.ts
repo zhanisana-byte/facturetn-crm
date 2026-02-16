@@ -100,6 +100,7 @@ export async function digigoAuthorizeUrl(params: {
 }
 
 export async function digigoOauthToken(params: {
+  credentialId?: string;
   code: string;
   environment?: DigigoEnv;
 }) {
