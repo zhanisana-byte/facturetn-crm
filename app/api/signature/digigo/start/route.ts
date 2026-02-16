@@ -1,59 +1,106 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import crypto from "crypto";
-import { createServiceClient } from "@/lib/supabase/service";
-import { digigoAuthorizeUrl } from "@/lib/digigo/server";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+import { createClient } from "@/lib/supabase/server";
+import { digigoAuthorizeUrl, sha256Base64Utf8 } from "@/lib/digigo/server";
 
 function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function addMinutes(min: number) {
-  return new Date(Date.now() + min * 60 * 1000).toISOString();
-}
-
 function uuid() {
-  if (crypto.randomUUID) return crypto.randomUUID();
-  return crypto.randomBytes(16).toString("hex");
+  return crypto.randomUUID();
 }
 
 export async function POST(req: Request) {
-  const cookieStore = await cookies();
-  const service = createServiceClient();
+  try {
+    const cookieStore = await cookies();
+    const body = await req.json().catch(() => ({}));
 
-  const body = await req.json().catch(() => ({}));
-  const invoice_id = s(body?.invoice_id || body?.invoiceId || "");
-  const back_url = s(body?.back_url || body?.backUrl || body?.back || "");
-  const environment = s(body?.environment || "test") || "test";
-  const created_by = s(body?.created_by || body?.user_id || "");
+    const invoice_id = s(body?.invoice_id);
+    const back_url = s(body?.back_url || "");
+    const environment = s(body?.environment || "");
 
-  if (!invoice_id) return NextResponse.json({ ok: false, error: "INVOICE_ID_MISSING" }, { status: 400 });
+    if (!invoice_id) {
+      return NextResponse.json({ ok: false, error: "BAD_REQUEST" }, { status: 400 });
+    }
 
-  const inv = await service.from("invoices").select("id, company_id").eq("id", invoice_id).maybeSingle();
-  if (!inv.data?.id) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
+    const supabase = await createClient();
 
-  const state = uuid();
+    const sig = await supabase
+      .from("invoice_signatures")
+      .select("unsigned_xml, unsigned_hash")
+      .eq("invoice_id", invoice_id)
+      .maybeSingle();
 
-  await service.from("digigo_sign_sessions").insert({
-    state,
-    invoice_id,
-    company_id: inv.data.company_id,
-    created_by: created_by || null,
-    status: "pending",
-    environment,
-    expires_at: addMinutes(10),
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  });
+    const unsigned_xml = s(sig.data?.unsigned_xml || "");
+    let unsigned_hash = s(sig.data?.unsigned_hash || "");
 
-  cookieStore.set("digigo_state", state, { path: "/", httpOnly: true, sameSite: "lax", secure: true, maxAge: 600 });
-  cookieStore.set("digigo_invoice_id", invoice_id, { path: "/", httpOnly: true, sameSite: "lax", secure: true, maxAge: 600 });
-  cookieStore.set("digigo_back_url", back_url, { path: "/", httpOnly: true, sameSite: "lax", secure: true, maxAge: 600 });
+    if (!unsigned_hash && unsigned_xml) {
+      unsigned_hash = sha256Base64Utf8(unsigned_xml);
+    }
 
-  const authorize_url = digigoAuthorizeUrl({ state });
+    if (!unsigned_hash) {
+      return NextResponse.json(
+        { ok: false, error: "UNSIGNED_HASH_MISSING" },
+        { status: 400 }
+      );
+    }
 
-  return NextResponse.json({ ok: true, authorize_url, state, invoice_id, redirect: "/digigo/redirect" });
+    const state = uuid();
+
+    cookieStore.set("digigo_state", state, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: true,
+      maxAge: 600,
+    });
+
+    cookieStore.set("digigo_invoice_id", invoice_id, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: true,
+      maxAge: 600,
+    });
+
+    if (back_url) {
+      cookieStore.set("digigo_back_url", back_url, {
+        path: "/",
+        httpOnly: true,
+        sameSite: "lax",
+        secure: true,
+        maxAge: 600,
+      });
+    }
+
+    if (environment) {
+      cookieStore.set("digigo_environment", environment, {
+        path: "/",
+        httpOnly: true,
+        sameSite: "lax",
+        secure: true,
+        maxAge: 600,
+      });
+    }
+
+    const authorize_url = digigoAuthorizeUrl({
+      state,
+      hash: unsigned_hash,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      authorize_url,
+      state,
+      invoice_id,
+      redirect: "/digigo/redirect",
+    });
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: "START_FAILED", message: e?.message || "" },
+      { status: 500 }
+    );
+  }
 }
