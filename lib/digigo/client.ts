@@ -62,6 +62,13 @@ export function digigoRedirectToAuthorize(authorizeUrl: string) {
   window.location.assign(url);
 }
 
+function ssSet(key: string, value: string) {
+  try {
+    if (typeof window === "undefined") return;
+    sessionStorage.setItem(key, value);
+  } catch {}
+}
+
 export async function digigoStartAndRedirect(args: {
   invoice_id: string;
   back_url?: string;
@@ -70,13 +77,9 @@ export async function digigoStartAndRedirect(args: {
   const r = await digigoStart(args);
   if (!r.ok) return r;
 
-  try {
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem("digigo_invoice_id", String(args.invoice_id || ""));
-      sessionStorage.setItem("digigo_back_url", String(args.back_url || ""));
-      sessionStorage.setItem("digigo_state", String((r as any).state || ""));
-    }
-  } catch {}
+  ssSet("digigo_invoice_id", s(args.invoice_id));
+  ssSet("digigo_back_url", s(args.back_url || ""));
+  ssSet("digigo_state", s((r as any).state || ""));
 
   digigoRedirectToAuthorize(r.authorize_url);
   return r;
@@ -126,7 +129,12 @@ export async function digigoConfirm(args: {
   const { j, txt } = await readJsonOrText(res);
 
   if (!res.ok || !j?.ok) {
-    return { ok: false, error: s(j?.error || `HTTP_${res.status}`), message: s(j?.message || txt || ""), details: j?.details };
+    return {
+      ok: false,
+      error: s(j?.error || `HTTP_${res.status}`),
+      message: s(j?.message || txt || ""),
+      details: j?.details,
+    };
   }
 
   return { ok: true, redirect: s(j?.redirect || "") };
