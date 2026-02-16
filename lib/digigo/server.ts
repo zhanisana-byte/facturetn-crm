@@ -1,83 +1,94 @@
+// lib/digigo/server.ts
 import crypto from "crypto";
+
+type DigigoEnv = "test" | "production";
 
 function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function env(name: string, fallback = "") {
-  return s(process.env[name] ?? fallback);
+function pickEnv(explicit?: any): DigigoEnv {
+  const e = s(explicit).toLowerCase();
+  if (e === "production" || e === "prod") return "production";
+  return "test";
 }
 
-function baseUrl() {
-  const raw = env("DIGIGO_BASE_URL", "https://193.95.63.230").replace(/\/+$/, "");
-  if (raw.includes("/tunsign-proxy-webapp")) return raw;
-  return raw + "/tunsign-proxy-webapp";
+function baseUrl(env?: DigigoEnv) {
+  const e = env ?? pickEnv(process.env.DIGIGO_ENV);
+  const prod =
+    s(process.env.DIGIGO_PROD_BASE_URL) ||
+    s(process.env.DIGIGO_BASE_URL_PROD) ||
+    s(process.env.DIGIGO_BASE_URL);
+  const test =
+    s(process.env.DIGIGO_TEST_BASE_URL) ||
+    s(process.env.DIGIGO_BASE_URL_TEST) ||
+    s(process.env.DIGIGO_BASE_URL);
+  return (e === "production" ? prod : test) || "";
 }
 
 function clientId() {
-  const v = env("DIGIGO_CLIENT_ID");
-  if (!v) throw new Error("DIGIGO_CLIENT_ID_MISSING");
-  return v;
+  return (
+    s(process.env.DIGIGO_CLIENT_ID) ||
+    s(process.env.NEXT_PUBLIC_DIGIGO_CLIENT_ID) ||
+    ""
+  );
 }
 
 function clientSecret() {
-  const v = env("DIGIGO_CLIENT_SECRET");
-  if (!v) throw new Error("DIGIGO_CLIENT_SECRET_MISSING");
-  return v;
+  return s(process.env.DIGIGO_CLIENT_SECRET) || "";
 }
 
 function redirectUri() {
-  const forced = env("DIGIGO_REDIRECT_URI_FORCE");
-  if (forced) return forced;
-  const v = env("DIGIGO_REDIRECT_URI");
-  if (v) return v;
-  return "https://facturetn-crm-iota.vercel.app/digigo/redirect";
+  return (
+    s(process.env.DIGIGO_REDIRECT_URI) ||
+    s(process.env.NEXT_PUBLIC_DIGIGO_REDIRECT_URI) ||
+    s(process.env.NEXT_PUBLIC_BASE_URL) ||
+    ""
+  );
 }
 
-function allowInsecure() {
-  return env("DIGIGO_ALLOW_INSECURE", "false").toLowerCase() === "true";
+function scope() {
+  return s(process.env.DIGIGO_SCOPE) || "sign";
 }
 
-function timeoutMs() {
-  const v = Number(env("DIGIGO_TIMEOUT_MS", "20000"));
-  return Number.isFinite(v) && v > 0 ? v : 20000;
+function grantType() {
+  return s(process.env.DIGIGO_GRANT_TYPE) || "authorization_code";
 }
 
-async function fetchJson(url: string, init: RequestInit) {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), timeoutMs());
+function ensure(v: string, name: string) {
+  if (!v) throw new Error(`${name}_MISSING`);
+  return v;
+}
 
-  const prevTls = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-  const insecure = allowInsecure();
-
-  try {
-    if (insecure) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-
-    const res = await fetch(url, { ...init, signal: controller.signal });
-    const txt = await res.text().catch(() => "");
-
-    let data: any = null;
-    try {
-      data = txt ? JSON.parse(txt) : null;
-    } catch {
-      data = txt;
-    }
-
-    return { ok: res.ok, status: res.status, data };
-  } finally {
-    if (insecure) {
-      if (prevTls === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-      else process.env.NODE_TLS_REJECT_UNAUTHORIZED = prevTls;
-    }
-    clearTimeout(t);
+function q(params: Record<string, string | number | undefined>) {
+  const usp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined) continue;
+    usp.set(k, String(v));
   }
+  return usp.toString();
 }
 
 export function sha256Base64Utf8(input: string) {
-  return crypto
-    .createHash("sha256")
-    .update(Buffer.from(String(input ?? ""), "utf8"))
-    .digest("base64");
+  return crypto.createHash("sha256").update(input, "utf8").digest("base64");
+}
+
+function base64UrlDecodeToString(b64url: string) {
+  const pad = b64url.length % 4 === 0 ? "" : "=".repeat(4 - (b64url.length % 4));
+  const b64 = (b64url + pad).replace(/-/g, "+").replace(/_/g, "/");
+  return Buffer.from(b64, "base64").toString("utf8");
+}
+
+export function jwtGetJti(token: string): string {
+  const t = s(token);
+  const parts = t.split(".");
+  if (parts.length < 2) return "";
+  try {
+    const payload = JSON.parse(base64UrlDecodeToString(parts[1]));
+    return s(payload?.jti || payload?.JTI || "");
+  } catch {
+    return "";
+  }
 }
 
 export function digigoAuthorizeUrl(args: {
@@ -85,109 +96,116 @@ export function digigoAuthorizeUrl(args: {
   hash: string;
   credentialId: string;
   numSignatures?: number;
+  environment?: DigigoEnv;
 }) {
-  const u = new URL(baseUrl() + "/oauth2/authorize");
+  const env = args.environment ?? pickEnv(process.env.DIGIGO_ENV);
+  const b = ensure(baseUrl(env), "DIGIGO_BASE_URL");
+  const cid = ensure(clientId(), "DIGIGO_CLIENT_ID");
+  const ru = ensure(redirectUri(), "DIGIGO_REDIRECT_URI");
 
-  u.searchParams.set("redirectUri", redirectUri());
-  u.searchParams.set("responseType", "code");
-  u.searchParams.set("scope", "credential");
-  u.searchParams.set("credentialId", s(args.credentialId));
-  u.searchParams.set("clientId", clientId());
-  u.searchParams.set("numSignatures", String(args.numSignatures ?? 1));
-  u.searchParams.set("hash", s(args.hash));
-  u.searchParams.set("state", s(args.state));
-
-  return u.toString();
-}
-
-export function jwtGetJti(token: string) {
-  const t = s(token);
-  if (!t) return "";
-  const parts = t.split(".");
-  if (parts.length < 2) return "";
-
-  const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-  const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
-
-  try {
-    const json = Buffer.from(b64 + pad, "base64").toString("utf8");
-    const payload = JSON.parse(json);
-    return s(payload?.jti);
-  } catch {
-    return "";
-  }
-}
-
-export async function digigoOauthToken(params: { code: string }) {
-  const url = baseUrl() + "/oauth2/token";
-
-  const body = new URLSearchParams();
-  body.set("grant_type", "authorization_code");
-  body.set("client_id", clientId());
-  body.set("client_secret", clientSecret());
-  body.set("redirect_uri", redirectUri());
-  body.set("code", s(params.code));
-
-  const r = await fetchJson(url, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body,
+  const url = new URL("/oauth2/authorize", b);
+  url.search = q({
+    response_type: "code",
+    client_id: cid,
+    redirect_uri: ru,
+    scope: scope(),
+    state: args.state,
+    hash: args.hash,
+    credentialId: args.credentialId,
+    numSignatures: args.numSignatures ?? 1,
   });
 
-  if (!r.ok) {
-    const msg = typeof r.data === "string" ? r.data : JSON.stringify(r.data ?? {});
-    return { ok: false as const, status: r.status, error: msg, raw: r.data };
-  }
-
-  return { ok: true as const, ...(r.data || {}) };
+  return url.toString();
 }
 
-export async function digigoSignHash(args: {
-  token: string;
+export async function digigoOauthToken(params: {
+  credentialId: string;
+  code: string;
+  environment?: DigigoEnv;
+}) {
+  const env = params.environment ?? pickEnv(process.env.DIGIGO_ENV);
+  const b = ensure(baseUrl(env), "DIGIGO_BASE_URL");
+  const cid = ensure(clientId(), "DIGIGO_CLIENT_ID");
+  const secret = ensure(clientSecret(), "DIGIGO_CLIENT_SECRET");
+  const gt = grantType();
+  const code = ensure(s(params.code), "CODE");
+
+  const url = new URL(
+    `/oauth2/token/${encodeURIComponent(cid)}/${encodeURIComponent(gt)}/${encodeURIComponent(secret)}/${encodeURIComponent(code)}`,
+    b
+  );
+
+  const res = await fetch(url.toString(), {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+
+  const text = await res.text();
+  let json: any = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
+
+  if (!res.ok) {
+    return { ok: false as const, error: json?.message || json?.error || text || `HTTP_${res.status}` };
+  }
+
+  const sad = s(json?.sad || json?.SAD || json?.access_token || "");
+  if (!sad) return { ok: false as const, error: "SAD_MISSING" };
+
+  return { ok: true as const, sad, raw: json };
+}
+
+export async function digigoSignHash(params: {
   credentialId: string;
   sad: string;
   hashes: string[];
+  environment?: DigigoEnv;
 }) {
-  const token = s(args.token);
-  const credentialId = s(args.credentialId);
-  const sad = s(args.sad);
-  const hashes = Array.isArray(args.hashes) ? args.hashes.map(s).filter(Boolean) : [];
+  const env = params.environment ?? pickEnv(process.env.DIGIGO_ENV);
+  const b = ensure(baseUrl(env), "DIGIGO_BASE_URL");
+  const cid = ensure(clientId(), "DIGIGO_CLIENT_ID");
 
-  if (!token) return { ok: false as const, status: 400, error: "MISSING_TOKEN" };
-  if (!credentialId) return { ok: false as const, status: 400, error: "MISSING_CREDENTIAL_ID" };
-  if (!sad) return { ok: false as const, status: 400, error: "MISSING_SAD" };
-  if (!hashes.length) return { ok: false as const, status: 400, error: "MISSING_HASHES" };
+  const credentialId = ensure(s(params.credentialId), "CREDENTIAL_ID");
+  const sad = ensure(s(params.sad), "SAD");
+  const hashes = Array.isArray(params.hashes) ? params.hashes.map(s).filter(Boolean) : [];
 
-  const url =
-    baseUrl() +
-    `/signatures/signHash/${encodeURIComponent(clientId())}/${encodeURIComponent(
-      credentialId
-    )}/${encodeURIComponent(sad)}/SHA-256/RSA`;
+  if (!hashes.length) return { ok: false as const, error: "HASHES_MISSING" };
 
-  const r = await fetchJson(url, {
+  const url = new URL(
+    `/signHash/${encodeURIComponent(cid)}/${encodeURIComponent(credentialId)}/${encodeURIComponent(sad)}`,
+    b
+  );
+
+  const res = await fetch(url.toString(), {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ hashes }),
   });
 
-  if (!r.ok) {
-    const msg = typeof r.data === "string" ? r.data : JSON.stringify(r.data ?? {});
-    return { ok: false as const, status: r.status, error: msg, raw: r.data };
+  const text = await res.text();
+  let json: any = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
   }
 
-  const d: any = r.data || {};
-  const signature =
-    s(d?.signature) ||
-    s(d?.signatures?.[0]?.signature) ||
-    s(d?.values?.[0]) ||
-    s(d?.value) ||
-    s(d?.data?.signature) ||
-    s(d?.data?.signatures?.[0]?.signature);
-
-  if (!signature) {
-    const dump = typeof r.data === "string" ? r.data : JSON.stringify(r.data ?? {});
-    return { ok: false as const, status: 200, error: dump, raw: d };
+  if (!res.ok) {
+    return { ok: false as const, error: json?.message || json?.error || text || `HTTP_${res.status}` };
   }
 
-  return { ok: true as const, value: signature, raw: d };
+  const value =
+    s(json?.value) ||
+    s(json?.signature) ||
+    s(Array.isArray(json?.signatures) ? json.signatures?.[0] : "") ||
+    s(Array.isArray(json?.values) ? json.values?.[0] : "");
+
+  const algorithm = s(json?.algorithm || json?.alg || "");
+
+  if (!value) return { ok: false as const, error: "SIGNATURE_VALUE_MISSING" };
+
+  return { ok: true as const, value, algorithm, raw: json };
 }
