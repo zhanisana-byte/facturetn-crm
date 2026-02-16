@@ -143,3 +143,23 @@ export async function digigoSignHash(params: { access_token: string; sad: string
 
   return r.data;
 }
+
+export function jwtGetJti(token: string) {
+  const t = String(token ?? "").trim();
+  if (!t) return "";
+
+  const parts = t.split(".");
+  if (parts.length < 2) return "";
+
+  const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+  const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
+  const raw = b64 + pad;
+
+  try {
+    const json = Buffer.from(raw, "base64").toString("utf8");
+    const payload = JSON.parse(json);
+    return String(payload?.jti ?? "").trim();
+  } catch {
+    return "";
+  }
+}
