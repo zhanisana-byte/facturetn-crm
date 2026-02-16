@@ -33,6 +33,22 @@ function extractErr(j: any, txt: string, status: number) {
   return base;
 }
 
+function ssGet(key: string) {
+  try {
+    if (typeof window === "undefined") return "";
+    return s(sessionStorage.getItem(key) || "");
+  } catch {
+    return "";
+  }
+}
+
+function ssDel(key: string) {
+  try {
+    if (typeof window === "undefined") return;
+    sessionStorage.removeItem(key);
+  } catch {}
+}
+
 export default function DigiGoRedirectUI() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -66,10 +82,10 @@ export default function DigiGoRedirectUI() {
 
         const token = tokenQ || tokenH;
         const code = codeQ || codeH;
-        const state = stateQ || stateH;
 
-        const invoice_id = invoice_idQ;
-        const back_url = back_urlQ;
+        const state = stateQ || stateH || ssGet("digigo_state");
+        const invoice_id = invoice_idQ || ssGet("digigo_invoice_id");
+        const back_url = back_urlQ || ssGet("digigo_back_url");
 
         if (!token && !code) {
           throw new Error("MISSING_TOKEN_OR_CODE");
@@ -88,6 +104,10 @@ export default function DigiGoRedirectUI() {
         if (!res.ok || !j?.ok) {
           throw new Error(extractErr(j, txt, res.status));
         }
+
+        ssDel("digigo_invoice_id");
+        ssDel("digigo_back_url");
+        ssDel("digigo_state");
 
         const redirect = s(j?.redirect || back_url || "/");
         if (!cancelled) router.replace(redirect);
