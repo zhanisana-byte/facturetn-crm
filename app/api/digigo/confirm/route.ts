@@ -55,7 +55,6 @@ async function resolveCredForCompany(service: any, company_id: string, env: stri
 
 async function findLastPendingSession(service: any) {
   const nowIso = new Date().toISOString();
-
   const r = await service
     .from("digigo_sign_sessions")
     .select("*")
@@ -64,7 +63,6 @@ async function findLastPendingSession(service: any) {
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-
   return r.data || null;
 }
 
@@ -117,7 +115,6 @@ export async function POST(req: Request) {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-
       if (lastRes.data?.id) {
         session = lastRes.data;
         state = state || s(session.state);
@@ -171,14 +168,30 @@ export async function POST(req: Request) {
     }
 
     const sig: any = sigRes.data;
-    const company_id = s(sig.company_id);
-    const env = s(sig.environment || (sig.meta as any)?.environment || session?.environment || "test") || "test";
 
+    let company_id = s(sig.company_id);
+    if (!company_id) {
+      const invRes = await service.from("invoices").select("company_id").eq("id", invoice_id).maybeSingle();
+      company_id = s(invRes.data?.company_id || "");
+    }
+
+    const env = s(sig.environment || (sig.meta as any)?.environment || session?.environment || "test") || "test";
     const unsigned_xml = s(sig.unsigned_xml);
     const unsigned_hash = s(sig.unsigned_hash);
 
     if (!company_id || !unsigned_xml || !unsigned_hash) {
-      return NextResponse.json({ ok: false, error: "INVALID_SIGNATURE_CONTEXT" }, { status: 400 });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "INVALID_SIGNATURE_CONTEXT",
+          details: {
+            has_company_id: !!company_id,
+            has_unsigned_xml: !!unsigned_xml,
+            has_unsigned_hash: !!unsigned_hash,
+          },
+        },
+        { status: 400 }
+      );
     }
 
     const credRes = await resolveCredForCompany(service, company_id, env);
@@ -235,6 +248,8 @@ export async function POST(req: Request) {
     await service
       .from("invoice_signatures")
       .update({
+        company_id,
+        environment: env,
         state: "signed",
         signed_xml,
         signed_hash,
@@ -248,6 +263,7 @@ export async function POST(req: Request) {
             algorithm: s((sign as any).algorithm),
           },
         },
+        updated_at: new Date().toISOString(),
       })
       .eq("invoice_id", invoice_id);
 
