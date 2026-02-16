@@ -1,4 +1,5 @@
 import https from "https";
+import crypto from "crypto";
 
 export type DigigoEnv = "TEST" | "PROD";
 
@@ -32,17 +33,39 @@ function redirectUri() {
   return ensure(process.env.DIGIGO_REDIRECT_URI || "", "DIGIGO_REDIRECT_URI");
 }
 
+function b64urlToUtf8(input: string) {
+  const b64 = input.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
+  return Buffer.from(b64 + pad, "base64").toString("utf8");
+}
+
+export function jwtGetJti(jwt: string) {
+  const t = s(jwt);
+  const parts = t.split(".");
+  if (parts.length < 2) return "";
+  try {
+    const payload = JSON.parse(b64urlToUtf8(parts[1]));
+    return s(payload?.jti || "");
+  } catch {
+    return "";
+  }
+}
+
+export function sha256Base64Utf8(input: string) {
+  return crypto.createHash("sha256").update(String(input ?? ""), "utf8").digest("base64");
+}
+
 async function fetchJson(url: string, init: RequestInit) {
   const allowInsecure = process.env.DIGIGO_INSECURE_TLS === "true";
-  const agent =
-    allowInsecure
-      ? new https.Agent({ rejectUnauthorized: false })
-      : undefined;
+  const agent = allowInsecure ? new https.Agent({ rejectUnauthorized: false }) : undefined;
 
-  const res = await fetch(url, {
-    ...init,
-    agent,
-  } as any);
+  const res = await fetch(
+    url,
+    ({
+      ...init,
+      agent,
+    } as any)
+  );
 
   const text = await res.text();
   let json: any = null;
