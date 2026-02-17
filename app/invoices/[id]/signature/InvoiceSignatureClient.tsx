@@ -28,23 +28,37 @@ export default function InvoiceSignatureClient({ invoiceId, backUrl }: Props) {
         return;
       }
 
-      const safeBackUrl =
-        s(backUrl) || `/invoices/${encodeURIComponent(inv)}`;
+      const safeBackUrl = s(backUrl) || `/invoices/${encodeURIComponent(inv)}`;
 
       const r = await fetch("/api/digigo/start", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          invoice_id: inv,
-          back_url: safeBackUrl,
-        }),
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          "cache-control": "no-store",
+        },
+        body: JSON.stringify({ invoice_id: inv, back_url: safeBackUrl }),
         credentials: "include",
         cache: "no-store",
+        redirect: "manual",
       });
 
-      const raw = await r.text().catch(() => "");
-      let j: any = {};
+      const location = r.headers.get("location") || "";
+      const ct = r.headers.get("content-type") || "";
 
+      const raw = await r.text().catch(() => "");
+
+      if (r.status >= 300 && r.status < 400) {
+        setErr(`REDIRECT_${r.status} -> ${location || "NO_LOCATION"}`);
+        return;
+      }
+
+      if (!ct.toLowerCase().includes("application/json")) {
+        setErr(`NOT_JSON_${r.status} ct=${ct || "none"} body=${raw.slice(0, 180)}...`);
+        return;
+      }
+
+      let j: any = {};
       try {
         j = raw ? JSON.parse(raw) : {};
       } catch {
@@ -52,17 +66,11 @@ export default function InvoiceSignatureClient({ invoiceId, backUrl }: Props) {
       }
 
       if (!r.ok || !j?.ok || !j?.authorize_url) {
-        const msg =
-          s(j?.message) ||
-          s(j?.error) ||
-          raw ||
-          `HTTP_${r.status}`;
-        setErr(msg);
+        setErr(s(j?.message) || s(j?.error) || `HTTP_${r.status}`);
         return;
       }
 
       const authorizeUrl = s(j.authorize_url);
-
       if (!authorizeUrl) {
         setErr("AUTHORIZE_URL_MISSING");
         return;
@@ -84,7 +92,7 @@ export default function InvoiceSignatureClient({ invoiceId, backUrl }: Props) {
         disabled={loading}
         className="ftn-btn w-full sm:w-auto"
       >
-        {loading ? "Redirection…" : "Signer avec DigiGo"}
+        {loading ? "Redirection…" : "Démarrer la signature DigiGo"}
       </button>
 
       {err ? (
