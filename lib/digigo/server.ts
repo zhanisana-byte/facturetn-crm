@@ -31,13 +31,12 @@ export function sha256Base64Utf8(input: string) {
 }
 
 async function fetchJson(url: string, init: RequestInit) {
-  const allowInsecure = process.env.DIGIGO_INSECURE_TLS === "true";
-  const agent = allowInsecure ? new https.Agent({ rejectUnauthorized: false }) : undefined;
+  const agent =
+    process.env.DIGIGO_INSECURE_TLS === "true"
+      ? new https.Agent({ rejectUnauthorized: false })
+      : undefined;
 
-  const res = await fetch(url, {
-    ...init,
-    agent,
-  } as any);
+  const res = await fetch(url, { ...init, agent } as any);
 
   const text = await res.text().catch(() => "");
   let json: any = null;
