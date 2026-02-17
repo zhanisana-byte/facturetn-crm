@@ -1,3 +1,4 @@
+// lib/signature/digigoClient.ts
 import https from "https";
 
 export type DigigoResponse = {
