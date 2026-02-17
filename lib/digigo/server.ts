@@ -92,11 +92,14 @@ export function digigoAuthorizeUrl(params: {
   credentialId: string;
   state: string;
   environment?: DigigoEnv;
+  hash?: string;
+  numSignatures?: number;
 }) {
   const env = params.environment ?? pickEnv(process.env.DIGIGO_ENV);
   const b = baseUrl(env);
   const cid = clientId();
   const ru = redirectUri();
+
   const credentialId = ensure(s(params.credentialId), "CREDENTIAL_ID_MISSING");
   const state = ensure(s(params.state), "STATE_MISSING");
 
@@ -110,10 +113,7 @@ export function digigoAuthorizeUrl(params: {
   );
 }
 
-export async function digigoOauthToken(params: {
-  code: string;
-  environment?: DigigoEnv;
-}) {
+export async function digigoOauthToken(params: { code: string; environment?: DigigoEnv }) {
   const env = params.environment ?? pickEnv(process.env.DIGIGO_ENV);
   const b = baseUrl(env);
   const cid = clientId();
