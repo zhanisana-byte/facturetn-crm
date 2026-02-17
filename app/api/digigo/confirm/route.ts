@@ -53,4 +53,59 @@ export async function POST(req: Request) {
     const sig = sigRes.data;
     if (!sig) return NextResponse.json({ ok: false, error: "SIGNATURE_NOT_FOUND" }, { status: 404 });
 
-    const meta =
+    const meta = (sig as any)?.meta && typeof (sig as any).meta === "object" ? (sig as any).meta : {};
+    const credentialId = s(meta?.credentialId);
+    const unsigned_hash = s((sig as any)?.unsigned_hash);
+
+    if (!credentialId) return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
+    if (!unsigned_hash) return NextResponse.json({ ok: false, error: "UNSIGNED_HASH_MISSING" }, { status: 400 });
+
+    const confirmPayload = {
+      credentialId,
+      state,
+      code,
+      hash: unsigned_hash,
+    };
+
+    const resp = await digigoCall("confirm", confirmPayload);
+
+    if (!resp.ok) {
+      await service
+        .from("invoice_signatures")
+        .update({ state: "failed", error_message: s(resp.error || "CONFIRM_FAILED") })
+        .eq("invoice_id", invoiceId);
+
+      return NextResponse.json(
+        { ok: false, error: "DIGIGO_CONFIRM_FAILED", message: s(resp.error || "Confirm failed"), status: resp.status || 400 },
+        { status: 400 }
+      );
+    }
+
+    const signedHash = s(resp?.data?.signedHash ?? resp?.data?.signed_hash ?? resp?.data?.hash ?? "");
+    const signedXml = s(resp?.data?.signedXml ?? resp?.data?.signed_xml ?? resp?.data?.xml ?? "");
+
+    await service
+      .from("invoice_signatures")
+      .update({
+        state: "signed",
+        signed_at: new Date().toISOString(),
+        signed_hash: signedHash || null,
+        signed_xml: signedXml || null,
+        error_message: null,
+      })
+      .eq("invoice_id", invoiceId);
+
+    await service
+      .from("invoices")
+      .update({
+        signature_status: "signed",
+        signature_provider: "digigo",
+        ttn_signed: true,
+      })
+      .eq("id", invoiceId);
+
+    return NextResponse.json({ ok: true, signed_hash: signedHash }, { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: "UNKNOWN_ERROR", message: e?.message || "Unknown error" }, { status: 500 });
+  }
+}
