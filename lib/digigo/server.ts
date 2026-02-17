@@ -103,14 +103,22 @@ export function digigoAuthorizeUrl(params: {
   const credentialId = ensure(s(params.credentialId), "CREDENTIAL_ID_MISSING");
   const state = ensure(s(params.state), "STATE_MISSING");
 
-  return (
-    `${b}/tunsign-proxy-webapp/oauth2/authorize` +
-    `?responseType=code` +
+  const numSignatures = Number.isFinite(Number(params.numSignatures))
+    ? String(Number(params.numSignatures))
+    : "1";
+
+  const hash = s(params.hash || "");
+
+  const q =
+    `responseType=code` +
     `&clientId=${encodeURIComponent(cid)}` +
     `&redirectUri=${encodeURIComponent(ru)}` +
     `&credentialID=${encodeURIComponent(credentialId)}` +
-    `&state=${encodeURIComponent(state)}`
-  );
+    `&state=${encodeURIComponent(state)}` +
+    `&numSignatures=${encodeURIComponent(numSignatures)}` +
+    (hash ? `&hash=${encodeURIComponent(hash)}` : "");
+
+  return `${b}/tunsign-proxy-webapp/oauth2/authorize?${q}`;
 }
 
 export async function digigoOauthToken(params: { code: string; environment?: DigigoEnv }) {
