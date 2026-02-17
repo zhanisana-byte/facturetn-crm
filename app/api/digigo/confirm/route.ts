@@ -1,16 +1,16 @@
 // app/api/digigo/confirm/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { digigoOauthToken, type DigigoEnv } from "@/lib/digigo";
+import { extractJwtJti, digigoOauthTokenFromJti, type DigigoEnv } from "@/lib/digigo";
 
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const code = url.searchParams.get("code") || "";
+    const token = url.searchParams.get("token") || "";
     const state = url.searchParams.get("state") || "";
 
-    if (!code || !state) {
-      return NextResponse.json({ ok: false, error: "MISSING_CODE_OR_STATE" }, { status: 400 });
+    if (!token || !state) {
+      return NextResponse.json({ ok: false, error: "MISSING_TOKEN_OR_STATE" }, { status: 400 });
     }
 
     const supabase = await createClient();
@@ -36,13 +36,27 @@ export async function GET(req: Request) {
 
     const environment = (sess.environment || "production") as DigigoEnv;
 
-    const tok = await digigoOauthToken({ code, environment });
-    if (!tok.ok) {
-      await supabase.from("digigo_sign_sessions").update({ status: "failed", error_message: tok.error }).eq("id", sess.id);
-      return NextResponse.json({ ok: false, error: tok.error }, { status: 400 });
-    }
+    const { jti } = extractJwtJti(token);
+    const { sad } = await digigoOauthTokenFromJti({ jti });
 
-    await supabase.from("digigo_sign_sessions").update({ status: "started" }).eq("id", sess.id);
+    await supabase
+      .from("digigo_sign_sessions")
+      .update({ status: "started", updated_at: new Date().toISOString() })
+      .eq("id", sess.id);
+
+    await supabase
+      .from("invoice_signatures")
+      .update({
+        meta: {
+          state,
+          environment,
+          jti,
+          sad,
+          tokenJwt: token,
+        },
+        updated_at: new Date().toISOString(),
+      })
+      .eq("invoice_id", sess.invoice_id);
 
     return NextResponse.json({
       ok: true,
