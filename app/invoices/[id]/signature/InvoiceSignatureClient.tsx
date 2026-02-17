@@ -1,54 +1,66 @@
-// app/invoices/[id]/signature/InvoiceSignatureClient.tsx
-async function start() {
-  if (loading) return;
+"use client";
 
-  setErr("");
-  setLoading(true);
+import { useCallback, useState } from "react";
 
-  try {
-    const inv = String(invoiceId ?? "").trim();
-    if (!inv) {
-      setErr("INVOICE_ID_MISSING");
-      return;
-    }
+type Props = {
+  invoiceId: string;
+  environment?: "test" | "production";
+};
 
-    const safeBackUrl = String(backUrl ?? "").trim() || `/invoices/${encodeURIComponent(inv)}`;
+function s(v: any) {
+  return String(v ?? "").trim();
+}
 
-    const r = await fetch("/api/digigo/start", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invoice_id: inv, back_url: safeBackUrl }),
-      credentials: "include",
-      cache: "no-store",
-    });
+export default function InvoiceSignatureClient({ invoiceId, environment = "production" }: Props) {
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
 
-    const raw = await r.text().catch(() => "");
-    let j: any = {};
+  const start = useCallback(async () => {
+    if (loading) return;
+
+    setErr("");
+    setLoading(true);
+
     try {
-      j = raw ? JSON.parse(raw) : {};
-    } catch {
-      j = {};
+      const res = await fetch("/api/signature/digigo/start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ invoice_id: invoiceId, environment }),
+      });
+
+      const j = await res.json().catch(() => ({}));
+
+      if (!res.ok || !j?.ok) {
+        setErr(s(j?.error || j?.message || "START_FAILED"));
+        setLoading(false);
+        return;
+      }
+
+      const url = s(j?.authorize_url);
+      if (!url) {
+        setErr("AUTHORIZE_URL_MISSING");
+        setLoading(false);
+        return;
+      }
+
+      window.location.href = url;
+    } catch (e: any) {
+      setErr(s(e?.message || "UNKNOWN_ERROR"));
+      setLoading(false);
     }
+  }, [invoiceId, environment, loading]);
 
-    if (!r.ok || !j?.ok || !j?.authorize_url) {
-      const msg = String(j?.message || j?.error || raw || `HTTP_${r.status}`).trim();
-      setErr(msg);
-      return;
-    }
+  return (
+    <div className="mt-4 flex flex-col gap-2">
+      <button className="ftn-btn" type="button" onClick={start} disabled={loading}>
+        {loading ? "..." : "Démarrer la signature DigiGo"}
+      </button>
 
-    const authorizeUrl = String(j.authorize_url).trim();
-    const state = String(j.state || "").trim();
-    const invoice_id = String(j.invoice_id || "").trim();
-    const back_url = String(j.back_url || "").trim();
-
-    sessionStorage.setItem("digigo_state", state);
-    sessionStorage.setItem("digigo_invoice_id", invoice_id);
-    sessionStorage.setItem("digigo_back_url", back_url);
-
-    window.location.href = authorizeUrl;
-  } catch (e: any) {
-    setErr(String(e?.message || "NETWORK_ERROR").trim());
-  } finally {
-    setLoading(false);
-  }
+      {err ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {err}
+        </div>
+      ) : null}
+    </div>
+  );
 }
