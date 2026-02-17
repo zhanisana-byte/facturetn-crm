@@ -91,10 +91,9 @@ export async function POST(req: Request) {
     }
 
     const authorize_url = digigoAuthorizeUrl({
-      environment,
-      credentialId,
       state,
-      hash: String(sig.unsigned_hash),
+      credentialId,
+      hashBase64: String(sig.unsigned_hash),
       numSignatures: 1,
     });
 
