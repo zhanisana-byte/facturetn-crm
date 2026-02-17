@@ -31,19 +31,19 @@ export async function POST(req: Request) {
 
     const { data: cred, error: credErr } = await supabase
       .from("ttn_credentials")
-      .select("company_id, environment, is_active, credential_from_db")
+      .select("company_id, environment, is_active, signer_email")
       .eq("company_id", inv.company_id)
       .eq("is_active", true)
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (credErr || !cred?.credential_from_db) {
+    if (credErr || !cred?.signer_email) {
       return NextResponse.json({ ok: false, error: "CREDENTIAL_NOT_FOUND" }, { status: 400 });
     }
 
     const environment = (cred.environment || "production") as DigigoEnv;
-    const credentialId = String(cred.credential_from_db);
+    const credentialId = String(cred.signer_email);
 
     const { data: sig, error: sigErr } = await supabase
       .from("invoice_signatures")
