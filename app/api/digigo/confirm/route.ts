@@ -1,7 +1,7 @@
 // app/api/digigo/confirm/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { extractJwtJti, digigoOauthTokenFromJti, type DigigoEnv } from "@/lib/digigo";
+import { extractJwtJti, digigoOauthTokenFromJti } from "@/lib/digigo";
 
 export async function GET(req: Request) {
   try {
@@ -34,8 +34,6 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: "SESSION_EXPIRED" }, { status: 400 });
     }
 
-    const environment = (sess.environment || "production") as DigigoEnv;
-
     const { jti } = extractJwtJti(token);
     const { sad } = await digigoOauthTokenFromJti({ jti });
 
@@ -44,19 +42,31 @@ export async function GET(req: Request) {
       .update({ status: "started", updated_at: new Date().toISOString() })
       .eq("id", sess.id);
 
+    const { data: sig, error: sigErr } = await supabase
+      .from("invoice_signatures")
+      .select("id, meta")
+      .eq("invoice_id", sess.invoice_id)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (sigErr || !sig?.id) {
+      return NextResponse.json({ ok: false, error: "SIGNATURE_ROW_NOT_FOUND" }, { status: 404 });
+    }
+
     await supabase
       .from("invoice_signatures")
       .update({
         meta: {
+          ...(sig.meta || {}),
           state,
-          environment,
           jti,
           sad,
           tokenJwt: token,
         },
         updated_at: new Date().toISOString(),
       })
-      .eq("invoice_id", sess.invoice_id);
+      .eq("id", sig.id);
 
     return NextResponse.json({
       ok: true,
