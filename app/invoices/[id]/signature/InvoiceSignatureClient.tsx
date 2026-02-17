@@ -1,72 +1,67 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useState } from "react";
 
 type Props = {
   invoiceId: string;
   backUrl?: string;
-  environment?: "test" | "production";
 };
 
-function s(v: any) {
-  return String(v ?? "").trim();
-}
-
-export default function InvoiceSignatureClient({
-  invoiceId,
-  backUrl,
-  environment = "production",
-}: Props) {
+export default function InvoiceSignatureClient({ invoiceId, backUrl }: Props) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  const start = useCallback(async () => {
+  async function start() {
     if (loading) return;
 
     setErr("");
     setLoading(true);
 
     try {
-      const res = await fetch("/api/signature/digigo/start", {
+      const r = await fetch("/api/signature/digigo/start", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           invoice_id: invoiceId,
-          environment,
-          back_url: backUrl || null,
+          back_url: backUrl || `/invoices/${invoiceId}`,
         }),
       });
 
-      const j = await res.json().catch(() => ({}));
+      const j = await r.json();
 
-      if (!res.ok || !j?.ok) {
-        setErr(s(j?.error || j?.message || "START_FAILED"));
+      if (!r.ok) {
+        setErr(j?.error || "START_FAILED");
         setLoading(false);
         return;
       }
 
-      const url = s(j?.authorize_url);
-      if (!url) {
-        setErr("AUTHORIZE_URL_MISSING");
+      const state = j?.state;
+      const authorizeUrl = j?.authorize_url;
+
+      if (!state || !authorizeUrl) {
+        setErr("START_RESPONSE_INVALID");
         setLoading(false);
         return;
       }
 
-      window.location.href = url;
+      sessionStorage.setItem("digigo_state", String(state));
+      sessionStorage.setItem("digigo_invoice_id", String(invoiceId));
+      sessionStorage.setItem("digigo_back_url", String(backUrl || `/invoices/${invoiceId}`));
+
+      window.location.href = authorizeUrl;
     } catch (e: any) {
-      setErr(s(e?.message || "UNKNOWN_ERROR"));
+      setErr(String(e?.message || e));
       setLoading(false);
     }
-  }, [invoiceId, environment, backUrl, loading]);
+  }
 
   return (
     <div className="mt-4 flex flex-col gap-2">
       <button className="ftn-btn" type="button" onClick={start} disabled={loading}>
-        {loading ? "..." : "Démarrer la signature DigiGo"}
+        {loading ? "Démarrage..." : "Démarrer la signature DigiGo"}
       </button>
-
       {err ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {err}
         </div>
       ) : null}
