@@ -67,7 +67,7 @@ async function fetchJson(url: string, init: RequestInit) {
     } as any)
   );
 
-  const text = await res.text();
+  const text = await res.text().catch(() => "");
   let json: any = null;
   try {
     json = JSON.parse(text);
@@ -76,7 +76,7 @@ async function fetchJson(url: string, init: RequestInit) {
   return { res, text, json };
 }
 
-export async function digigoAuthorizeUrl(params: {
+export function digigoAuthorizeUrl(params: {
   credentialId: string;
   state: string;
   environment?: DigigoEnv;
@@ -93,19 +93,18 @@ export async function digigoAuthorizeUrl(params: {
   const url =
     `${b}/tunsign-proxy-webapp/oauth2/authorize` +
     `?response_type=code` +
+    `&scope=credential` +
     `&client_id=${encodeURIComponent(cid)}` +
+    `&clientId=${encodeURIComponent(cid)}` +
     `&redirect_uri=${encodeURIComponent(ru)}` +
+    `&redirectUri=${encodeURIComponent(ru)}` +
     `&credentialID=${encodeURIComponent(credentialId)}` +
     `&state=${encodeURIComponent(state)}`;
 
   return url;
 }
 
-export async function digigoOauthToken(params: {
-  credentialId?: string;
-  code: string;
-  environment?: DigigoEnv;
-}) {
+export async function digigoOauthToken(params: { code: string; environment?: DigigoEnv }) {
   const env = params.environment ?? pickEnv(process.env.DIGIGO_ENV);
   const b = baseUrl(env);
   const cid = clientId();
