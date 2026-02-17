@@ -1,10 +1,9 @@
-// app/api/digigo/start/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { digigoAuthorizeUrl, sha256Base64Utf8 } from "@/lib/digigo/server";
+import { digigoAuthorizeUrl, sha256Base64Utf8, DigigoEnv } from "@/lib/digigo/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,12 +79,7 @@ export async function POST(req: Request) {
 
   if (!invoice_id) return NextResponse.json({ ok: false, error: "INVOICE_ID_MISSING" }, { status: 400 });
 
-  const inv = await service
-    .from("invoices")
-    .select("id, company_id")
-    .eq("id", invoice_id)
-    .maybeSingle();
-
+  const inv = await service.from("invoices").select("id, company_id").eq("id", invoice_id).maybeSingle();
   if (!inv.data?.id) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
   const sig = await service
@@ -96,14 +90,11 @@ export async function POST(req: Request) {
 
   const unsigned_xml = s(sig.data?.unsigned_xml || "");
   let unsigned_hash = s(sig.data?.unsigned_hash || "");
-
   if (!unsigned_hash && unsigned_xml) unsigned_hash = sha256Base64Utf8(unsigned_xml);
   if (!unsigned_hash) return NextResponse.json({ ok: false, error: "UNSIGNED_HASH_MISSING" }, { status: 400 });
 
   const credentialId = await resolveCredentialId(service, inv.data.company_id, environment);
-  if (!credentialId) {
-    return NextResponse.json({ ok: false, error: "DIGIGO_SIGNER_EMAIL_NOT_CONFIGURED" }, { status: 400 });
-  }
+  if (!credentialId) return NextResponse.json({ ok: false, error: "DIGIGO_SIGNER_EMAIL_NOT_CONFIGURED" }, { status: 400 });
 
   const state = uuid();
   const expires_at = addMinutes(10);
@@ -131,7 +122,7 @@ export async function POST(req: Request) {
     signer_user_id: user.id,
     company_id: inv.data.company_id,
     environment,
-    meta: { credentialId, state },
+    meta: { credentialId, state, environment },
     updated_at: new Date().toISOString(),
   });
 
@@ -144,7 +135,8 @@ export async function POST(req: Request) {
     hash: unsigned_hash,
     credentialId,
     numSignatures: 1,
+    environment: environment === "production" ? ("PROD" as DigigoEnv) : ("TEST" as DigigoEnv),
   });
 
-  return NextResponse.json({ ok: true, authorize_url, state, invoice_id, back_url: backUrlFinal, redirect: "/digigo/redirect" });
+  return NextResponse.json({ ok: true, authorize_url, state, invoice_id, back_url: backUrlFinal });
 }
