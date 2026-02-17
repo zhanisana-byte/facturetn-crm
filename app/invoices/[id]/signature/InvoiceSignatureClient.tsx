@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 
 type Props = {
   invoiceId: string;
+  backUrl?: string;
   environment?: "test" | "production";
 };
 
@@ -11,7 +12,11 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-export default function InvoiceSignatureClient({ invoiceId, environment = "production" }: Props) {
+export default function InvoiceSignatureClient({
+  invoiceId,
+  backUrl,
+  environment = "production",
+}: Props) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
@@ -25,7 +30,11 @@ export default function InvoiceSignatureClient({ invoiceId, environment = "produ
       const res = await fetch("/api/signature/digigo/start", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ invoice_id: invoiceId, environment }),
+        body: JSON.stringify({
+          invoice_id: invoiceId,
+          environment,
+          back_url: backUrl || null,
+        }),
       });
 
       const j = await res.json().catch(() => ({}));
@@ -48,7 +57,7 @@ export default function InvoiceSignatureClient({ invoiceId, environment = "produ
       setErr(s(e?.message || "UNKNOWN_ERROR"));
       setLoading(false);
     }
-  }, [invoiceId, environment, loading]);
+  }, [invoiceId, environment, backUrl, loading]);
 
   return (
     <div className="mt-4 flex flex-col gap-2">
