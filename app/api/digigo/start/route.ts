@@ -14,6 +14,21 @@ function uuid() {
   return crypto.randomUUID();
 }
 
+function json(data: any, status = 200) {
+  return NextResponse.json(data, {
+    status,
+    headers: {
+      "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      pragma: "no-cache",
+      expires: "0",
+    },
+  });
+}
+
+export async function GET() {
+  return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
+}
+
 export async function POST(req: Request) {
   try {
     const service = createServiceClient();
@@ -22,9 +37,7 @@ export async function POST(req: Request) {
     const invoice_id = s(body?.invoice_id || "");
     const back_url = s(body?.back_url || "");
 
-    if (!invoice_id) {
-      return NextResponse.json({ ok: false, error: "INVOICE_ID_MISSING" }, { status: 400 });
-    }
+    if (!invoice_id) return json({ ok: false, error: "INVOICE_ID_MISSING" }, 400);
 
     const inv = await service
       .from("invoices")
@@ -32,61 +45,58 @@ export async function POST(req: Request) {
       .eq("id", invoice_id)
       .maybeSingle();
 
-    if (inv.error) {
-      return NextResponse.json({ ok: false, error: "INVOICE_FETCH_ERROR", details: inv.error.message }, { status: 500 });
-    }
-    if (!inv.data) {
-      return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
-    }
+    if (!inv.data?.id) return json({ ok: false, error: "INVOICE_NOT_FOUND" }, 404);
 
-    const company = await service
-      .from("companies")
-      .select("id, digigo_credential_id")
-      .eq("id", inv.data.company_id)
+    const sig = await service
+      .from("invoice_signatures")
+      .select("unsigned_xml, unsigned_hash")
+      .eq("invoice_id", invoice_id)
       .maybeSingle();
 
-    if (company.error) {
-      return NextResponse.json({ ok: false, error: "COMPANY_FETCH_ERROR", details: company.error.message }, { status: 500 });
-    }
+    const unsigned_xml = s(sig.data?.unsigned_xml);
+    let unsigned_hash = s(sig.data?.unsigned_hash);
 
-    const credentialId = s(company.data?.digigo_credential_id || "");
+    if (!unsigned_hash && unsigned_xml) unsigned_hash = sha256Base64Utf8(unsigned_xml);
+    if (!unsigned_hash) return json({ ok: false, error: "UNSIGNED_HASH_MISSING" }, 400);
+
+    const cred = await service
+      .from("ttn_credentials")
+      .select("signature_config")
+      .eq("company_id", inv.data.company_id)
+      .eq("environment", "production")
+      .maybeSingle();
+
+    const cfg =
+      cred.data?.signature_config && typeof cred.data.signature_config === "object"
+        ? cred.data.signature_config
+        : {};
+
+    const credentialId = s(cfg?.digigo_signer_email || cfg?.credentialId || cfg?.email);
+
     if (!credentialId) {
-      return NextResponse.json({ ok: false, error: "DIGIGO_CREDENTIAL_ID_MISSING" }, { status: 400 });
+      return json({ ok: false, error: "DIGIGO_SIGNER_EMAIL_NOT_CONFIGURED" }, 400);
     }
 
     const state = uuid();
-    const unsigned_hash = sha256Base64Utf8(`invoice:${invoice_id}:${state}`);
 
-    const up = await service
-      .from("digigo_sign_sessions")
-      .insert({
-        invoice_id,
-        state,
-        unsigned_hash,
-        back_url,
-        status: "started",
-        credential_id: credentialId,
-      })
-      .select("id")
-      .single();
-
-    if (up.error) {
-      return NextResponse.json({ ok: false, error: "SESSION_CREATE_ERROR", details: up.error.message }, { status: 500 });
-    }
-
-    const authorizeUrl = digigoAuthorizeUrl({
-      credentialId,
+    const authorize_url = digigoAuthorizeUrl({
       state,
+      credentialId,
+      hash: unsigned_hash,
+      numSignatures: 1,
     });
 
-    console.log("DIGIGO_AUTHORIZE_URL:", authorizeUrl);
-
-    return NextResponse.json({
+    return json({
       ok: true,
-      authorizeUrl,
-      session_id: up.data.id,
+      authorize_url,
+      state,
+      invoice_id,
+      back_url,
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: s(e?.message || "UNKNOWN") }, { status: 500 });
+    return json(
+      { ok: false, error: "START_FAILED", message: String(e?.message || e) },
+      500
+    );
   }
 }
