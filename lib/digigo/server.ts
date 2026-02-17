@@ -1,9 +1,8 @@
+// lib/digigo/server.ts
 import crypto from "crypto";
 
-export type DigigoEnv = "TEST" | "PROD";
-
 function must(name: string) {
-  const v = process.env[name];
+  const v = String(process.env[name] || "").trim();
   if (!v) throw new Error(`MISSING_ENV:${name}`);
   return v;
 }
@@ -12,30 +11,22 @@ export function sha256Base64Utf8(input: string) {
   return crypto.createHash("sha256").update(input, "utf8").digest("base64");
 }
 
-export function isLikelyJwt(v: string) {
-  const s = String(v || "");
-  return s.split(".").length === 3;
+function baseUrl() {
+  // ex: https://193.95.63.230 (test) ou https://digigo.tuntrust.tn (prod)
+  return must("DIGIGO_BASE_URL").replace(/\/+$/, "");
 }
 
 export function digigoAuthorizeUrl(args: {
-  hash: string;
   state: string;
-  credentialId: string;
-  environment: DigigoEnv;
+  hashBase64: string;
+  credentialId: string; // email du signataire
   numSignatures?: number;
 }) {
-  const redirectUri = must("NEXT_PUBLIC_DIGIGO_REDIRECT_URI");
-  const clientId =
-    args.environment === "PROD"
-      ? must("DIGIGO_CLIENT_ID_PROD")
-      : must("DIGIGO_CLIENT_ID_TEST");
+  const redirectUri = must("DIGIGO_REDIRECT_URI");
+  const clientId = must("DIGIGO_CLIENT_ID");
 
-  const base =
-    args.environment === "PROD"
-      ? must("DIGIGO_AUTHORIZE_URL_PROD")
-      : must("DIGIGO_AUTHORIZE_URL_TEST");
-
-  const u = new URL(base);
+  // D'après le PDF: /tunsign-proxy-webapp/oauth2/authorize
+  const u = new URL(`${baseUrl()}/tunsign-proxy-webapp/oauth2/authorize`);
 
   u.searchParams.set("redirectUri", redirectUri);
   u.searchParams.set("responseType", "code");
@@ -43,42 +34,39 @@ export function digigoAuthorizeUrl(args: {
   u.searchParams.set("credentialId", args.credentialId);
   u.searchParams.set("clientId", clientId);
   u.searchParams.set("numSignatures", String(args.numSignatures ?? 1));
-  u.searchParams.set("hash", args.hash);
+  u.searchParams.set("hash", args.hashBase64);
   u.searchParams.set("state", args.state);
 
   return u.toString();
 }
 
-export async function digigoOauthToken(args: {
-  code: string;
-  environment: DigigoEnv;
-}) {
-  const base =
-    args.environment === "PROD"
-      ? must("DIGIGO_OAUTH_TOKEN_URL_PROD")
-      : must("DIGIGO_OAUTH_TOKEN_URL_TEST");
+// JWT -> payload (sans vérifier signature)
+export function extractJwtJti(tokenJwt: string) {
+  const parts = String(tokenJwt || "").split(".");
+  if (parts.length !== 3) throw new Error("INVALID_AUTH_TOKEN_JWT");
+  const payloadJson = Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+  const payload = JSON.parse(payloadJson);
+  const jti = String(payload?.jti || "").trim();
+  if (!jti) throw new Error("JWT_JTI_MISSING");
+  return { jti, payload };
+}
 
-  const redirectUri = must("NEXT_PUBLIC_DIGIGO_REDIRECT_URI");
-  const clientId =
-    args.environment === "PROD"
-      ? must("DIGIGO_CLIENT_ID_PROD")
-      : must("DIGIGO_CLIENT_ID_TEST");
-  const clientSecret =
-    args.environment === "PROD"
-      ? must("DIGIGO_CLIENT_SECRET_PROD")
-      : must("DIGIGO_CLIENT_SECRET_TEST");
+export async function digigoOauthTokenFromJti(args: { jti: string }) {
+  const clientId = must("DIGIGO_CLIENT_ID");
+  const clientSecret = must("DIGIGO_CLIENT_SECRET");
+  const redirectUri = must("DIGIGO_REDIRECT_URI");
 
-  const body = new URLSearchParams();
-  body.set("grant_type", "authorization_code");
-  body.set("code", args.code);
-  body.set("redirect_uri", redirectUri);
-  body.set("client_id", clientId);
-  body.set("client_secret", clientSecret);
+  // D'après le PDF:
+  // /tunsign-proxy-webapp/services/v1/oauth2/token/{clientId}/{grantType}/{clientSecret}/{code}
+  const grantType = "authorization_code";
+  const url =
+    `${baseUrl()}/tunsign-proxy-webapp/services/v1/oauth2/token/` +
+    `${encodeURIComponent(clientId)}/${encodeURIComponent(grantType)}/${encodeURIComponent(clientSecret)}/${encodeURIComponent(args.jti)}`;
 
-  const r = await fetch(base, {
+  const r = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ redirectUri }),
     cache: "no-store",
   });
 
@@ -86,51 +74,32 @@ export async function digigoOauthToken(args: {
   if (!r.ok) throw new Error(`OAUTH_TOKEN_FAILED:${r.status}:${txt}`);
 
   const json = JSON.parse(txt);
-  const accessToken = json?.access_token;
-  if (!accessToken) throw new Error("OAUTH_TOKEN_EMPTY");
-  return { accessToken, raw: json };
-}
-
-export async function digigoGetSad(args: {
-  accessToken: string;
-  environment: DigigoEnv;
-}) {
-  const base =
-    args.environment === "PROD"
-      ? must("DIGIGO_SAD_URL_PROD")
-      : must("DIGIGO_SAD_URL_TEST");
-
-  const r = await fetch(base, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${args.accessToken}` },
-    cache: "no-store",
-  });
-
-  const txt = await r.text();
-  if (!r.ok) throw new Error(`SAD_FAILED:${r.status}:${txt}`);
-
-  const json = JSON.parse(txt);
-  if (!json) throw new Error("SAD_EMPTY");
-  return json;
+  const sad = String(json?.sad || "").trim();
+  if (!sad) throw new Error("SAD_EMPTY");
+  return { sad, raw: json };
 }
 
 export async function digigoSignHash(args: {
-  accessToken: string;
-  hash: string;
-  environment: DigigoEnv;
+  sad: string;
+  credentialId: string; // email
+  hashesBase64: string[]; // tableau de hash base64
+  hashAlgo?: "SHA256";
+  signAlgo?: "RSA";
 }) {
-  const base =
-    args.environment === "PROD"
-      ? must("DIGIGO_SIGN_HASH_URL_PROD")
-      : must("DIGIGO_SIGN_HASH_URL_TEST");
+  const clientId = must("DIGIGO_CLIENT_ID");
+  const hashAlgo = args.hashAlgo ?? "SHA256";
+  const signAlgo = args.signAlgo ?? "RSA";
 
-  const r = await fetch(base, {
+  // D'après le PDF:
+  // /tunsign-proxy-webapp/services/v1/signatures/signHash/{clientId}/{credentialId}/{sad}/{hashAlgo}/{signAlgo}
+  const url =
+    `${baseUrl()}/tunsign-proxy-webapp/services/v1/signatures/signHash/` +
+    `${encodeURIComponent(clientId)}/${encodeURIComponent(args.credentialId)}/${encodeURIComponent(args.sad)}/${hashAlgo}/${signAlgo}`;
+
+  const r = await fetch(url, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${args.accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ hash: args.hash }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(args.hashesBase64),
     cache: "no-store",
   });
 
@@ -138,7 +107,9 @@ export async function digigoSignHash(args: {
   if (!r.ok) throw new Error(`SIGNHASH_FAILED:${r.status}:${txt}`);
 
   const json = JSON.parse(txt);
-  const signature = json?.signature || json?.signedHash || json?.signed_hash;
-  if (!signature) throw new Error("SIGNATURE_EMPTY");
-  return { signature, raw: json };
+
+  // Réponse attendue: [ { algorithm, value } ]
+  const value = Array.isArray(json) ? String(json?.[0]?.value || "") : String(json?.value || "");
+  if (!value) throw new Error("SIGNATURE_VALUE_EMPTY");
+  return { value, raw: json };
 }
