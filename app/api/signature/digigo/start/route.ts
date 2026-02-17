@@ -1,6 +1,7 @@
+// app/api/signature/digigo/confirm/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { digigoAuthorizeUrl, DigigoEnv, sha256Base64Utf8 } from "@/lib/digigo/server";
+import { extractJwtJti, digigoOauthTokenFromJti, digigoSignHash } from "@/lib/digigo/server";
 
 const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,141 +11,91 @@ const sb = createClient(
 
 export async function POST(req: Request) {
   try {
-    const { invoice_id, back_url } = await req.json();
+    const body = await req.json();
+    const invoice_id = body?.invoice_id;
+    const state = body?.state;
+    const tokenJwt = body?.token; // IMPORTANT: token JWT de redirect
 
-    if (!invoice_id) {
-      return NextResponse.json({ error: "MISSING_INVOICE_ID" }, { status: 400 });
-    }
+    if (!invoice_id) return NextResponse.json({ error: "MISSING_INVOICE_ID" }, { status: 400 });
+    if (!state) return NextResponse.json({ error: "MISSING_STATE" }, { status: 400 });
+    if (!tokenJwt) return NextResponse.json({ error: "MISSING_TOKEN_JWT" }, { status: 400 });
 
-    const { data: inv, error: invErr } = await sb
-      .from("invoices")
-      .select("*")
-      .eq("id", invoice_id)
-      .single();
-
-    if (invErr || !inv) {
-      return NextResponse.json({ error: "INVOICE_NOT_FOUND" }, { status: 404 });
-    }
-
-    const companyId = inv.company_id;
-    if (!companyId) {
-      return NextResponse.json({ error: "MISSING_COMPANY_ID" }, { status: 400 });
-    }
-
-    const { data: creds, error: credErr } = await sb
-      .from("ttn_credentials")
-      .select("*")
-      .eq("company_id", companyId)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (credErr || !creds) {
-      return NextResponse.json({ error: "TTN_CREDENTIALS_NOT_FOUND" }, { status: 400 });
-    }
-
-    const credentialId =
-      (creds as any).credential_from_db ||
-      (creds as any).credential_id ||
-      (creds as any).credential ||
-      (creds as any).credentialId;
-
-    if (!credentialId) {
-      return NextResponse.json({ error: "MISSING_CREDENTIAL_ID" }, { status: 400 });
-    }
-
-    const environmentDb =
-      String((creds as any).environment || "production").toLowerCase() === "production"
-        ? "PROD"
-        : "TEST";
-
-    const environment = environmentDb as DigigoEnv;
-
-    const { data: sigRow, error: sigReadErr } = await sb
+    const { data: sig, error: sigErr } = await sb
       .from("invoice_signatures")
       .select("*")
       .eq("invoice_id", invoice_id)
       .eq("provider", "digigo")
-      .eq("environment", environment === "PROD" ? "production" : "test")
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (sigReadErr) {
-      return NextResponse.json({ error: "SIGNATURE_READ_ERROR" }, { status: 500 });
-    }
+    if (sigErr || !sig) return NextResponse.json({ error: "SIGNATURE_ROW_NOT_FOUND" }, { status: 400 });
 
-    const unsignedXml = sigRow?.unsigned_xml;
-    if (!unsignedXml) {
-      return NextResponse.json({ error: "MISSING_UNSIGNED_XML" }, { status: 400 });
-    }
+    const sigState = sig?.meta?.state;
+    if (!sigState) return NextResponse.json({ error: "SIGNATURE_META_STATE_MISSING" }, { status: 400 });
+    if (String(sigState) !== String(state)) return NextResponse.json({ error: "STATE_MISMATCH" }, { status: 400 });
 
-    const hash = sha256Base64Utf8(unsignedXml);
+    const unsignedHash = String(sig.unsigned_hash || "").trim();
+    const unsignedXml = String(sig.unsigned_xml || "").trim();
 
-    const state = crypto.randomUUID();
+    if (!unsignedHash || !unsignedXml) return NextResponse.json({ error: "MISSING_UNSIGNED_DATA" }, { status: 400 });
 
-    const envText = environment === "PROD" ? "production" : "test";
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + 10 * 60 * 1000);
+    // 1) token JWT -> jti
+    const { jti } = extractJwtJti(tokenJwt);
 
-    const { error: sessErr } = await sb.from("digigo_sign_sessions").insert({
-      invoice_id,
-      company_id: companyId,
-      environment: envText,
-      state,
-      status: "pending",
-      back_url: back_url || `/invoices/${invoice_id}`,
-      expires_at: expiresAt.toISOString(),
-      created_by: (sigRow as any)?.signer_user_id || null,
+    // 2) oauth2/token -> sad
+    const { sad } = await digigoOauthTokenFromJti({ jti });
+
+    // 3) signatures/signHash -> valeur signée (Base64)
+    const credentialId = String(sig?.meta?.credentialId || sig?.meta?.credential_id || "").trim();
+    if (!credentialId) return NextResponse.json({ error: "MISSING_CREDENTIAL_ID_IN_META" }, { status: 400 });
+
+    const signed = await digigoSignHash({
+      sad,
+      credentialId,
+      hashesBase64: [unsignedHash],
+      hashAlgo: "SHA256",
+      signAlgo: "RSA",
     });
 
-    if (sessErr) {
-      return NextResponse.json({ error: "SESSION_INSERT_ERROR", details: String(sessErr.message || sessErr) }, { status: 500 });
-    }
+    const signatureValue = String(signed.value || "").trim();
+    if (!signatureValue) return NextResponse.json({ error: "SIGNATURE_EMPTY" }, { status: 400 });
 
-    const { error: sigUpErr } = await sb
+    // NOTE: ici tu dois injecter proprement la signature dans TON XML (XAdES/XMLDSig),
+    // pas un simple <Signature> brut. Je laisse tel quel pour ne pas casser ton flow.
+    const signedXml = unsignedXml.replace("</Invoice>", `<Signature>${signatureValue}</Signature></Invoice>`);
+
+    const { error: updSigErr } = await sb
       .from("invoice_signatures")
-      .upsert(
-        {
-          invoice_id,
-          company_id: companyId,
-          environment: envText,
-          provider: "digigo",
-          state: "pending",
-          unsigned_xml: unsignedXml,
-          unsigned_hash: hash,
-          meta: {
-            state,
-            environment: envText,
-            credentialId,
-          },
-          updated_at: new Date().toISOString(),
+      .update({
+        signed_xml: signedXml,
+        signed_at: new Date().toISOString(),
+        signed_hash: signatureValue,
+        state: "signed",
+        meta: {
+          ...(sig.meta || {}),
+          sad,
+          jti,
+          tokenJwt,
         },
-        { onConflict: "invoice_id,provider,environment" }
-      );
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", sig.id);
 
-    if (sigUpErr) {
-      return NextResponse.json({ error: "SIGNATURE_UPSERT_ERROR", details: String(sigUpErr.message || sigUpErr) }, { status: 500 });
-    }
+    if (updSigErr) return NextResponse.json({ error: "SIGNATURE_UPDATE_FAILED" }, { status: 500 });
 
-    const authorize_url = digigoAuthorizeUrl({
-      hash,
-      state,
-      credentialId,
-      environment,
-      numSignatures: 1,
-    });
+    await sb
+      .from("invoices")
+      .update({ signature_status: "signed", signed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq("id", invoice_id);
 
-    return NextResponse.json({
-      ok: true,
-      authorize_url,
-      state,
-      invoice_id,
-      back_url: back_url || `/invoices/${invoice_id}`,
-      hash,
-      credentialId,
-      environment: envText,
-    });
+    await sb
+      .from("digigo_sign_sessions")
+      .update({ status: "callback_ok", updated_at: new Date().toISOString() })
+      .eq("invoice_id", invoice_id)
+      .eq("state", state);
+
+    return NextResponse.json({ ok: true, invoice_id, state, sad });
   } catch (e: any) {
     return NextResponse.json({ error: "INTERNAL_ERROR", details: String(e?.message || e) }, { status: 500 });
   }
