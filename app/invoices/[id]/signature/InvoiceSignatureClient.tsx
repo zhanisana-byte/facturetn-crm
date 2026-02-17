@@ -6,17 +6,6 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function stringify(v: any) {
-  if (v == null) return "";
-  if (typeof v === "string") return v.trim();
-  if (typeof v === "number" || typeof v === "boolean") return String(v);
-  try {
-    return JSON.stringify(v);
-  } catch {
-    return String(v);
-  }
-}
-
 type Props = {
   invoiceId: string;
   backUrl?: string;
@@ -26,89 +15,62 @@ export default function InvoiceSignatureClient({ invoiceId, backUrl }: Props) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  function setEverywhere(key: string, value: string) {
-    const v = s(value);
-    if (!v) return;
-    try {
-      window.localStorage.setItem(key, v);
-    } catch {}
-    try {
-      window.sessionStorage.setItem(key, v);
-    } catch {}
-  }
-
-  function clearEverywhere(keys: string[]) {
-    for (const k of keys) {
-      try {
-        window.localStorage.removeItem(k);
-      } catch {}
-      try {
-        window.sessionStorage.removeItem(k);
-      } catch {}
-    }
-  }
-
-  function formatApiError(j: any) {
-    const msg = s(j?.message) || s(j?.details?.message) || stringify(j?.details) || s(j?.error_description) || "";
-    const code = s(j?.error);
-    if (msg && code && msg !== code) return msg;
-    if (msg) return msg;
-    if (code) return code;
-    return "Impossible de démarrer DigiGo.";
-  }
-
   async function start() {
     if (loading) return;
 
     setErr("");
     setLoading(true);
 
-    const inv = s(invoiceId);
-    if (!inv) {
-      setErr("ID facture manquant.");
-      setLoading(false);
-      return;
-    }
-
-    const safeBackUrl = s(backUrl) || `/invoices/${encodeURIComponent(inv)}`;
-
-    clearEverywhere(["digigo_state", "digigo_invoice_id", "digigo_back_url"]);
-
     try {
+      const inv = s(invoiceId);
+      if (!inv) {
+        setErr("INVOICE_ID_MISSING");
+        return;
+      }
+
+      const safeBackUrl =
+        s(backUrl) || `/invoices/${encodeURIComponent(inv)}`;
+
       const r = await fetch("/api/digigo/start", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ invoice_id: inv, back_url: safeBackUrl }),
-        cache: "no-store",
+        body: JSON.stringify({
+          invoice_id: inv,
+          back_url: safeBackUrl,
+        }),
         credentials: "include",
+        cache: "no-store",
       });
 
-      const j = await r.json().catch(() => ({}));
+      const raw = await r.text().catch(() => "");
+      let j: any = {};
+
+      try {
+        j = raw ? JSON.parse(raw) : {};
+      } catch {
+        j = {};
+      }
 
       if (!r.ok || !j?.ok || !j?.authorize_url) {
-        setErr(formatApiError(j));
+        const msg =
+          s(j?.message) ||
+          s(j?.error) ||
+          raw ||
+          `HTTP_${r.status}`;
+        setErr(msg);
         return;
       }
 
-      const authorizeUrl = s(j?.authorize_url);
-      const state = s(j?.state || "");
+      const authorizeUrl = s(j.authorize_url);
 
       if (!authorizeUrl) {
-        setErr("URL DigiGo manquante.");
+        setErr("AUTHORIZE_URL_MISSING");
         return;
       }
-      if (!state) {
-        setErr("State manquant.");
-        return;
-      }
-
-      setEverywhere("digigo_invoice_id", inv);
-      setEverywhere("digigo_state", state);
-      setEverywhere("digigo_back_url", safeBackUrl);
 
       window.location.href = authorizeUrl;
     } catch (e: any) {
-      setErr(s(e?.message || "Erreur réseau."));
+      setErr(s(e?.message || "NETWORK_ERROR"));
     } finally {
       setLoading(false);
     }
@@ -116,7 +78,12 @@ export default function InvoiceSignatureClient({ invoiceId, backUrl }: Props) {
 
   return (
     <div className="space-y-2">
-      <button className="ftn-btn w-full sm:w-auto" type="button" onClick={start} disabled={loading}>
+      <button
+        type="button"
+        onClick={start}
+        disabled={loading}
+        className="ftn-btn w-full sm:w-auto"
+      >
         {loading ? "Redirection…" : "Signer avec DigiGo"}
       </button>
 
