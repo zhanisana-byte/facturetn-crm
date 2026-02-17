@@ -87,9 +87,7 @@ export default function DigiGoRedirectUI() {
         const invoice_id = invoice_idQ || ssGet("digigo_invoice_id");
         const back_url = back_urlQ || ssGet("digigo_back_url");
 
-        if (!token && !code) {
-          throw new Error("MISSING_TOKEN_OR_CODE");
-        }
+        if (!token && !code) throw new Error("MISSING_TOKEN_OR_CODE");
 
         const res = await fetch("/api/digigo/confirm", {
           method: "POST",
@@ -101,15 +99,13 @@ export default function DigiGoRedirectUI() {
 
         const { j, txt } = await readJsonOrText(res);
 
-        if (!res.ok || !j?.ok) {
-          throw new Error(extractErr(j, txt, res.status));
-        }
+        if (!res.ok || !j?.ok) throw new Error(extractErr(j, txt, res.status));
 
         ssDel("digigo_invoice_id");
         ssDel("digigo_back_url");
         ssDel("digigo_state");
 
-        const redirect = s(j?.redirect || back_url || "/");
+        const redirect = s(j?.back_url || back_url || "/");
         if (!cancelled) router.replace(redirect);
       } catch (e: any) {
         if (cancelled) return;
