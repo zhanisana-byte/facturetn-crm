@@ -104,9 +104,9 @@ export function digigoAuthorizeUrl(params: {
 
   return (
     `${b}/tunsign-proxy-webapp/oauth2/authorize` +
-    `?response_type=code` +
-    `&client_id=${encodeURIComponent(cid)}` +
-    `&redirect_uri=${encodeURIComponent(ru)}` +
+    `?responseType=code` +
+    `&clientId=${encodeURIComponent(cid)}` +
+    `&redirectUri=${encodeURIComponent(ru)}` +
     `&credentialID=${encodeURIComponent(credentialId)}` +
     `&state=${encodeURIComponent(state)}`
   );
