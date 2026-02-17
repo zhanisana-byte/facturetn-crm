@@ -1,79 +1,56 @@
 // app/api/digigo/confirm/route.ts
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { extractJwtJti, digigoOauthTokenFromJti } from "@/lib/digigo";
+import { createServiceClient } from "@/lib/supabase/service";
+import { digigoCall } from "@/lib/signature/digigoClient";
 
-export async function GET(req: Request) {
-  try {
-    const url = new URL(req.url);
-    const token = url.searchParams.get("token") || "";
-    const state = url.searchParams.get("state") || "";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-    if (!token || !state) {
-      return NextResponse.json({ ok: false, error: "MISSING_TOKEN_OR_STATE" }, { status: 400 });
-    }
-
-    const supabase = await createClient();
-
-    const { data: sess, error: sessErr } = await supabase
-      .from("digigo_sign_sessions")
-      .select("id, invoice_id, company_id, environment, status, expires_at, back_url")
-      .eq("state", state)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (sessErr || !sess?.invoice_id) {
-      return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 404 });
-    }
-
-    const now = Date.now();
-    const exp = sess.expires_at ? new Date(sess.expires_at).getTime() : 0;
-    if (exp && exp < now) {
-      await supabase.from("digigo_sign_sessions").update({ status: "expired" }).eq("id", sess.id);
-      return NextResponse.json({ ok: false, error: "SESSION_EXPIRED" }, { status: 400 });
-    }
-
-    const { jti } = extractJwtJti(token);
-    const { sad } = await digigoOauthTokenFromJti({ jti });
-
-    await supabase
-      .from("digigo_sign_sessions")
-      .update({ status: "started", updated_at: new Date().toISOString() })
-      .eq("id", sess.id);
-
-    const { data: sig, error: sigErr } = await supabase
-      .from("invoice_signatures")
-      .select("id, meta")
-      .eq("invoice_id", sess.invoice_id)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (sigErr || !sig?.id) {
-      return NextResponse.json({ ok: false, error: "SIGNATURE_ROW_NOT_FOUND" }, { status: 404 });
-    }
-
-    await supabase
-      .from("invoice_signatures")
-      .update({
-        meta: {
-          ...(sig.meta || {}),
-          state,
-          jti,
-          sad,
-          tokenJwt: token,
-        },
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", sig.id);
-
-    return NextResponse.json({
-      ok: true,
-      invoiceId: sess.invoice_id,
-      backUrl: sess.back_url || `/invoices/${sess.invoice_id}`,
-    });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "CONFIRM_FATAL" }, { status: 500 });
-  }
+function s(v: any) {
+  return String(v ?? "").trim();
 }
+
+function isUuid(v: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+
+export async function POST(req: Request) {
+  try {
+    const service = createServiceClient();
+
+    const body = await req.json().catch(() => ({}));
+    const invoiceId = s(body?.invoiceId ?? body?.invoice_id ?? body?.id);
+    const token = s(body?.token);
+    let code = s(body?.code);
+    const state = s(body?.state);
+
+    if (!code && token) {
+      const parts = token.split(".");
+      if (parts.length === 3) {
+        try {
+          const payloadJson = Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+          const payload = JSON.parse(payloadJson);
+          code = s(payload?.jti);
+        } catch {}
+      }
+    }
+
+    if (!invoiceId || !isUuid(invoiceId)) {
+      return NextResponse.json({ ok: false, error: "INVALID_INVOICE_ID" }, { status: 400 });
+    }
+    if (!code) return NextResponse.json({ ok: false, error: "MISSING_CODE" }, { status: 400 });
+    if (!state) return NextResponse.json({ ok: false, error: "MISSING_STATE" }, { status: 400 });
+
+    const sigRes = await service
+      .from("invoice_signatures")
+      .select("*")
+      .eq("invoice_id", invoiceId)
+      .maybeSingle();
+
+    if (sigRes.error) {
+      return NextResponse.json({ ok: false, error: "SIGNATURE_READ_FAILED", message: sigRes.error.message }, { status: 500 });
+    }
+    const sig = sigRes.data;
+    if (!sig) return NextResponse.json({ ok: false, error: "SIGNATURE_NOT_FOUND" }, { status: 404 });
+
+    const meta =
