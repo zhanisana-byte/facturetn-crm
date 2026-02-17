@@ -1,148 +1,74 @@
+// app/digigo/redirect/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams, useParams } from "next/navigation";
 
 function s(v: any) {
   return String(v ?? "").trim();
 }
 
-async function readJsonOrText(res: Response) {
-  const txt = await res.text().catch(() => "");
-  let j: any = null;
-  try {
-    j = txt ? JSON.parse(txt) : null;
-  } catch {
-    j = null;
-  }
-  return { j, txt };
-}
+export default function DigiGoRedirectPage() {
+  const [err, setErr] = useState<string>("");
+  const [done, setDone] = useState(false);
 
-function getHashParams() {
-  if (typeof window === "undefined") return new URLSearchParams();
-  const h = String(window.location.hash || "");
-  const raw = h.startsWith("#") ? h.slice(1) : h;
-  return new URLSearchParams(raw);
-}
-
-function extractErr(j: any, txt: string, status: number) {
-  const base = s(j?.message || j?.error || txt || `HTTP_${status}`);
-  const step = s(j?.details?.step || "");
-  const detailMsg = s(j?.details?.message || "");
-  if (step || detailMsg) return s([base, step ? `STEP=${step}` : "", detailMsg].filter(Boolean).join(" | "));
-  return base;
-}
-
-function ssGet(key: string) {
-  try {
-    if (typeof window === "undefined") return "";
-    return s(sessionStorage.getItem(key) || "");
-  } catch {
-    return "";
-  }
-}
-
-function ssDel(key: string) {
-  try {
-    if (typeof window === "undefined") return;
-    sessionStorage.removeItem(key);
-  } catch {}
-}
-
-export default function DigiGoRedirectUI() {
-  const router = useRouter();
-  const sp = useSearchParams();
-  const params = useParams<{ state?: string }>();
-
-  const tokenQ = useMemo(() => s(sp.get("token") || ""), [sp]);
-  const codeQ = useMemo(() => s(sp.get("code") || ""), [sp]);
-
-  const stateQ = useMemo(() => {
-    const fromQuery = s(sp.get("state") || "");
-    const fromPath = s(params?.state || "");
-    return fromQuery || fromPath;
-  }, [sp, params]);
-
-  const invoice_idQ = useMemo(() => s(sp.get("invoice_id") || ""), [sp]);
-  const back_urlQ = useMemo(() => s(sp.get("back_url") || sp.get("back") || ""), [sp]);
-
-  const [status, setStatus] = useState<"loading" | "error">("loading");
-  const [message, setMessage] = useState("");
+  const params = useMemo(() => {
+    const u = new URL(window.location.href);
+    return {
+      code: s(u.searchParams.get("code")),
+      state: s(u.searchParams.get("state")),
+    };
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function run() {
+    (async () => {
       try {
-        const hp = getHashParams();
+        const code = params.code;
+        const state = params.state;
+        if (!code || !state) {
+          setErr("MISSING_CODE_OR_STATE");
+          return;
+        }
 
-        const codeH = s(hp.get("code") || "");
-        const stateH = s(hp.get("state") || "");
-        const tokenH = s(hp.get("token") || hp.get("access_token") || "");
-
-        const token = tokenQ || tokenH;
-        const code = codeQ || codeH;
-
-        const state = stateQ || stateH || ssGet("digigo_state");
-        const invoice_id = invoice_idQ || ssGet("digigo_invoice_id");
-        const back_url = back_urlQ || ssGet("digigo_back_url");
-
-        if (!token && !code) throw new Error("MISSING_TOKEN_OR_CODE");
-
-        const res = await fetch("/api/digigo/confirm", {
+        const back_url = s(sessionStorage.getItem("digigo_back_url"));
+        const r = await fetch("/api/digigo/confirm", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, code, state, invoice_id, back_url }),
-          cache: "no-store",
+          body: JSON.stringify({ code, state, back_url }),
           credentials: "include",
+          cache: "no-store",
         });
 
-        const { j, txt } = await readJsonOrText(res);
+        const t = await r.text().catch(() => "");
+        let j: any = {};
+        try {
+          j = t ? JSON.parse(t) : {};
+        } catch {
+          j = {};
+        }
 
-        if (!res.ok || !j?.ok) throw new Error(extractErr(j, txt, res.status));
+        if (!r.ok || !j?.ok) {
+          setErr(s(j?.error || j?.message || t || `HTTP_${r.status}`));
+          return;
+        }
 
-        ssDel("digigo_invoice_id");
-        ssDel("digigo_back_url");
-        ssDel("digigo_state");
-
-        const redirect = s(j?.back_url || back_url || "/");
-        if (!cancelled) router.replace(redirect);
+        const go = s(j?.back_url) || back_url || "/";
+        setDone(true);
+        window.location.href = go;
       } catch (e: any) {
-        if (cancelled) return;
-        setStatus("error");
-        setMessage(s(e?.message || "INTERNAL_ERROR"));
+        setErr(s(e?.message || "REDIRECT_FAILED"));
       }
-    }
-
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [router, tokenQ, codeQ, stateQ, invoice_idQ, back_urlQ]);
+    })();
+  }, [params.code, params.state]);
 
   return (
-    <div style={{ minHeight: "60vh", display: "grid", placeItems: "center", padding: 24 }}>
-      <div
-        style={{
-          maxWidth: 640,
-          width: "100%",
-          padding: 20,
-          borderRadius: 16,
-          border: "1px solid rgba(148,163,184,.35)",
-          background: "rgba(255,255,255,.85)",
-        }}
-      >
-        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 10 }}>Connexion DigiGo</div>
-
-        {status === "loading" ? (
-          <div style={{ fontSize: 14, opacity: 0.85 }}>Finalisation en cours...</div>
-        ) : (
-          <>
-            <div style={{ fontSize: 14, color: "#b91c1c", marginBottom: 8 }}>Erreur</div>
-            <div style={{ fontSize: 14, color: "#b91c1c", whiteSpace: "pre-wrap" }}>{message}</div>
-          </>
-        )}
-      </div>
+    <div className="mx-auto max-w-lg px-4 py-12">
+      <div className="text-xl font-semibold">Redirection DigiGo</div>
+      <div className="mt-2 text-sm text-slate-600">Traitement en cours...</div>
+      {err ? (
+        <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{err}</div>
+      ) : done ? (
+        <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">OK</div>
+      ) : null}
     </div>
   );
 }
