@@ -1,186 +1,130 @@
-import https from "https";
+// lib/digigo/server.ts
 import crypto from "crypto";
 
-export type DigigoEnv = "TEST" | "PROD";
+export type DigigoEnv = "production" | "test";
 
 function s(v: any) {
-  return typeof v === "string" ? v.trim() : "";
+  return String(v ?? "").trim();
 }
 
-function ensure(v: string, err: string) {
-  if (!v) throw new Error(err);
-  return v;
+function must(v: any, name: string) {
+  const t = s(v);
+  if (!t) throw new Error(name);
+  return t;
 }
 
-function pickEnv(v?: string): DigigoEnv {
-  const vv = s(v).toUpperCase();
-  if (vv === "PROD") return "PROD";
-  if (vv === "TEST") return "TEST";
-  const isProd =
-    process.env.VERCEL_ENV === "production" ||
-    process.env.NODE_ENV === "production";
-  return isProd ? "PROD" : "TEST";
+export function digigoBaseUrl() {
+  return must(process.env.DIGIGO_BASE_URL || "https://193.95.63.230", "DIGIGO_BASE_URL_MISSING");
 }
 
-function baseUrl(env: DigigoEnv) {
-  const legacy = s(process.env.DIGIGO_BASE_URL || "").replace(/\/$/, "");
-  const test = s(process.env.DIGIGO_BASE_URL_TEST || "").replace(/\/$/, "");
-  const prod = s(process.env.DIGIGO_BASE_URL_PROD || "").replace(/\/$/, "");
-  if (env === "PROD") return ensure(prod || legacy, "DIGIGO_BASE_URL_PROD_MISSING");
-  return ensure(test || legacy, "DIGIGO_BASE_URL_TEST_MISSING");
+export function digigoClientId() {
+  return must(process.env.DIGIGO_CLIENT_ID, "DIGIGO_CLIENT_ID_MISSING");
 }
 
-function clientId() {
-  return ensure(s(process.env.DIGIGO_CLIENT_ID || ""), "DIGIGO_CLIENT_ID_MISSING");
-}
-
-function clientSecret() {
-  return ensure(s(process.env.DIGIGO_CLIENT_SECRET || ""), "DIGIGO_CLIENT_SECRET_MISSING");
-}
-
-function redirectUri() {
-  return ensure(s(process.env.DIGIGO_REDIRECT_URI || ""), "DIGIGO_REDIRECT_URI_MISSING");
+export function digigoRedirectUri() {
+  return must(process.env.DIGIGO_REDIRECT_URI, "DIGIGO_REDIRECT_URI_MISSING");
 }
 
 export function sha256Base64Utf8(input: string) {
-  return crypto.createHash("sha256").update(String(input ?? ""), "utf8").digest("base64");
+  return crypto.createHash("sha256").update(input, "utf8").digest("base64");
 }
 
-async function fetchJson(url: string, init: RequestInit) {
-  const allowInsecure = process.env.DIGIGO_INSECURE_TLS === "true";
-  const agent = allowInsecure ? new https.Agent({ rejectUnauthorized: false }) : undefined;
-
-  const res = await fetch(
-    url,
-    ({
-      ...init,
-      agent,
-    } as any)
-  );
-
-  const text = await res.text().catch(() => "");
-  let json: any = null;
-  try {
-    json = JSON.parse(text);
-  } catch {}
-
-  return { res, text, json };
-}
-
-export function digigoAuthorizeUrl(params: {
-  credentialId: string;
+export function digigoAuthorizeUrl(args: {
   state: string;
-  environment?: DigigoEnv;
-  hash?: string;
+  hash: string;
+  credentialId: string;
   numSignatures?: number;
 }) {
-  const env = params.environment ?? pickEnv(process.env.DIGIGO_ENV);
-  const b = baseUrl(env);
-  const cid = clientId();
-  const ru = redirectUri();
+  const base = digigoBaseUrl();
+  const proxyBase = `${base}/tunsign-proxy-webapp`;
+  const clientId = digigoClientId();
+  const redirectUri = digigoRedirectUri();
 
-  const credentialId = ensure(s(params.credentialId), "CREDENTIAL_ID_MISSING");
-  const state = ensure(s(params.state), "STATE_MISSING");
+  const state = must(args?.state, "STATE_MISSING");
+  const hash = must(args?.hash, "HASH_MISSING");
+  const credentialId = must(args?.credentialId, "CREDENTIAL_ID_MISSING");
+  const numSignatures = String(args?.numSignatures ?? 1);
 
-  const numSignatures = Number.isFinite(Number(params.numSignatures))
-    ? String(Number(params.numSignatures))
-    : "1";
-
-  const hash = s(params.hash || "");
-
-  const scope = "credential";
-
-  const q =
-    `redirectUri=${encodeURIComponent(ru)}` +
-    `&responseType=code` +
-    `&scope=${encodeURIComponent(scope)}` +
-    `&credentialId=${encodeURIComponent(credentialId)}` +
-    `&clientId=${encodeURIComponent(cid)}` +
-    `&numSignatures=${encodeURIComponent(numSignatures)}` +
-    (hash ? `&hash=${encodeURIComponent(hash)}` : "") +
-    `&state=${encodeURIComponent(state)}`;
-
-  return `${b}/tunsign-proxy-webapp/oauth2/authorize?${q}`;
+  const u = new URL(`${proxyBase}/oauth2/authorize`);
+  u.searchParams.set("redirectUri", redirectUri);
+  u.searchParams.set("responseType", "code");
+  u.searchParams.set("scope", "credential");
+  u.searchParams.set("credentialId", credentialId);
+  u.searchParams.set("clientId", clientId);
+  u.searchParams.set("numSignatures", numSignatures);
+  u.searchParams.set("hash", hash);
+  u.searchParams.set("state", state);
+  return u.toString();
 }
 
-export async function digigoOauthToken(params: { code: string; environment?: DigigoEnv }) {
-  const env = params.environment ?? pickEnv(process.env.DIGIGO_ENV);
-  const b = baseUrl(env);
-  const cid = clientId();
-  const secret = clientSecret();
-  const code = ensure(s(params.code), "CODE_MISSING");
-  const ru = redirectUri();
+export async function digigoOauthToken(args: { code: string }) {
+  const base = digigoBaseUrl();
+  const clientId = digigoClientId();
+  const redirectUri = digigoRedirectUri();
+  const code = s(args?.code);
+  if (!code) return { ok: false as const, error: "CODE_MISSING" };
 
-  const url =
-    `${b}/tunsign-proxy-webapp/services/v1/oauth2/token/` +
-    `${encodeURIComponent(cid)}/authorization_code/` +
-    `${encodeURIComponent(secret)}/` +
-    `${encodeURIComponent(code)}`;
+  const u = new URL(`${base}/tunsign-proxy-webapp/oauth2/token`);
+  u.searchParams.set("clientId", clientId);
+  u.searchParams.set("redirectUri", redirectUri);
+  u.searchParams.set("grantType", "authorization_code");
+  u.searchParams.set("code", code);
 
-  const { res, text, json } = await fetchJson(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ redirectUri: ru }),
-  });
+  const r = await fetch(u.toString(), { method: "POST", cache: "no-store" });
+  const t = await r.text().catch(() => "");
+  if (!r.ok) return { ok: false as const, error: t || `HTTP_${r.status}` };
 
-  if (!res.ok) {
-    return { ok: false as const, error: json?.message || json?.error || text || `HTTP_${res.status}` };
+  let j: any = {};
+  try {
+    j = t ? JSON.parse(t) : {};
+  } catch {
+    j = {};
   }
 
-  const sad = s(json?.sad || json?.SAD || json?.access_token || "");
+  const sad = s(j?.sad || j?.SAD || j?.access_token || j?.token);
   if (!sad) return { ok: false as const, error: "SAD_MISSING" };
 
-  return { ok: true as const, sad, raw: json };
+  return { ok: true as const, sad };
 }
 
-export async function digigoSignHash(params: {
-  credentialId: string;
-  sad: string;
-  hashes: string[];
-  environment?: DigigoEnv;
-  hashAlgo?: string;
-  signAlgo?: string;
-}) {
-  const env = params.environment ?? pickEnv(process.env.DIGIGO_ENV);
-  const b = baseUrl(env);
-  const cid = clientId();
+export async function digigoSignHash(args: { credentialId: string; sad: string; hashes: string[] }) {
+  const base = digigoBaseUrl();
+  const credentialId = s(args?.credentialId);
+  const sad = s(args?.sad);
+  const hashes = Array.isArray(args?.hashes) ? args.hashes.map(s).filter(Boolean) : [];
 
-  const credentialId = ensure(s(params.credentialId), "CREDENTIAL_ID_MISSING");
-  const sad = ensure(s(params.sad), "SAD_MISSING");
-  const hashes = Array.isArray(params.hashes) ? params.hashes.map(s).filter(Boolean) : [];
+  if (!credentialId) return { ok: false as const, error: "CREDENTIAL_ID_MISSING" };
+  if (!sad) return { ok: false as const, error: "SAD_MISSING" };
   if (!hashes.length) return { ok: false as const, error: "HASHES_MISSING" };
 
-  const hashAlgo = s(params.hashAlgo || "SHA256");
-  const signAlgo = s(params.signAlgo || "RSA");
+  const url = `${base}/tunsign-proxy-webapp/signHash`;
 
-  const url =
-    `${b}/tunsign-proxy-webapp/services/v1/signatures/signHash/` +
-    `${encodeURIComponent(cid)}/` +
-    `${encodeURIComponent(credentialId)}/` +
-    `${encodeURIComponent(sad)}/` +
-    `${encodeURIComponent(hashAlgo)}/` +
-    `${encodeURIComponent(signAlgo)}`;
-
-  const { res, text, json } = await fetchJson(url, {
+  const r = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify(hashes),
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      credentialId,
+      sad,
+      hashes,
+      hashAlgorithm: "SHA256",
+      signatureFormat: "XAdES",
+      conformanceLevel: "XAdES_BASELINE_B",
+    }),
+    cache: "no-store",
   });
 
-  if (!res.ok) {
-    return { ok: false as const, error: json?.message || json?.error || text || `HTTP_${res.status}` };
+  const t = await r.text().catch(() => "");
+  if (!r.ok) return { ok: false as const, error: t || `HTTP_${r.status}` };
+
+  let j: any = {};
+  try {
+    j = t ? JSON.parse(t) : {};
+  } catch {
+    j = {};
   }
 
-  const value =
-    s(json?.value) ||
-    s(json?.signature) ||
-    s(Array.isArray(json?.signatures) ? json.signatures?.[0] : "") ||
-    s(Array.isArray(json?.values) ? json.values?.[0] : "") ||
-    s(Array.isArray(json) ? json?.[0]?.value : "");
+  const value = s(j?.signatures?.[0] || j?.signature || j?.value);
+  if (!value) return { ok: false as const, error: "SIGNATURE_EMPTY" };
 
-  const algorithm = s(json?.algorithm || json?.alg || (Array.isArray(json) ? json?.[0]?.algorithm : ""));
-
-  if (!value) return { ok: false as const, error: "SIGNATURE_VALUE_MISSING" };
-
-  return { ok: true as const, value, algorithm, raw: json };
+  return { ok: true as const, value };
 }
