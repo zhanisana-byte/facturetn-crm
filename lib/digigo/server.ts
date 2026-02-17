@@ -1,4 +1,7 @@
+// lib/digigo/server.ts
 import crypto from "crypto";
+
+export type DigigoEnv = "test" | "production";
 
 function must(name: string) {
   const v = String(process.env[name] || "").trim();
