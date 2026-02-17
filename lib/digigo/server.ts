@@ -45,24 +45,6 @@ function redirectUri() {
   return ensure(s(process.env.DIGIGO_REDIRECT_URI || ""), "DIGIGO_REDIRECT_URI_MISSING");
 }
 
-function b64urlToUtf8(input: string) {
-  const b64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
-  return Buffer.from(b64 + pad, "base64").toString("utf8");
-}
-
-export function jwtGetJti(jwt: string) {
-  const t = s(jwt);
-  const parts = t.split(".");
-  if (parts.length < 2) return "";
-  try {
-    const payload = JSON.parse(b64urlToUtf8(parts[1]));
-    return s(payload?.jti || "");
-  } catch {
-    return "";
-  }
-}
-
 export function sha256Base64Utf8(input: string) {
   return crypto.createHash("sha256").update(String(input ?? ""), "utf8").digest("base64");
 }
@@ -110,10 +92,7 @@ export function digigoAuthorizeUrl(params: {
 
   const hash = s(params.hash || "");
 
-  const scope =
-    s(params.scope) ||
-    s(process.env.DIGIGO_SCOPE) ||
-    "signature";
+  const scope = s(params.scope) || "read";
 
   const q =
     `responseType=code` +
