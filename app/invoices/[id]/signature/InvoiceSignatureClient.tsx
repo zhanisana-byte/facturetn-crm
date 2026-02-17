@@ -49,19 +49,11 @@ export default function InvoiceSignatureClient({ invoiceId, backUrl }: Props) {
   }
 
   function formatApiError(j: any) {
-    const msg =
-      s(j?.message) ||
-      s(j?.details?.message) ||
-      stringify(j?.details) ||
-      s(j?.error_description) ||
-      "";
-
+    const msg = s(j?.message) || s(j?.details?.message) || stringify(j?.details) || s(j?.error_description) || "";
     const code = s(j?.error);
-
     if (msg && code && msg !== code) return msg;
     if (msg) return msg;
     if (code) return code;
-
     return "Impossible de démarrer DigiGo.";
   }
 
@@ -98,7 +90,13 @@ export default function InvoiceSignatureClient({ invoiceId, backUrl }: Props) {
         return;
       }
 
+      const authorizeUrl = s(j?.authorize_url);
       const state = s(j?.state || "");
+
+      if (!authorizeUrl) {
+        setErr("URL DigiGo manquante.");
+        return;
+      }
       if (!state) {
         setErr("State manquant.");
         return;
@@ -108,7 +106,7 @@ export default function InvoiceSignatureClient({ invoiceId, backUrl }: Props) {
       setEverywhere("digigo_state", state);
       setEverywhere("digigo_back_url", safeBackUrl);
 
-      window.location.href = String(j.authorize_url);
+      window.location.href = authorizeUrl;
     } catch (e: any) {
       setErr(s(e?.message || "Erreur réseau."));
     } finally {
