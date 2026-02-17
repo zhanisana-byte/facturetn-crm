@@ -1,4 +1,3 @@
-// lib/digigo/server.ts
 import crypto from "crypto";
 
 function must(name: string) {
@@ -12,20 +11,18 @@ export function sha256Base64Utf8(input: string) {
 }
 
 function baseUrl() {
-  // ex: https://193.95.63.230 (test) ou https://digigo.tuntrust.tn (prod)
   return must("DIGIGO_BASE_URL").replace(/\/+$/, "");
 }
 
 export function digigoAuthorizeUrl(args: {
   state: string;
   hashBase64: string;
-  credentialId: string; // email du signataire
+  credentialId: string;
   numSignatures?: number;
 }) {
   const redirectUri = must("DIGIGO_REDIRECT_URI");
   const clientId = must("DIGIGO_CLIENT_ID");
 
-  // D'après le PDF: /tunsign-proxy-webapp/oauth2/authorize
   const u = new URL(`${baseUrl()}/tunsign-proxy-webapp/oauth2/authorize`);
 
   u.searchParams.set("redirectUri", redirectUri);
@@ -40,11 +37,13 @@ export function digigoAuthorizeUrl(args: {
   return u.toString();
 }
 
-// JWT -> payload (sans vérifier signature)
 export function extractJwtJti(tokenJwt: string) {
   const parts = String(tokenJwt || "").split(".");
   if (parts.length !== 3) throw new Error("INVALID_AUTH_TOKEN_JWT");
-  const payloadJson = Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+  const payloadJson = Buffer.from(
+    parts[1].replace(/-/g, "+").replace(/_/g, "/"),
+    "base64"
+  ).toString("utf8");
   const payload = JSON.parse(payloadJson);
   const jti = String(payload?.jti || "").trim();
   if (!jti) throw new Error("JWT_JTI_MISSING");
@@ -56,8 +55,6 @@ export async function digigoOauthTokenFromJti(args: { jti: string }) {
   const clientSecret = must("DIGIGO_CLIENT_SECRET");
   const redirectUri = must("DIGIGO_REDIRECT_URI");
 
-  // D'après le PDF:
-  // /tunsign-proxy-webapp/services/v1/oauth2/token/{clientId}/{grantType}/{clientSecret}/{code}
   const grantType = "authorization_code";
   const url =
     `${baseUrl()}/tunsign-proxy-webapp/services/v1/oauth2/token/` +
@@ -81,8 +78,8 @@ export async function digigoOauthTokenFromJti(args: { jti: string }) {
 
 export async function digigoSignHash(args: {
   sad: string;
-  credentialId: string; // email
-  hashesBase64: string[]; // tableau de hash base64
+  credentialId: string;
+  hashesBase64: string[];
   hashAlgo?: "SHA256";
   signAlgo?: "RSA";
 }) {
@@ -90,8 +87,6 @@ export async function digigoSignHash(args: {
   const hashAlgo = args.hashAlgo ?? "SHA256";
   const signAlgo = args.signAlgo ?? "RSA";
 
-  // D'après le PDF:
-  // /tunsign-proxy-webapp/services/v1/signatures/signHash/{clientId}/{credentialId}/{sad}/{hashAlgo}/{signAlgo}
   const url =
     `${baseUrl()}/tunsign-proxy-webapp/services/v1/signatures/signHash/` +
     `${encodeURIComponent(clientId)}/${encodeURIComponent(args.credentialId)}/${encodeURIComponent(args.sad)}/${hashAlgo}/${signAlgo}`;
@@ -107,9 +102,10 @@ export async function digigoSignHash(args: {
   if (!r.ok) throw new Error(`SIGNHASH_FAILED:${r.status}:${txt}`);
 
   const json = JSON.parse(txt);
+  const value = Array.isArray(json)
+    ? String(json?.[0]?.value || "")
+    : String(json?.value || "");
 
-  // Réponse attendue: [ { algorithm, value } ]
-  const value = Array.isArray(json) ? String(json?.[0]?.value || "") : String(json?.value || "");
   if (!value) throw new Error("SIGNATURE_VALUE_EMPTY");
   return { value, raw: json };
 }
