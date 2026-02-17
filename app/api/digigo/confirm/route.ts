@@ -1,10 +1,9 @@
-// app/api/digigo/confirm/route.ts
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { jwtGetJti, digigoOauthToken, digigoSignHash } from "@/lib/digigo/server";
+import { jwtGetJti, digigoOauthToken, digigoSignHash, DigigoEnv } from "@/lib/digigo/server";
 import { injectSignatureIntoTeifXml } from "@/lib/ttn/teifSignature";
 
 export const runtime = "nodejs";
@@ -97,14 +96,12 @@ export async function POST(req: Request) {
 
     const back_url_body = s(body?.back_url || body?.backUrl || body?.back || "");
     const back_url_cookie = s(cookieStore.get("digigo_back_url")?.value || "");
-    const back_url = back_url_body || back_url_cookie || "/app";
+    const back_url = back_url_body || back_url_cookie || "/";
 
     const jti = token ? jwtGetJti(token) : "";
     const code = codeParam || jti;
 
-    if (!code) {
-      return NextResponse.json({ ok: false, error: "CODE_MISSING" }, { status: 400 });
-    }
+    if (!code) return NextResponse.json({ ok: false, error: "CODE_MISSING" }, { status: 400 });
 
     let session: any = null;
 
@@ -169,34 +166,14 @@ export async function POST(req: Request) {
     }
 
     if (!invoice_id || !isUuid(invoice_id)) {
-      return NextResponse.json(
-        { ok: false, error: "INVOICE_ID_MISSING", details: { hasState: !!state, hasToken: !!token } },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "INVOICE_ID_MISSING" }, { status: 400 });
     }
 
     if (session?.id) {
       const exp = new Date(s(session.expires_at)).getTime();
       if (!Number.isFinite(exp) || exp < Date.now()) {
-        await service
-          .from("digigo_sign_sessions")
-          .update({ status: "expired", updated_at: new Date().toISOString() })
-          .eq("id", session.id);
+        await service.from("digigo_sign_sessions").update({ status: "expired", updated_at: new Date().toISOString() }).eq("id", session.id);
         return NextResponse.json({ ok: false, error: "SESSION_EXPIRED" }, { status: 400 });
-      }
-
-      if (code) {
-        const upd: any = { updated_at: new Date().toISOString(), digigo_jti: code };
-        const r = await service.from("digigo_sign_sessions").update(upd).eq("id", session.id);
-        if (r?.error) {
-          const msg = s(r.error.message);
-          if (!msg.includes("column") || !msg.includes("digigo_jti")) {
-            await service
-              .from("digigo_sign_sessions")
-              .update({ updated_at: new Date().toISOString(), error_message: `digigo_jti_update_failed:${msg}` })
-              .eq("id", session.id);
-          }
-        }
       }
     }
 
@@ -206,9 +183,7 @@ export async function POST(req: Request) {
       .eq("invoice_id", invoice_id)
       .maybeSingle();
 
-    if (!sigRes.data) {
-      return NextResponse.json({ ok: false, error: "SIGNATURE_CONTEXT_NOT_FOUND" }, { status: 404 });
-    }
+    if (!sigRes.data) return NextResponse.json({ ok: false, error: "SIGNATURE_CONTEXT_NOT_FOUND" }, { status: 404 });
 
     const sig: any = sigRes.data;
     const company_id = s(sig.company_id);
@@ -216,13 +191,9 @@ export async function POST(req: Request) {
 
     const unsigned_xml = s(sig.unsigned_xml);
     const unsigned_hash = s(sig.unsigned_hash);
-
-    if (!company_id || !unsigned_xml || !unsigned_hash) {
-      return NextResponse.json({ ok: false, error: "INVALID_SIGNATURE_CONTEXT" }, { status: 400 });
-    }
+    if (!company_id || !unsigned_xml || !unsigned_hash) return NextResponse.json({ ok: false, error: "INVALID_SIGNATURE_CONTEXT" }, { status: 400 });
 
     const credRes = await resolveCredForCompany(service, company_id, env);
-
     if (!credRes.data || s((credRes.data as any).signature_provider) !== "digigo") {
       return NextResponse.json({ ok: false, error: "DIGIGO_NOT_CONFIGURED" }, { status: 400 });
     }
@@ -232,40 +203,33 @@ export async function POST(req: Request) {
         ? (credRes.data as any).signature_config
         : {};
 
-    const credentialId = s(
-      cfg.digigo_signer_email || cfg.credentialId || cfg.signer_email || (credRes.data as any)?.cert_email
-    );
+    const credentialId = s(cfg.digigo_signer_email || cfg.credentialId || cfg.signer_email || (credRes.data as any)?.cert_email);
+    if (!credentialId) return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
 
-    if (!credentialId) {
-      return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
-    }
+    const tok = await digigoOauthToken({
+      code,
+      environment: env === "production" ? ("PROD" as DigigoEnv) : ("TEST" as DigigoEnv),
+    });
 
-    const tok = await digigoOauthToken({ credentialId, code });
     if (!tok.ok) {
       if (session?.id) {
-        await service
-          .from("digigo_sign_sessions")
-          .update({ status: "failed", error_message: s((tok as any).error), updated_at: new Date().toISOString() })
-          .eq("id", session.id);
+        await service.from("digigo_sign_sessions").update({ status: "failed", error_message: s((tok as any).error), updated_at: new Date().toISOString() }).eq("id", session.id);
       }
-      return NextResponse.json(
-        { ok: false, error: "DIGIGO_TOKEN_FAILED", message: s((tok as any).error || "DIGIGO_TOKEN_FAILED") },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "DIGIGO_TOKEN_FAILED", message: s((tok as any).error || "DIGIGO_TOKEN_FAILED") }, { status: 400 });
     }
 
-    const sign = await digigoSignHash({ credentialId, sad: (tok as any).sad, hashes: [unsigned_hash] });
+    const sign = await digigoSignHash({
+      credentialId,
+      sad: (tok as any).sad,
+      hashes: [unsigned_hash],
+      environment: env === "production" ? ("PROD" as DigigoEnv) : ("TEST" as DigigoEnv),
+    });
+
     if (!sign.ok) {
       if (session?.id) {
-        await service
-          .from("digigo_sign_sessions")
-          .update({ status: "failed", error_message: s((sign as any).error), updated_at: new Date().toISOString() })
-          .eq("id", session.id);
+        await service.from("digigo_sign_sessions").update({ status: "failed", error_message: s((sign as any).error), updated_at: new Date().toISOString() }).eq("id", session.id);
       }
-      return NextResponse.json(
-        { ok: false, error: "DIGIGO_SIGNHASH_FAILED", message: s((sign as any).error || "DIGIGO_SIGNHASH_FAILED") },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "DIGIGO_SIGNHASH_FAILED", message: s((sign as any).error || "DIGIGO_SIGNHASH_FAILED") }, { status: 400 });
     }
 
     const signatureValue = s((sign as any).value);
@@ -283,10 +247,7 @@ export async function POST(req: Request) {
           ...(sig.meta && typeof sig.meta === "object" ? sig.meta : {}),
           credentialId,
           environment: env,
-          digigo: {
-            sad: (tok as any).sad,
-            algorithm: s((sign as any).algorithm),
-          },
+          digigo: { sad: (tok as any).sad, algorithm: s((sign as any).algorithm) },
         },
       })
       .eq("invoice_id", invoice_id);
@@ -294,10 +255,7 @@ export async function POST(req: Request) {
     await safeUpdateInvoiceSigned(service, invoice_id);
 
     if (session?.id) {
-      await service
-        .from("digigo_sign_sessions")
-        .update({ status: "done", updated_at: new Date().toISOString() })
-        .eq("id", session.id);
+      await service.from("digigo_sign_sessions").update({ status: "done", updated_at: new Date().toISOString() }).eq("id", session.id);
     }
 
     cookieStore.set("digigo_state", "", { path: "/", maxAge: 0 });
@@ -306,9 +264,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, back_url }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: "INTERNAL_ERROR", message: String(e?.message || e) },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "INTERNAL_ERROR", message: String(e?.message || e) }, { status: 500 });
   }
 }
