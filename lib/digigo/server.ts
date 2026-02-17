@@ -7,34 +7,42 @@ function s(v: any) {
   return typeof v === "string" ? v.trim() : "";
 }
 
-function ensure(v: string, name: string) {
-  if (!v) throw new Error(`${name}_MISSING`);
+function ensure(v: string, err: string) {
+  if (!v) throw new Error(err);
   return v;
 }
 
 function pickEnv(v?: string): DigigoEnv {
-  return v === "PROD" ? "PROD" : "TEST";
+  const vv = s(v).toUpperCase();
+  if (vv === "PROD") return "PROD";
+  if (vv === "TEST") return "TEST";
+
+  const isProd =
+    process.env.VERCEL_ENV === "production" ||
+    process.env.NODE_ENV === "production";
+
+  return isProd ? "PROD" : "TEST";
 }
 
 function baseUrl(env: DigigoEnv) {
-  const legacy = s(process.env.DIGIGO_BASE_URL || "");
-  const test = s(process.env.DIGIGO_BASE_URL_TEST || "");
-  const prod = s(process.env.DIGIGO_BASE_URL_PROD || "");
+  const legacy = s(process.env.DIGIGO_BASE_URL || "").replace(/\/$/, "");
+  const test = s(process.env.DIGIGO_BASE_URL_TEST || "").replace(/\/$/, "");
+  const prod = s(process.env.DIGIGO_BASE_URL_PROD || "").replace(/\/$/, "");
 
-  if (env === "PROD") return ensure(prod || legacy, "DIGIGO_BASE_URL");
-  return ensure(test || legacy, "DIGIGO_BASE_URL");
+  if (env === "PROD") return ensure(prod || legacy, "DIGIGO_BASE_URL_PROD_MISSING");
+  return ensure(test || legacy, "DIGIGO_BASE_URL_TEST_MISSING");
 }
 
 function clientId() {
-  return ensure(s(process.env.DIGIGO_CLIENT_ID || ""), "DIGIGO_CLIENT_ID");
+  return ensure(s(process.env.DIGIGO_CLIENT_ID || ""), "DIGIGO_CLIENT_ID_MISSING");
 }
 
 function clientSecret() {
-  return ensure(s(process.env.DIGIGO_CLIENT_SECRET || ""), "DIGIGO_CLIENT_SECRET");
+  return ensure(s(process.env.DIGIGO_CLIENT_SECRET || ""), "DIGIGO_CLIENT_SECRET_MISSING");
 }
 
 function redirectUri() {
-  return ensure(s(process.env.DIGIGO_REDIRECT_URI || ""), "DIGIGO_REDIRECT_URI");
+  return ensure(s(process.env.DIGIGO_REDIRECT_URI || ""), "DIGIGO_REDIRECT_URI_MISSING");
 }
 
 function b64urlToUtf8(input: string) {
@@ -91,8 +99,8 @@ export function digigoAuthorizeUrl(params: {
   const b = baseUrl(env);
   const cid = clientId();
   const ru = redirectUri();
-  const credentialId = ensure(s(params.credentialId), "CREDENTIAL_ID");
-  const state = ensure(s(params.state), "STATE");
+  const credentialId = ensure(s(params.credentialId), "CREDENTIAL_ID_MISSING");
+  const state = ensure(s(params.state), "STATE_MISSING");
 
   return (
     `${b}/tunsign-proxy-webapp/oauth2/authorize` +
@@ -113,7 +121,7 @@ export async function digigoOauthToken(params: {
   const b = baseUrl(env);
   const cid = clientId();
   const secret = clientSecret();
-  const code = ensure(s(params.code), "CODE");
+  const code = ensure(s(params.code), "CODE_MISSING");
   const ru = redirectUri();
 
   const url =
@@ -150,8 +158,8 @@ export async function digigoSignHash(params: {
   const b = baseUrl(env);
   const cid = clientId();
 
-  const credentialId = ensure(s(params.credentialId), "CREDENTIAL_ID");
-  const sad = ensure(s(params.sad), "SAD");
+  const credentialId = ensure(s(params.credentialId), "CREDENTIAL_ID_MISSING");
+  const sad = ensure(s(params.sad), "SAD_MISSING");
   const hashes = Array.isArray(params.hashes) ? params.hashes.map(s).filter(Boolean) : [];
   if (!hashes.length) return { ok: false as const, error: "HASHES_MISSING" };
 
