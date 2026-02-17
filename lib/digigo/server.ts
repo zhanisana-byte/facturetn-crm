@@ -16,11 +16,9 @@ function pickEnv(v?: string): DigigoEnv {
   const vv = s(v).toUpperCase();
   if (vv === "PROD") return "PROD";
   if (vv === "TEST") return "TEST";
-
   const isProd =
     process.env.VERCEL_ENV === "production" ||
     process.env.NODE_ENV === "production";
-
   return isProd ? "PROD" : "TEST";
 }
 
@@ -28,7 +26,6 @@ function baseUrl(env: DigigoEnv) {
   const legacy = s(process.env.DIGIGO_BASE_URL || "").replace(/\/$/, "");
   const test = s(process.env.DIGIGO_BASE_URL_TEST || "").replace(/\/$/, "");
   const prod = s(process.env.DIGIGO_BASE_URL_PROD || "").replace(/\/$/, "");
-
   if (env === "PROD") return ensure(prod || legacy, "DIGIGO_BASE_URL_PROD_MISSING");
   return ensure(test || legacy, "DIGIGO_BASE_URL_TEST_MISSING");
 }
@@ -76,7 +73,6 @@ export function digigoAuthorizeUrl(params: {
   environment?: DigigoEnv;
   hash?: string;
   numSignatures?: number;
-  scope?: string;
 }) {
   const env = params.environment ?? pickEnv(process.env.DIGIGO_ENV);
   const b = baseUrl(env);
@@ -92,17 +88,17 @@ export function digigoAuthorizeUrl(params: {
 
   const hash = s(params.hash || "");
 
-  const scope = s(params.scope) || "read";
+  const scope = "credential";
 
   const q =
-    `responseType=code` +
-    `&clientId=${encodeURIComponent(cid)}` +
-    `&redirectUri=${encodeURIComponent(ru)}` +
-    `&credentialID=${encodeURIComponent(credentialId)}` +
-    `&state=${encodeURIComponent(state)}` +
-    `&numSignatures=${encodeURIComponent(numSignatures)}` +
+    `redirectUri=${encodeURIComponent(ru)}` +
+    `&responseType=code` +
     `&scope=${encodeURIComponent(scope)}` +
-    (hash ? `&hash=${encodeURIComponent(hash)}` : "");
+    `&credentialId=${encodeURIComponent(credentialId)}` +
+    `&clientId=${encodeURIComponent(cid)}` +
+    `&numSignatures=${encodeURIComponent(numSignatures)}` +
+    (hash ? `&hash=${encodeURIComponent(hash)}` : "") +
+    `&state=${encodeURIComponent(state)}`;
 
   return `${b}/tunsign-proxy-webapp/oauth2/authorize?${q}`;
 }
