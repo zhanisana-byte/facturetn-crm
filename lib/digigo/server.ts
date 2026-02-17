@@ -92,8 +92,6 @@ export function digigoAuthorizeUrl(params: {
   credentialId: string;
   state: string;
   environment?: DigigoEnv;
-  hash?: string;
-  numSignatures?: number;
 }) {
   const env = params.environment ?? pickEnv(process.env.DIGIGO_ENV);
   const b = baseUrl(env);
@@ -115,7 +113,6 @@ export function digigoAuthorizeUrl(params: {
 export async function digigoOauthToken(params: {
   code: string;
   environment?: DigigoEnv;
-  credentialId?: string;
 }) {
   const env = params.environment ?? pickEnv(process.env.DIGIGO_ENV);
   const b = baseUrl(env);
