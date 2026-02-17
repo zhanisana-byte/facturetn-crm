@@ -94,6 +94,7 @@ export function digigoAuthorizeUrl(params: {
   environment?: DigigoEnv;
   hash?: string;
   numSignatures?: number;
+  scope?: string;
 }) {
   const env = params.environment ?? pickEnv(process.env.DIGIGO_ENV);
   const b = baseUrl(env);
@@ -109,6 +110,11 @@ export function digigoAuthorizeUrl(params: {
 
   const hash = s(params.hash || "");
 
+  const scope =
+    s(params.scope) ||
+    s(process.env.DIGIGO_SCOPE) ||
+    "signature";
+
   const q =
     `responseType=code` +
     `&clientId=${encodeURIComponent(cid)}` +
@@ -116,6 +122,7 @@ export function digigoAuthorizeUrl(params: {
     `&credentialID=${encodeURIComponent(credentialId)}` +
     `&state=${encodeURIComponent(state)}` +
     `&numSignatures=${encodeURIComponent(numSignatures)}` +
+    `&scope=${encodeURIComponent(scope)}` +
     (hash ? `&hash=${encodeURIComponent(hash)}` : "");
 
   return `${b}/tunsign-proxy-webapp/oauth2/authorize?${q}`;
