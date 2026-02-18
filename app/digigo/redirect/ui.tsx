@@ -1,3 +1,4 @@
+// app/digigo/redirect/ui.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -25,12 +26,15 @@ export default function DigigoRedirectClient() {
     async function run() {
       try {
         if (!token) throw new Error("MISSING_TOKEN");
-        if (!state) throw new Error("MISSING_STATE");
 
         const confirmRes = await fetch("/api/digigo/confirm", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, state, invoice_id: invoice_id || undefined }),
+          body: JSON.stringify({
+            token,
+            state: state || undefined,
+            invoice_id: invoice_id || undefined,
+          }),
           cache: "no-store",
           credentials: "include",
         });
@@ -44,14 +48,20 @@ export default function DigigoRedirectClient() {
         }
 
         if (!confirmRes.ok || !confirmJson?.ok) {
-          const details = s(confirmJson?.message || confirmJson?.details || confirmJson?.error || confirmTxt || `HTTP_${confirmRes.status}`);
+          const details = s(
+            confirmJson?.message ||
+              confirmJson?.details ||
+              confirmJson?.error ||
+              confirmTxt ||
+              `HTTP_${confirmRes.status}`
+          );
           throw new Error(`${confirmRes.status} ${details}`);
         }
 
         const cbRes = await fetch("/api/digigo/callback", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, state }),
+          body: JSON.stringify({ token, state: state || undefined }),
           cache: "no-store",
           credentials: "include",
         });
@@ -69,7 +79,12 @@ export default function DigigoRedirectClient() {
           throw new Error(`${cbRes.status} ${details}`);
         }
 
-        const redirect = s(cbJson?.redirect || back_url || (invoice_id ? `/invoices/${invoice_id}` : "/accountant/invoices"));
+        const redirect = s(
+          cbJson?.redirect ||
+            back_url ||
+            (invoice_id ? `/invoices/${invoice_id}` : "/accountant/invoices")
+        );
+
         if (mounted) router.replace(redirect);
       } catch (e: any) {
         if (mounted) {
