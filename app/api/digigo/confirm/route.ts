@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 function s(v: any) {
   return String(v ?? "").trim();
 }
+
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
@@ -18,15 +19,29 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json().catch(() => ({}));
-    const invoiceId = s(body?.invoiceId ?? body?.invoice_id ?? body?.id);
     const token = s(body?.token);
     const state = s(body?.state);
+    let invoiceId = s(body?.invoiceId ?? body?.invoice_id ?? body?.id);
+
+    if (!state) return NextResponse.json({ ok: false, error: "MISSING_STATE" }, { status: 400 });
+    if (!token) return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
+
+    if (!invoiceId) {
+      const { data: session, error: sessErr } = await service
+        .from("digigo_sign_sessions")
+        .select("invoice_id")
+        .eq("state", state)
+        .maybeSingle();
+
+      if (sessErr) {
+        return NextResponse.json({ ok: false, error: "SESSION_READ_FAILED", message: sessErr.message }, { status: 500 });
+      }
+      invoiceId = s((session as any)?.invoice_id);
+    }
 
     if (!invoiceId || !isUuid(invoiceId)) {
       return NextResponse.json({ ok: false, error: "INVALID_INVOICE_ID" }, { status: 400 });
     }
-    if (!state) return NextResponse.json({ ok: false, error: "MISSING_STATE" }, { status: 400 });
-    if (!token) return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
 
     const sigRes = await service
       .from("invoice_signatures")
@@ -37,6 +52,7 @@ export async function POST(req: Request) {
     if (sigRes.error) {
       return NextResponse.json({ ok: false, error: "SIGNATURE_READ_FAILED", message: sigRes.error.message }, { status: 500 });
     }
+
     const sig: any = sigRes.data;
     if (!sig) return NextResponse.json({ ok: false, error: "SIGNATURE_NOT_FOUND" }, { status: 404 });
 
@@ -48,6 +64,11 @@ export async function POST(req: Request) {
     if (!credentialId) return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
     if (!unsignedXml) return NextResponse.json({ ok: false, error: "UNSIGNED_XML_MISSING" }, { status: 400 });
     if (!unsignedHash) return NextResponse.json({ ok: false, error: "UNSIGNED_HASH_MISSING" }, { status: 400 });
+
+    const metaState = s(meta?.state);
+    if (metaState && metaState !== state) {
+      return NextResponse.json({ ok: false, error: "STATE_MISMATCH" }, { status: 409 });
+    }
 
     const { jti } = extractJwtJti(token);
     const { sad } = await digigoOauthTokenFromJti({ jti });
@@ -80,7 +101,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "SIGNATURE_UPDATE_FAILED", message: up.error.message }, { status: 500 });
     }
 
-    await service.from("invoices").update({ signature_status: "signed", signature_provider: "digigo", ttn_signed: true }).eq("id", invoiceId);
+    await service
+      .from("invoices")
+      .update({
+        signature_status: "signed",
+        signature_provider: "digigo",
+        ttn_signed: true,
+        updated_at: nowIso,
+      })
+      .eq("id", invoiceId);
 
     return NextResponse.json({ ok: true }, { status: 200 });
   } catch (e: any) {
