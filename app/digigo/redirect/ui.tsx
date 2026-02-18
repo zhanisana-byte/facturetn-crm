@@ -13,9 +13,7 @@ export default function DigigoRedirectClient() {
 
   const token = useMemo(() => s(sp.get("token") || ""), [sp]);
   const code = useMemo(() => s(sp.get("code") || ""), [sp]);
-  const state = useMemo(() => s(sp.get("state") || ""), [sp]);
-  const invoice_id = useMemo(() => s(sp.get("invoice_id") || ""), [sp]);
-  const back_url = useMemo(() => s(sp.get("back") || ""), [sp]);
+  const stateFromUrl = useMemo(() => s(sp.get("state") || ""), [sp]);
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -26,8 +24,19 @@ export default function DigigoRedirectClient() {
     async function run() {
       try {
         if (!token && !code) throw new Error("MISSING_TOKEN_OR_CODE");
+
+        const ctxRes = await fetch("/api/digigo/context", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        const ctx = await ctxRes.json().catch(() => ({}));
+
+        const invoice_id = s(ctx?.invoice_id);
+        const back_url = s(ctx?.back_url) || "/invoices";
+        const state = stateFromUrl || s(ctx?.state);
+
+        if (!invoice_id) throw new Error("MISSING_INVOICE_CONTEXT");
         if (!state) throw new Error("MISSING_STATE");
-        if (!invoice_id) throw new Error("MISSING_INVOICE_ID");
 
         if (token) {
           const c = await fetch("/api/signature/digigo/confirm", {
@@ -48,7 +57,7 @@ export default function DigigoRedirectClient() {
 
           if (!c.ok || !cj?.ok) {
             const details = s(cj?.details || cj?.error || ct || `HTTP_${c.status}`);
-            throw new Error(`${c.status} ${details}`);
+            throw new Error(details);
           }
         }
 
@@ -70,10 +79,10 @@ export default function DigigoRedirectClient() {
 
         if (!r.ok || !j?.ok) {
           const details = s(j?.details || j?.error || txt || `HTTP_${r.status}`);
-          throw new Error(`${r.status} ${details}`);
+          throw new Error(details);
         }
 
-        const redirect = s(j?.redirect || "/");
+        const redirect = s(j?.redirect || back_url || "/invoices");
         if (mounted) router.replace(redirect);
       } catch (e: any) {
         if (mounted) {
@@ -87,7 +96,7 @@ export default function DigigoRedirectClient() {
     return () => {
       mounted = false;
     };
-  }, [token, code, state, invoice_id, back_url, router]);
+  }, [token, code, stateFromUrl, router]);
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center p-6">
