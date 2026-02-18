@@ -12,7 +12,6 @@ export default function DigigoRedirectClient() {
   const router = useRouter();
 
   const token = useMemo(() => s(sp.get("token") || ""), [sp]);
-  const code = useMemo(() => s(sp.get("code") || ""), [sp]);
   const state = useMemo(() => s(sp.get("state") || ""), [sp]);
   const invoice_id = useMemo(() => s(sp.get("invoice_id") || ""), [sp]);
   const back_url = useMemo(() => s(sp.get("back") || ""), [sp]);
@@ -25,32 +24,52 @@ export default function DigigoRedirectClient() {
 
     async function run() {
       try {
-        if (!token && !code) throw new Error("MISSING_TOKEN_OR_CODE");
+        if (!token) throw new Error("MISSING_TOKEN");
         if (!state) throw new Error("MISSING_STATE");
-        if (!invoice_id) throw new Error("MISSING_INVOICE_ID");
 
-        const r = await fetch("/api/digigo/callback", {
+        const confirmRes = await fetch("/api/digigo/confirm", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, code, state, invoice_id, back_url }),
+          body: JSON.stringify({ token, state, invoice_id: invoice_id || undefined }),
           cache: "no-store",
           credentials: "include",
         });
 
-        const txt = await r.text().catch(() => "");
-        let j: any = null;
+        const confirmTxt = await confirmRes.text().catch(() => "");
+        let confirmJson: any = null;
         try {
-          j = txt ? JSON.parse(txt) : null;
+          confirmJson = confirmTxt ? JSON.parse(confirmTxt) : null;
         } catch {
-          j = null;
+          confirmJson = null;
         }
 
-        if (!r.ok || !j?.ok) {
-          const details = s(j?.details || j?.error || txt || `HTTP_${r.status}`);
-          throw new Error(`${r.status} ${details}`);
+        if (!confirmRes.ok || !confirmJson?.ok) {
+          const details = s(confirmJson?.message || confirmJson?.details || confirmJson?.error || confirmTxt || `HTTP_${confirmRes.status}`);
+          throw new Error(`${confirmRes.status} ${details}`);
         }
 
-        const redirect = s(j?.redirect || back_url || `/invoices/${invoice_id}`);
+        const cbRes = await fetch("/api/digigo/callback", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ token, state }),
+          cache: "no-store",
+          credentials: "include",
+        });
+
+        const cbTxt = await cbRes.text().catch(() => "");
+        let cbJson: any = null;
+        try {
+          cbJson = cbTxt ? JSON.parse(cbTxt) : null;
+        } catch {
+          cbJson = null;
+        }
+
+        if (!cbRes.ok || !cbJson?.ok) {
+          const details = s(cbJson?.details || cbJson?.error || cbTxt || `HTTP_${cbRes.status}`);
+          throw new Error(`${cbRes.status} ${details}`);
+        }
+
+        const redirect = s(cbJson?.redirect || back_url || (invoice_id ? `/invoices/${invoice_id}` : "/accountant/invoices"));
         if (mounted) router.replace(redirect);
       } catch (e: any) {
         if (mounted) {
@@ -64,7 +83,7 @@ export default function DigigoRedirectClient() {
     return () => {
       mounted = false;
     };
-  }, [token, code, state, invoice_id, back_url, router]);
+  }, [token, state, invoice_id, back_url, router]);
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center p-6">
