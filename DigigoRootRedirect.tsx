@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 function s(v: any) {
@@ -25,19 +25,24 @@ function isUuid(v: string) {
 
 export default function DigigoRootRedirect() {
   const router = useRouter();
-  const sp = useSearchParams();
-
-  const params = useMemo(() => new URLSearchParams(sp.toString()), [sp]);
+  const params = useSearchParams();
+  const fired = useRef(false);
 
   useEffect(() => {
+    if (fired.current) return;
+    fired.current = true;
+
     const token = s(params.get("token") || "");
     const code = s(params.get("code") || "");
     const error = s(params.get("error") || "");
 
+    // Si on a ni token ni code ni error, rien ne se passe
     if (!token && !code && !error) return;
 
+    // Récupère les paramètres d'URL
     const qs = new URLSearchParams(params.toString());
 
+    // Vérifie et récupère le state
     let state = s(qs.get("state") || "");
     if (!isUuid(state)) {
       const st = getStored("digigo_state");
@@ -49,6 +54,7 @@ export default function DigigoRootRedirect() {
       }
     }
 
+    // Vérifie et récupère l'ID de la facture
     let invoiceId = s(qs.get("invoice_id") || "");
     if (!isUuid(invoiceId)) {
       const inv = getStored("digigo_invoice_id");
@@ -60,13 +66,13 @@ export default function DigigoRootRedirect() {
       }
     }
 
-    const back = s(qs.get("back") || "");
-    if (!back) {
-      const b = getStored("digigo_back_url");
-      if (b) qs.set("back", b);
+    // Redirige vers la page de signature si tout est correct
+    if (state && invoiceId) {
+      router.replace("/digigo/redirect?" + qs.toString());
+    } else {
+      // Si l'un des paramètres est manquant, redirige vers la page de connexion
+      router.replace("/login");
     }
-
-    router.replace("/digigo/redirect?" + qs.toString());
   }, [params, router]);
 
   return null;
