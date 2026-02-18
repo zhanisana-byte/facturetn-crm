@@ -1,3 +1,4 @@
+// middleware.ts
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
@@ -25,17 +26,12 @@ export async function middleware(req: NextRequest) {
 
   if (isPublicAsset(pathname)) return NextResponse.next();
 
-  // ✅ IMPORTANT : kit DigiGo = redirectUri sur "/"
-  // Si DigiGo revient sur /?token=...&state=... -> on redirige vers /digigo/redirect
   if (pathname === "/") {
     const token = req.nextUrl.searchParams.get("token");
-    const state = req.nextUrl.searchParams.get("state");
-
-    // (optionnel, par sécurité si un jour ils renvoient code/error)
     const code = req.nextUrl.searchParams.get("code");
     const error = req.nextUrl.searchParams.get("error");
 
-    if ((token && state) || (code && state) || error) {
+    if (token || code || error) {
       const url = req.nextUrl.clone();
       url.pathname = "/digigo/redirect";
       return NextResponse.redirect(url);
@@ -165,14 +161,12 @@ export async function middleware(req: NextRequest) {
   if (accountType === "profil") return res;
 
   if (area === "pdg") {
-    if (accountTypeRaw !== "pdg")
-      return NextResponse.redirect(new URL("/switch", req.url));
+    if (accountTypeRaw !== "pdg") return NextResponse.redirect(new URL("/switch", req.url));
     return res;
   }
 
   if (accountType === "entreprise") {
-    if (area !== "companies")
-      return NextResponse.redirect(new URL("/switch", req.url));
+    if (area !== "companies") return NextResponse.redirect(new URL("/switch", req.url));
     return res;
   }
 
@@ -182,8 +176,7 @@ export async function middleware(req: NextRequest) {
   }
 
   if (accountType === "comptable") {
-    if (area !== "accountant")
-      return NextResponse.redirect(new URL("/switch", req.url));
+    if (area !== "accountant") return NextResponse.redirect(new URL("/switch", req.url));
     return res;
   }
 
