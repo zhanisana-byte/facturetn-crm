@@ -56,8 +56,9 @@ export async function POST(req: Request) {
   if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-  const invoice_id = s(body.invoice_id);
-  const back_url = s(body.back_url);
+
+  const invoice_id = s(body?.invoice_id || body?.invoiceId || body?.id);
+  const back_url = s(body?.back_url || body?.backUrl || body?.back);
 
   if (!invoice_id || !isUuid(invoice_id)) {
     return NextResponse.json({ ok: false, error: "BAD_INVOICE_ID" }, { status: 400 });
