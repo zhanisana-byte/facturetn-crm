@@ -1,4 +1,4 @@
-// app/api/digigo/callback/route.ts
+// app/api/digigo/confirm/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServiceClient } from "@/lib/supabase/service";
