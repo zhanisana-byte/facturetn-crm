@@ -31,7 +31,6 @@ function isHttps(req: Request) {
   const app = s(process.env.NEXT_PUBLIC_APP_URL || "");
   return app.startsWith("https://");
 }
-
 function computeFromItems(items: any[]) {
   let ht = 0;
   let tva = 0;
@@ -56,7 +55,6 @@ export async function POST(req: Request) {
   if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-
   const invoice_id = s(body?.invoice_id || body?.invoiceId || body?.id);
   const back_url = s(body?.back_url || body?.backUrl || body?.back);
 
@@ -68,7 +66,6 @@ export async function POST(req: Request) {
 
   const invRes = await svc.from("invoices").select("*").eq("id", invoice_id).maybeSingle();
   if (!invRes.data) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
-
   const invoice: any = invRes.data;
 
   const allowed = await canCompanyAction(supabase, auth.user.id, invoice.company_id, "create_invoices" as any);
@@ -79,7 +76,7 @@ export async function POST(req: Request) {
 
   const credRes = await svc
     .from("ttn_credentials")
-    .select("signature_config, updated_at")
+    .select("signature_config, environment, updated_at")
     .eq("company_id", invoice.company_id)
     .eq("is_active", true)
     .order("updated_at", { ascending: false })
@@ -88,7 +85,6 @@ export async function POST(req: Request) {
   const cred = credRes.data?.[0];
   const signatureConfig: any = cred?.signature_config || {};
   const credentialId = s(signatureConfig.digigo_signer_email ?? signatureConfig.credentialId ?? signatureConfig.email ?? "");
-
   if (!credentialId) {
     return NextResponse.json({ ok: false, error: "DIGIGO_NOT_CONFIGURED" }, { status: 400 });
   }
@@ -125,7 +121,8 @@ export async function POST(req: Request) {
   const state = crypto.randomUUID();
   const expires_at = new Date(Date.now() + 30 * 60 * 1000).toISOString();
   const backUrlFinal = back_url || `/invoices/${invoice_id}`;
-  const env = s(process.env.DIGIGO_ENV || process.env.NODE_ENV || "production");
+  const env = s(cred?.environment || process.env.DIGIGO_ENV || process.env.NODE_ENV || "production");
+  const environment = env === "test" ? "test" : "production";
 
   const sessIns = await svc
     .from("digigo_sign_sessions")
@@ -137,7 +134,7 @@ export async function POST(req: Request) {
       back_url: backUrlFinal,
       status: "pending",
       expires_at,
-      environment: env,
+      environment,
     })
     .select("id")
     .maybeSingle();
@@ -146,18 +143,27 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "SESSION_CREATE_FAILED", details: sessIns.error.message }, { status: 500 });
   }
 
-  const up = await svc.from("invoice_signatures").upsert({
-    invoice_id,
-    provider: "digigo",
-    state: "pending",
-    unsigned_xml,
-    unsigned_hash,
-    signer_user_id: auth.user.id,
-    meta: { credentialId, state },
-  });
+  const up = await svc
+    .from("invoice_signatures")
+    .upsert(
+      {
+        invoice_id,
+        company_id: invoice.company_id,
+        environment,
+        provider: "digigo",
+        state: "pending",
+        unsigned_xml,
+        unsigned_hash,
+        signed_xml: null,
+        signed_at: null,
+        signer_user_id: auth.user.id,
+        meta: { credentialId, state },
+      },
+      { onConflict: "invoice_id" }
+    );
 
   if (up.error) {
-    return NextResponse.json({ ok: false, error: "SIGNATURE_UPSERT_FAILED" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "SIGNATURE_UPSERT_FAILED", details: up.error.message }, { status: 500 });
   }
 
   const authorize_url = digigoAuthorizeUrl({
