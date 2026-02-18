@@ -1,4 +1,6 @@
+// app/api/digigo/confirm/route.ts
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { createServiceClient } from "@/lib/supabase/service";
 import { extractJwtJti, digigoOauthTokenFromJti, digigoSignHash } from "@/lib/digigo/server";
 import { injectDsSignatureIntoTeif } from "@/lib/ttn/teif-inject";
@@ -11,7 +13,7 @@ function s(v: any) {
 }
 
 function isUuid(v: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
 
 export async function POST(req: Request) {
@@ -20,11 +22,16 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const token = s(body?.token);
-    const state = s(body?.state);
-    let invoiceId = s(body?.invoiceId ?? body?.invoice_id ?? body?.id);
+    const stateFromBody = s(body?.state);
+    const stateFromCookie = s(cookies().get("digigo_state")?.value);
+    const state = stateFromBody || stateFromCookie;
 
-    if (!state) return NextResponse.json({ ok: false, error: "MISSING_STATE" }, { status: 400 });
+    let invoiceId = s(body?.invoiceId ?? body?.invoice_id ?? body?.id);
+    const invoiceFromCookie = s(cookies().get("digigo_invoice_id")?.value);
+    if (!invoiceId) invoiceId = invoiceFromCookie;
+
     if (!token) return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
+    if (!state) return NextResponse.json({ ok: false, error: "MISSING_STATE" }, { status: 400 });
 
     if (!invoiceId) {
       const { data: session, error: sessErr } = await service
