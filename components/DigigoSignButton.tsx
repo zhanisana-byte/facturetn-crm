@@ -12,6 +12,28 @@ export default function DigigoSignButton(props: { invoiceId: string; backUrl?: s
 
   const [loading, setLoading] = useState(false);
 
+  function setEverywhere(key: string, value: string) {
+    const v = s(value);
+    if (!v) return;
+    try {
+      window.localStorage.setItem(key, v);
+    } catch {}
+    try {
+      window.sessionStorage.setItem(key, v);
+    } catch {}
+  }
+
+  function clearEverywhere(keys: string[]) {
+    for (const k of keys) {
+      try {
+        window.localStorage.removeItem(k);
+      } catch {}
+      try {
+        window.sessionStorage.removeItem(k);
+      } catch {}
+    }
+  }
+
   async function handleClick() {
     if (!invoiceId) {
       alert("invoiceId manquant");
@@ -20,10 +42,14 @@ export default function DigigoSignButton(props: { invoiceId: string; backUrl?: s
 
     setLoading(true);
     try {
+      clearEverywhere(["digigo_state", "digigo_invoice_id", "digigo_back_url"]);
+
+      const safeBackUrl = backUrl || `/invoices/${encodeURIComponent(invoiceId)}`;
+
       const r = await fetch("/api/digigo/start", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ invoice_id: invoiceId, back_url: backUrl }),
+        body: JSON.stringify({ invoice_id: invoiceId, back_url: safeBackUrl }),
         cache: "no-store",
         credentials: "include",
       });
@@ -32,7 +58,13 @@ export default function DigigoSignButton(props: { invoiceId: string; backUrl?: s
       if (!r.ok || !j?.ok) throw new Error(s(j?.details || j?.error || `HTTP_${r.status}`));
 
       const url = s(j?.authorize_url || "");
+      const state = s(j?.state || "");
       if (!url) throw new Error("AUTHORIZE_URL_MISSING");
+      if (!state) throw new Error("STATE_MISSING");
+
+      setEverywhere("digigo_invoice_id", invoiceId);
+      setEverywhere("digigo_state", state);
+      setEverywhere("digigo_back_url", safeBackUrl);
 
       window.location.href = url;
     } catch (e: any) {
