@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 function s(v: any) {
@@ -25,13 +25,11 @@ function isUuid(v: string) {
 
 export default function DigigoRootRedirect() {
   const router = useRouter();
-  const params = useSearchParams();
-  const fired = useRef(false);
+  const sp = useSearchParams();
+
+  const params = useMemo(() => new URLSearchParams(sp.toString()), [sp]);
 
   useEffect(() => {
-    if (fired.current) return;
-    fired.current = true;
-
     const token = s(params.get("token") || "");
     const code = s(params.get("code") || "");
     const error = s(params.get("error") || "");
