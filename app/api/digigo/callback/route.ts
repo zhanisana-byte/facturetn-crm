@@ -1,106 +1,65 @@
-// app/api/digigo/confirm/route.ts
+// app/api/digigo/callback/route.ts
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServiceClient } from "@/lib/supabase/service";
+import { createClient } from "@/lib/supabase/server";
 
-export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function s(v: any) {
-  return String(v ?? "").trim();
-}
-
 export async function POST(req: Request) {
-  const svc = createServiceClient();
-
   try {
+    const supabase = await createClient();
+
     const body = await req.json().catch(() => ({}));
-    const token = s(body.token);
-    const stateFromBody = s(body.state);
+    const email = String(body?.email || "").trim().toLowerCase();
+    const full_name = String(body?.full_name || "").trim();
+    const user_id_from_client = body?.user_id ? String(body.user_id) : null;
 
-    // Correctement récupérer les cookies avec await
-    const cookieStore = await cookies();
-    const stateFromCookie = s(cookieStore.get("digigo_state")?.value);
-    const state = stateFromBody || stateFromCookie;
+    const { data: auth } = await supabase.auth.getUser();
+    const authedUserId = auth?.user?.id ?? null;
 
-    if (!token) return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
-    if (!state) return NextResponse.json({ ok: false, error: "MISSING_STATE" }, { status: 400 });
+    const userId = authedUserId || user_id_from_client;
 
-    const { data: session, error: sessErr } = await svc
-      .from("digigo_sign_sessions")
-      .select("id,invoice_id,back_url,company_id,status")
-      .eq("state", state)
-      .maybeSingle();
-
-    if (sessErr) return NextResponse.json({ ok: false, error: sessErr.message }, { status: 500 });
-    if (!session) return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 404 });
-
-    const invoiceId = s(session.invoice_id);
-
-    const { data: sig, error: sigErr } = await svc
-      .from("invoice_signatures")
-      .select("state,signed_xml,signed_at")
-      .eq("invoice_id", invoiceId)
-      .maybeSingle();
-
-    if (sigErr) return NextResponse.json({ ok: false, error: sigErr.message }, { status: 500 });
-
-    const sigState = s((sig as any)?.state).toLowerCase();
-    const signedXml = s((sig as any)?.signed_xml);
-
-    if (sigState !== "signed" || !signedXml) {
-      await svc
-        .from("digigo_sign_sessions")
-        .update({
-          status: "failed",
-          error_message: !sig ? "NO_SIGNATURE_ROW" : !signedXml ? "SIGNED_XML_EMPTY" : "STATE_NOT_SIGNED",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", session.id);
-
-      await svc
-        .from("invoices")
-        .update({
-          signature_status: "failed",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", invoiceId);
-
+    if (!userId) {
       return NextResponse.json({
         ok: true,
-        redirect: (session.back_url || `/invoices/${invoiceId}`) + `?sig=missing_xml`,
+        note: "No session yet (email confirmation). Setup will be completed on callback.",
       });
     }
 
-    await svc
-      .from("digigo_sign_sessions")
-      .update({
-        status: "done",
-        error_message: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", session.id);
+    const { error: upErr } = await supabase.from("app_users").upsert(
+      {
+        id: userId,
+        email,
+        full_name: full_name || null,
+        account_type: "profil",
+        role: "user",
+        is_active: true,
+      },
+      { onConflict: "id" }
+    );
 
-    await svc
-      .from("invoices")
-      .update({
-        signature_status: "signed",
-        ttn_signed: true,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", invoiceId);
+    if (upErr) {
+      return NextResponse.json({ ok: false, error: upErr.message }, { status: 400 });
+    }
 
-    const res = NextResponse.json({
-      ok: true,
-      redirect: session.back_url || `/invoices/${invoiceId}`,
-    });
+    const { error: wsErr } = await supabase.from("user_workspace").upsert(
+      {
+        user_id: userId,
+        active_mode: "profil",
+        active_company_id: null,
+        active_group_id: null,
+      },
+      { onConflict: "user_id" }
+    );
 
-    res.cookies.set({ name: "digigo_state", value: "", path: "/", maxAge: 0 });
-    res.cookies.set({ name: "digigo_invoice_id", value: "", path: "/", maxAge: 0 });
-    res.cookies.set({ name: "digigo_back_url", value: "", path: "/", maxAge: 0 });
+    if (wsErr) {
+      return NextResponse.json({ ok: false, error: wsErr.message }, { status: 400 });
+    }
 
-    return res;
+    return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: "CALLBACK_FATAL", details: s(e?.message || e) }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Unknown error" },
+      { status: 500 }
+    );
   }
 }
