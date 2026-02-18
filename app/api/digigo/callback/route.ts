@@ -17,7 +17,9 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const token = s(body.token);
     const stateFromBody = s(body.state);
-    const cookieStore = cookies();
+
+    // Correctement récupérer les cookies avec await
+    const cookieStore = await cookies();
     const stateFromCookie = s(cookieStore.get("digigo_state")?.value);
     const state = stateFromBody || stateFromCookie;
 
