@@ -1,4 +1,3 @@
-// app/invoices/[id]/signature/InvoiceSignatureClient.tsx
 "use client";
 
 import { useCallback, useState } from "react";
@@ -26,8 +25,10 @@ export default function InvoiceSignatureClient({ invoiceId, backUrl }: Props) {
       });
 
       const data = await res.json().catch(() => ({}));
+
       if (!res.ok || !data?.ok) {
-        setErr(data?.error || "START_FAILED");
+        const msg = String(data?.details || data?.message || data?.error || "START_FAILED");
+        setErr(msg);
         return;
       }
 
@@ -39,7 +40,7 @@ export default function InvoiceSignatureClient({ invoiceId, backUrl }: Props) {
 
       window.location.href = url;
     } catch (e: any) {
-      setErr(e?.message || "START_ERROR");
+      setErr(String(e?.message || "START_ERROR"));
     } finally {
       setLoading(false);
     }
@@ -48,10 +49,11 @@ export default function InvoiceSignatureClient({ invoiceId, backUrl }: Props) {
   return (
     <div className="mt-4 flex flex-col gap-2">
       <button className="ftn-btn" type="button" onClick={start} disabled={loading}>
-        {loading ? "Traitement..." : "Démarrer la signature DigiGo"}
+        {loading ? "Connexion DigiGo..." : "Signer avec DigiGo"}
       </button>
+
       {err ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 whitespace-pre-wrap">
           {err}
         </div>
       ) : null}
