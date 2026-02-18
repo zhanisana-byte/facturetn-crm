@@ -1,120 +1,99 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 
 function s(v: any) {
   return String(v ?? "").trim();
 }
 
-export default function DigigoRedirectClient() {
-  const sp = useSearchParams();
-  const router = useRouter();
+export default function RedirectUi() {
+  const [error, setError] = useState<string>("");
+  const [done, setDone] = useState<boolean>(false);
 
-  const token = useMemo(() => s(sp.get("token") || ""), [sp]);
-  const code = useMemo(() => s(sp.get("code") || ""), [sp]);
-  const stateFromUrl = useMemo(() => s(sp.get("state") || ""), [sp]);
+  const params = useMemo(() => new URLSearchParams(window.location.search), []);
+  const code = s(params.get("code"));
+  const token = s(params.get("token"));
 
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
+  const invoiceId = s(params.get("invoiceId") || params.get("invoice_id") || params.get("id"));
+  const state = s(params.get("state"));
+  const back = s(params.get("back"));
 
   useEffect(() => {
-    let mounted = true;
+    let cancelled = false;
 
     async function run() {
       try {
-        if (!token && !code) throw new Error("MISSING_TOKEN_OR_CODE");
+        setError("");
 
-        const ctxRes = await fetch("/api/digigo/context", {
-          cache: "no-store",
-          credentials: "include",
-        });
-        const ctx = await ctxRes.json().catch(() => ({}));
-
-        const invoice_id = s(ctx?.invoice_id);
-        const back_url = s(ctx?.back_url) || "/invoices";
-        const state = stateFromUrl || s(ctx?.state);
-
-        if (!invoice_id) throw new Error("MISSING_INVOICE_CONTEXT");
-        if (!state) throw new Error("MISSING_STATE");
+        if (!invoiceId) {
+          setError("MISSING_INVOICE_ID");
+          return;
+        }
+        if (!state) {
+          setError("MISSING_STATE");
+          return;
+        }
+        if (!token && !code) {
+          setError("MISSING_CODE_OR_TOKEN");
+          return;
+        }
 
         if (token) {
-          const c = await fetch("/api/signature/digigo/confirm", {
+          const cfRes = await fetch("/api/digigo/confirm", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ token, state, invoice_id }),
+            body: JSON.stringify({ invoiceId, token, code, state }),
             cache: "no-store",
-            credentials: "include",
           });
 
-          const ct = await c.text().catch(() => "");
-          let cj: any = null;
-          try {
-            cj = ct ? JSON.parse(ct) : null;
-          } catch {
-            cj = null;
-          }
-
-          if (!c.ok || !cj?.ok) {
-            const details = s(cj?.details || cj?.error || ct || `HTTP_${c.status}`);
-            throw new Error(details);
+          const cf = await cfRes.json().catch(() => ({}));
+          if (!cfRes.ok || !cf?.ok) {
+            setError(s(cf?.error || cf?.message || "CONFIRM_FAILED"));
+            return;
           }
         }
 
-        const r = await fetch("/api/digigo/callback", {
+        const cbRes = await fetch("/api/digigo/callback", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, code, state, invoice_id, back_url }),
+          body: JSON.stringify({ token, state }),
           cache: "no-store",
-          credentials: "include",
         });
 
-        const txt = await r.text().catch(() => "");
-        let j: any = null;
-        try {
-          j = txt ? JSON.parse(txt) : null;
-        } catch {
-          j = null;
+        const cb = await cbRes.json().catch(() => ({}));
+        if (!cbRes.ok || !cb?.ok) {
+          setError(s(cb?.error || cb?.details || "CALLBACK_FAILED"));
+          return;
         }
 
-        if (!r.ok || !j?.ok) {
-          const details = s(j?.details || j?.error || txt || `HTTP_${r.status}`);
-          throw new Error(details);
-        }
+        if (cancelled) return;
+        setDone(true);
 
-        const redirect = s(j?.redirect || back_url || "/invoices");
-        if (mounted) router.replace(redirect);
+        const redirect = s(cb?.redirect) || back || `/invoices/${invoiceId}`;
+        window.location.href = redirect;
       } catch (e: any) {
-        if (mounted) {
-          setErr(s(e?.message || e || "Erreur"));
-          setLoading(false);
-        }
+        setError(s(e?.message || "UNKNOWN_ERROR"));
       }
     }
 
     run();
     return () => {
-      mounted = false;
+      cancelled = true;
     };
-  }, [token, code, stateFromUrl, router]);
+  }, [code, token, invoiceId, state, back]);
 
   return (
-    <div className="min-h-[70vh] flex items-center justify-center p-6">
-      <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-sm p-6">
-        <div className="text-xl font-semibold text-slate-900">Finalisation de la signature</div>
+    <div className="min-h-[70vh] flex items-center justify-center px-4">
+      <div className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white/70 p-6 shadow-sm">
+        <div className="text-2xl font-semibold">Finalisation de la signature</div>
 
-        {loading ? (
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-700">
-            Traitement en cours…
-          </div>
-        ) : null}
-
-        {!loading && err ? (
-          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-700">
-            <div className="font-semibold">Erreur</div>
-            <div className="mt-2 text-sm break-words whitespace-pre-wrap">{err}</div>
-          </div>
-        ) : null}
+        {error ? (
+          <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm">{error}</div>
+        ) : done ? (
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-700 text-sm">OK</div>
+        ) : (
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-700 text-sm">...</div>
+        )}
       </div>
     </div>
   );
