@@ -1,4 +1,3 @@
-// lib/digigo/client.ts
 import crypto from "crypto";
 
 function env(name: string, fallback = "") {
@@ -46,10 +45,11 @@ type DigigoAuthorizeArgs = {
   hashBase64: string;
   numSignatures?: number;
   state?: string;
+  redirectUri?: string;
 };
 
 export function digigoAuthorizeUrl(args: DigigoAuthorizeArgs): string {
-  const redirectUri = digigoRedirectUri();
+  const redirectUri = String(args.redirectUri || digigoRedirectUri() || "").trim();
   const clientId = digigoClientId();
 
   const credentialId = String(args.credentialId || "").trim();
