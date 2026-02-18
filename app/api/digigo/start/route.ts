@@ -25,6 +25,12 @@ function clampPct(x: number) {
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
+function getOrigin(req: Request) {
+  const proto = s(req.headers.get("x-forwarded-proto") || "https");
+  const host = s(req.headers.get("x-forwarded-host") || req.headers.get("host") || "");
+  if (!host) return s(process.env.NEXT_PUBLIC_APP_URL || "");
+  return `${proto}://${host}`;
+}
 function isHttps(req: Request) {
   const proto = s(req.headers.get("x-forwarded-proto") || "");
   if (proto) return proto === "https";
@@ -143,34 +149,38 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "SESSION_CREATE_FAILED", details: sessIns.error.message }, { status: 500 });
   }
 
-  const up = await svc
-    .from("invoice_signatures")
-    .upsert(
-      {
-        invoice_id,
-        company_id: invoice.company_id,
-        environment,
-        provider: "digigo",
-        state: "pending",
-        unsigned_xml,
-        unsigned_hash,
-        signed_xml: null,
-        signed_at: null,
-        signer_user_id: auth.user.id,
-        meta: { credentialId, state },
-      },
-      { onConflict: "invoice_id" }
-    );
+  const up = await svc.from("invoice_signatures").upsert(
+    {
+      invoice_id,
+      company_id: invoice.company_id,
+      environment,
+      provider: "digigo",
+      state: "pending",
+      unsigned_xml,
+      unsigned_hash,
+      signed_xml: null,
+      signed_at: null,
+      signer_user_id: auth.user.id,
+      meta: { credentialId, state },
+    },
+    { onConflict: "invoice_id" }
+  );
 
   if (up.error) {
     return NextResponse.json({ ok: false, error: "SIGNATURE_UPSERT_FAILED", details: up.error.message }, { status: 500 });
   }
+
+  const origin = getOrigin(req);
+  const redirectUri = `${origin}/digigo/redirect?invoiceId=${encodeURIComponent(invoice_id)}&state=${encodeURIComponent(
+    state
+  )}&back=${encodeURIComponent(backUrlFinal)}`;
 
   const authorize_url = digigoAuthorizeUrl({
     credentialId,
     hashBase64: unsigned_hash,
     numSignatures: 1,
     state,
+    redirectUri,
   });
 
   const res = NextResponse.json({ ok: true, authorize_url, state, invoice_id, back_url: backUrlFinal }, { status: 200 });
