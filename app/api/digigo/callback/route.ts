@@ -17,7 +17,8 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const token = s(body.token);
     const stateFromBody = s(body.state);
-    const stateFromCookie = s(cookies().get("digigo_state")?.value);
+    const cookieStore = cookies();
+    const stateFromCookie = s(cookieStore.get("digigo_state")?.value);
     const state = stateFromBody || stateFromCookie;
 
     if (!token) return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
