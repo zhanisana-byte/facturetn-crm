@@ -36,13 +36,10 @@ export default function DigigoRootRedirect() {
     const code = s(params.get("code") || "");
     const error = s(params.get("error") || "");
 
-    // Si on a ni token ni code ni error, rien ne se passe
     if (!token && !code && !error) return;
 
-    // Récupère les paramètres d'URL
     const qs = new URLSearchParams(params.toString());
 
-    // Vérifie et récupère le state
     let state = s(qs.get("state") || "");
     if (!isUuid(state)) {
       const st = getStored("digigo_state");
@@ -54,7 +51,6 @@ export default function DigigoRootRedirect() {
       }
     }
 
-    // Vérifie et récupère l'ID de la facture
     let invoiceId = s(qs.get("invoice_id") || "");
     if (!isUuid(invoiceId)) {
       const inv = getStored("digigo_invoice_id");
@@ -66,13 +62,7 @@ export default function DigigoRootRedirect() {
       }
     }
 
-    // Redirige vers la page de signature si tout est correct
-    if (state && invoiceId) {
-      router.replace("/digigo/redirect?" + qs.toString());
-    } else {
-      // Si l'un des paramètres est manquant, redirige vers la page de connexion
-      router.replace("/login");
-    }
+    router.replace("/digigo/redirect?" + qs.toString());
   }, [params, router]);
 
   return null;
