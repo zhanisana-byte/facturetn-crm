@@ -33,6 +33,9 @@ function isHttps(req: Request) {
   const app = s(process.env.NEXT_PUBLIC_APP_URL || "");
   return app.startsWith("https://");
 }
+function env(name: string, fallback = "") {
+  return s(process.env[name] ?? fallback);
+}
 
 function computeFromItems(items: any[]) {
   let ht = 0;
@@ -106,9 +109,10 @@ export async function POST(req: Request) {
 
   const sums = computeFromItems(items);
 
-  const stampAmount = n(invoice?.stamp_amount ?? invoice?.stamp_duty ?? invoice?.timbre ?? 0);
+  const stampAmount = n(invoice?.stamp_amount ?? invoice?.stamp_duty_amount ?? invoice?.timbre ?? 0);
   const stampEnabled =
-    Boolean(invoice?.stamp_enabled ?? invoice?.stampEnabled ?? false) || stampAmount > 0;
+    Boolean(invoice?.stamp_enabled ?? invoice?.stampEnabled ?? invoice?.stamp_duty ?? false) ||
+    stampAmount > 0;
 
   const ttc = sums.ht + sums.tva + (stampEnabled ? stampAmount : 0);
 
@@ -129,7 +133,12 @@ export async function POST(req: Request) {
   const unsigned_hash = sha256Base64Utf8(xml);
   const state = crypto.randomUUID();
 
-  const credentialId = s(company?.digigo_credential_id || company?.digigo_credentialId || "");
+  const credentialId =
+    s(company?.digigo_credential_id) ||
+    s(company?.digigo_credentialId) ||
+    env("DIGIGO_CREDENTIAL_ID") ||
+    env("NEXT_PUBLIC_DIGIGO_CREDENTIAL_ID");
+
   if (!credentialId) {
     return NextResponse.json({ ok: false, error: "MISSING_CREDENTIAL_ID" }, { status: 400 });
   }
