@@ -8,6 +8,19 @@ function s(v: any) {
 function first(v: any) {
   return Array.isArray(v) ? s(v[0]) : s(v);
 }
+function isUuid(v: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+function store(k: string, v: string) {
+  const val = s(v);
+  if (!val) return;
+  try {
+    window.localStorage.setItem(k, val);
+  } catch {}
+  try {
+    window.sessionStorage.setItem(k, val);
+  } catch {}
+}
 
 export default function DigigoSignButton(props: { invoiceId: any; backUrl?: any }) {
   const invoiceId = first(props.invoiceId);
@@ -43,7 +56,17 @@ export default function DigigoSignButton(props: { invoiceId: any; backUrl?: any 
       }
 
       const url = s(j?.authorize_url);
+      const st = s(j?.state);
+      const inv = s(j?.invoice_id || invoiceId);
+      const back = s(j?.back_url || safeBackUrl);
+
       if (!url) throw new Error("AUTHORIZE_URL_MISSING");
+      if (!isUuid(st)) throw new Error("BAD_STATE_FROM_START");
+      if (!isUuid(inv)) throw new Error("BAD_INVOICE_ID_FROM_START");
+
+      store("digigo_state", st);
+      store("digigo_invoice_id", inv);
+      store("digigo_back_url", back);
 
       window.location.href = url;
     } catch (e: any) {
