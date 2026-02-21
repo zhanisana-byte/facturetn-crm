@@ -105,14 +105,24 @@ export async function POST(req: Request) {
   const items: any[] = itemsRes.data || [];
 
   const sums = computeFromItems(items);
-  const timbre = n(invoice?.stamp_duty || invoice?.timbre || 0);
-  const total_ttc = sums.ht + sums.tva + timbre;
+
+  const stampAmount = n(invoice?.stamp_amount ?? invoice?.stamp_duty ?? invoice?.timbre ?? 0);
+  const stampEnabled =
+    Boolean(invoice?.stamp_enabled ?? invoice?.stampEnabled ?? false) || stampAmount > 0;
+
+  const ttc = sums.ht + sums.tva + (stampEnabled ? stampAmount : 0);
 
   const xml = buildTeifInvoiceXml({
     invoice,
     company,
     items,
-    totals: { ht: sums.ht, tva: sums.tva, timbre, ttc: total_ttc },
+    totals: {
+      ht: sums.ht,
+      tva: sums.tva,
+      ttc,
+      stampEnabled,
+      stampAmount: stampEnabled ? stampAmount : 0,
+    },
   });
 
   const unsigned_hash = sha256Base64Utf8(xml);
