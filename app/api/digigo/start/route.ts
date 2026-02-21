@@ -23,7 +23,9 @@ function clampPct(x: number) {
   return x;
 }
 function isUuid(v: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    v
+  );
 }
 function isHttps(req: Request) {
   const proto = s(req.headers.get("x-forwarded-proto") || "");
@@ -35,6 +37,7 @@ function isHttps(req: Request) {
 function computeFromItems(items: any[]) {
   let ht = 0;
   let tva = 0;
+
   for (const it of items) {
     const qty = n(it?.qty);
     const pu = n(it?.unit_price_ht);
@@ -48,6 +51,7 @@ function computeFromItems(items: any[]) {
     ht += lineNet;
     tva += lineNet * (rate / 100);
   }
+
   return { ht, tva };
 }
 
@@ -56,7 +60,9 @@ export async function POST(req: Request) {
   const userRes = await auth.auth.getUser();
   const user = userRes.data?.user;
 
-  if (!user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+  if (!user) {
+    return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+  }
 
   const body = await req.json().catch(() => ({}));
   const invoice_id = s(body.invoice_id ?? body.invoiceId);
@@ -69,22 +75,33 @@ export async function POST(req: Request) {
   const svc = createServiceClient();
 
   const invRes = await svc.from("invoices").select("*").eq("id", invoice_id).maybeSingle();
-  if (!invRes.data) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
-
+  if (!invRes.data) {
+    return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
+  }
   const invoice: any = invRes.data;
 
   const company_id = s(invoice.company_id);
-  if (!company_id || !isUuid(company_id)) return NextResponse.json({ ok: false, error: "BAD_COMPANY_ID" }, { status: 400 });
+  if (!company_id || !isUuid(company_id)) {
+    return NextResponse.json({ ok: false, error: "BAD_COMPANY_ID" }, { status: 400 });
+  }
 
-  const perm = await canCompanyAction(auth, company_id, "invoices.sign");
-  if (!perm.ok) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+  const allowed = await canCompanyAction(auth, user.id, company_id, "validate_invoices");
+  if (!allowed) {
+    return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+  }
 
   const companyRes = await svc.from("companies").select("*").eq("id", company_id).maybeSingle();
-  if (!companyRes.data) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
-
+  if (!companyRes.data) {
+    return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
+  }
   const company: any = companyRes.data;
 
-  const itemsRes = await svc.from("invoice_items").select("*").eq("invoice_id", invoice_id).order("created_at", { ascending: true });
+  const itemsRes = await svc
+    .from("invoice_items")
+    .select("*")
+    .eq("invoice_id", invoice_id)
+    .order("created_at", { ascending: true });
+
   const items: any[] = itemsRes.data || [];
 
   const sums = computeFromItems(items);
@@ -99,10 +116,9 @@ export async function POST(req: Request) {
   });
 
   const unsigned_hash = sha256Base64Utf8(xml);
-
   const state = crypto.randomUUID();
-  const credentialId = s(company?.digigo_credential_id || company?.digigo_credentialId || "");
 
+  const credentialId = s(company?.digigo_credential_id || company?.digigo_credentialId || "");
   if (!credentialId) {
     return NextResponse.json({ ok: false, error: "MISSING_CREDENTIAL_ID" }, { status: 400 });
   }
@@ -149,7 +165,10 @@ export async function POST(req: Request) {
     state,
   });
 
-  const res = NextResponse.json({ ok: true, authorize_url, state, invoice_id, back_url: backUrlFinal }, { status: 200 });
+  const res = NextResponse.json(
+    { ok: true, authorize_url, state, invoice_id, back_url: backUrlFinal },
+    { status: 200 }
+  );
 
   const secure = isHttps(req);
   const maxAge = 60 * 30;
