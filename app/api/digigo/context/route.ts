@@ -13,12 +13,14 @@ export async function GET() {
 
   const invoice_id = s(c.get("digigo_invoice_id")?.value || "");
   const back_url = s(c.get("digigo_back_url")?.value || "");
+  const state = s(c.get("digigo_state")?.value || "");
 
   return NextResponse.json(
     {
       ok: true,
       invoice_id,
       back_url,
+      state,
     },
     { status: 200 }
   );
