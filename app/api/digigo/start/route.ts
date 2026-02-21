@@ -52,7 +52,7 @@ function computeFromItems(items: any[]) {
 }
 
 export async function POST(req: Request) {
-  const auth = createClient();
+  const auth = await createClient();
   const userRes = await auth.auth.getUser();
   const user = userRes.data?.user;
 
@@ -108,7 +108,6 @@ export async function POST(req: Request) {
   }
 
   const backUrlFinal = back_url || `/invoices/${invoice_id}`;
-
   const now = new Date();
   const expires = new Date(now.getTime() + 30 * 60 * 1000);
 
