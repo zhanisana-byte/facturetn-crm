@@ -113,6 +113,7 @@ export async function POST(req: Request) {
   const ttc = sums.ht + sums.tva + (stampEnabled ? stampAmount : 0);
 
   const xml = buildTeifInvoiceXml({
+    invoiceId: invoice_id,
     invoice,
     company,
     items,
