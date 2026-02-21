@@ -36,24 +36,27 @@ function computeFromItems(items: any[]) {
   let ht = 0;
   let tva = 0;
   for (const it of items) {
-    const qty = n(it.quantity ?? 0);
-    const pu = n(it.unit_price_ht ?? 0);
-    const vatPct = n(it.vat_pct ?? 0);
-    const discPct = clampPct(n(it.discount_pct ?? 0));
+    const qty = n(it.quantity ?? it.qty ?? 0);
+    const pu = n(it.unit_price_ht ?? it.pu_ht ?? 0);
+    const vatPct = n(it.vat_pct ?? it.vat_rate ?? it.tva ?? 0);
+    const discPct = clampPct(n(it.discount_pct ?? it.remise ?? 0));
+
     const base = qty * pu;
     const remise = discPct > 0 ? (base * discPct) / 100 : 0;
     const net = base - remise;
-    const vat = (net * vatPct) / 100;
+
     ht += net;
-    tva += vat;
+    tva += (net * vatPct) / 100;
   }
-  return { ht, tva, ttc: ht + tva };
+  return { ht, tva };
 }
 
 export async function POST(req: Request) {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
-  if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+  const user = auth?.user;
+
+  if (!user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
   const invoice_id = s(body.invoice_id ?? body.invoiceId);
@@ -69,17 +72,24 @@ export async function POST(req: Request) {
   if (!invRes.data) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
   const invoice: any = invRes.data;
+  const company_id = s(invoice.company_id);
 
-  const allowed = await canCompanyAction(supabase, auth.user.id, invoice.company_id, "create_invoices" as any);
+  if (!company_id || !isUuid(company_id)) {
+    return NextResponse.json({ ok: false, error: "BAD_COMPANY_ID" }, { status: 400 });
+  }
+
+  const allowed = await canCompanyAction(supabase, user.id, company_id, "create_invoices" as any);
   if (!allowed) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
 
-  const compRes = await svc.from("companies").select("*").eq("id", invoice.company_id).single();
+  const compRes = await svc.from("companies").select("*").eq("id", company_id).maybeSingle();
   if (!compRes.data) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
+
+  const company: any = compRes.data;
 
   const credRes = await svc
     .from("ttn_credentials")
     .select("signature_config, updated_at")
-    .eq("company_id", invoice.company_id)
+    .eq("company_id", company_id)
     .eq("is_active", true)
     .order("updated_at", { ascending: false })
     .limit(1);
@@ -98,41 +108,42 @@ export async function POST(req: Request) {
     .eq("invoice_id", invoice_id)
     .order("line_no", { ascending: true });
 
-  const items = itemsRes.data || [];
-  const totals = computeFromItems(items);
+  const items: any[] = itemsRes.data || [];
+  const sums = computeFromItems(items);
 
-  const stampEnabled = !!invoice.stamp_enabled;
-  const stampAmount = stampEnabled ? n(invoice.stamp_amount ?? 0) : 0;
-  const total_ttc = totals.ttc + stampAmount;
+  const stampEnabled = Boolean(invoice?.stamp_enabled ?? invoice?.stampEnabled ?? invoice?.stamp_duty ?? false);
+  const stampAmount = stampEnabled ? n(invoice?.stamp_amount ?? invoice?.stampAmount ?? 0) : 0;
+
+  const ttc = sums.ht + sums.tva + stampAmount;
 
   const unsigned_xml = buildTeifInvoiceXml({
-    invoice: {
-      ...invoice,
-      subtotal_ht: totals.ht,
-      total_vat: totals.tva,
-      total_ttc,
-      company: compRes.data,
-      stamp_enabled: stampEnabled,
-      stamp_amount: stampAmount,
-    },
+    invoiceId: invoice_id,
+    invoice,
+    company,
     items,
-    ttn: { settings: { stampEnabled, stampAmount } } as any,
+    totals: {
+      ht: sums.ht,
+      tva: sums.tva,
+      ttc,
+      stampEnabled,
+      stampAmount,
+    },
   } as any);
 
   const unsigned_hash = sha256Base64Utf8(unsigned_xml);
-
   const state = crypto.randomUUID();
-  const expires_at = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
   const backUrlFinal = back_url || `/invoices/${invoice_id}`;
-  const env = s(process.env.DIGIGO_ENV || process.env.NODE_ENV || "production");
+  const expires_at = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  const env = s(process.env.DIGIGO_ENV || process.env.NEXT_PUBLIC_DIGIGO_ENV || process.env.NODE_ENV || "production");
 
   const sessIns = await svc
     .from("digigo_sign_sessions")
     .insert({
       state,
       invoice_id,
-      company_id: invoice.company_id,
-      created_by: auth.user.id,
+      company_id,
+      created_by: user.id,
       back_url: backUrlFinal,
       status: "pending",
       expires_at,
@@ -142,21 +153,31 @@ export async function POST(req: Request) {
     .maybeSingle();
 
   if (sessIns.error) {
-    return NextResponse.json({ ok: false, error: "SESSION_CREATE_FAILED", details: sessIns.error.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "SESSION_CREATE_FAILED", details: sessIns.error.message },
+      { status: 500 }
+    );
   }
 
-  const up = await svc.from("invoice_signatures").upsert({
+  const sigPayload = {
     invoice_id,
+    company_id,
+    environment: env,
     provider: "digigo",
     state: "pending",
     unsigned_xml,
     unsigned_hash,
-    signer_user_id: auth.user.id,
-    meta: { credentialId, state },
-  });
+    signer_user_id: user.id,
+    meta: { credentialId, state, back_url: backUrlFinal },
+  };
+
+  const up = await svc.from("invoice_signatures").upsert(sigPayload, { onConflict: "invoice_id" });
 
   if (up.error) {
-    return NextResponse.json({ ok: false, error: "SIGNATURE_UPSERT_FAILED" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "SIGNATURE_UPSERT_FAILED", details: up.error.message },
+      { status: 500 }
+    );
   }
 
   const authorize_url = digigoAuthorizeUrl({
