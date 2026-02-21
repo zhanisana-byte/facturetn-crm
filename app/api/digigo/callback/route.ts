@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { createServiceClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -13,11 +14,16 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json().catch(() => ({}));
-    const state = s(body.state);
-    const token = s(body.token);
 
-    if (!state) return NextResponse.json({ ok: false, error: "MISSING_STATE" }, { status: 400 });
+    const c = await cookies();
+
+    const token = s(body.token);
+    const stateFromBody = s(body.state);
+    const stateFromCookie = s(c.get("digigo_state")?.value || "");
+    const state = stateFromBody || stateFromCookie;
+
     if (!token) return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
+    if (!state) return NextResponse.json({ ok: false, error: "MISSING_STATE" }, { status: 400 });
 
     const { data: session, error: sessErr } = await svc
       .from("digigo_sign_sessions")
