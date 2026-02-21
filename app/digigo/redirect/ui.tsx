@@ -21,15 +21,13 @@ function getStored(key: string) {
   return v;
 }
 
-export default function DigigoRedirectClient() {
-  const sp = useSearchParams();
+export default function RedirectUi() {
   const router = useRouter();
+  const params = useSearchParams();
 
-  const token = useMemo(() => s(sp.get("token") || ""), [sp]);
-  const code = useMemo(() => s(sp.get("code") || ""), [sp]);
-  const stateFromUrl = useMemo(() => s(sp.get("state") || ""), [sp]);
-  const invoiceFromUrl = useMemo(() => s(sp.get("invoice_id") || ""), [sp]);
-  const backFromUrl = useMemo(() => s(sp.get("back") || ""), [sp]);
+  const token = useMemo(() => s(params.get("token") || ""), [params]);
+  const code = useMemo(() => s(params.get("code") || ""), [params]);
+  const stateFromUrl = useMemo(() => s(params.get("state") || ""), [params]);
 
   const state = useMemo(() => {
     if (isUuid(stateFromUrl)) return stateFromUrl;
@@ -38,19 +36,14 @@ export default function DigigoRedirectClient() {
   }, [stateFromUrl]);
 
   const invoice_id = useMemo(() => {
-    if (isUuid(invoiceFromUrl)) return invoiceFromUrl;
     const inv = getStored("digigo_invoice_id");
     return isUuid(inv) ? inv : "";
-  }, [invoiceFromUrl]);
+  }, []);
 
-  const back_url = useMemo(() => {
-    const b = s(backFromUrl);
-    if (b) return b;
-    return s(getStored("digigo_back_url") || "");
-  }, [backFromUrl]);
+  const back_url = useMemo(() => s(getStored("digigo_back_url") || ""), []);
 
-  const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let mounted = true;
@@ -58,35 +51,24 @@ export default function DigigoRedirectClient() {
     async function run() {
       try {
         if (!token && !code) throw new Error("MISSING_TOKEN_OR_CODE");
-        if (!state) throw new Error("MISSING_STATE");
         if (!invoice_id) throw new Error("MISSING_INVOICE_ID");
 
         const r = await fetch("/api/digigo/callback", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, code, state, invoice_id, back_url }),
-          cache: "no-store",
           credentials: "include",
+          cache: "no-store",
+          body: JSON.stringify({ token, code, state, invoice_id, back_url }),
         });
 
-        const txt = await r.text().catch(() => "");
-        let j: any = null;
-        try {
-          j = txt ? JSON.parse(txt) : null;
-        } catch {
-          j = null;
-        }
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j?.ok) throw new Error(s(j?.error || j?.details || `HTTP_${r.status}`));
 
-        if (!r.ok || !j?.ok) {
-          const details = s(j?.details || j?.error || txt || `HTTP_${r.status}`);
-          throw new Error(`${r.status} ${details}`);
-        }
-
-        const redirect = s(j?.redirect || "/");
+        const redirect = s(j?.redirect || back_url || `/invoices/${invoice_id}`);
         if (mounted) router.replace(redirect);
       } catch (e: any) {
         if (mounted) {
-          setErr(s(e?.message || e || "Erreur"));
+          setErr(s(e?.message || e));
           setLoading(false);
         }
       }
@@ -101,7 +83,7 @@ export default function DigigoRedirectClient() {
   return (
     <div className="min-h-[70vh] flex items-center justify-center p-6">
       <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-sm p-6">
-        <div className="text-xl font-semibold text-slate-900">Finalisation de la signature</div>
+        <div className="text-xl font-semibold text-slate-900">Signature DigiGo</div>
 
         {loading ? (
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-700">
