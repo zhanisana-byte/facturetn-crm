@@ -9,52 +9,54 @@ type Props = {
 
 export default function InvoiceSignatureClient({ invoiceId, backUrl }: Props) {
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string>("");
+  const [error, setError] = useState("");
 
-  const start = useCallback(async () => {
-    if (loading) return;
-
-    setErr("");
+  const onStart = useCallback(async () => {
     setLoading(true);
+    setError("");
 
     try {
       const res = await fetch("/api/digigo/start", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ invoiceId, backUrl: backUrl ?? null }),
+        body: JSON.stringify({ invoice_id: invoiceId, back_url: backUrl ?? null }),
       });
 
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok || !data?.ok) {
-        const msg = String(data?.details || data?.message || data?.error || "START_FAILED");
-        setErr(msg);
+        setError(String(data?.error || "START_FAILED"));
         return;
       }
 
-      const url = String(data.authorize_url || "");
+      const url = String(data?.authorize_url || "");
       if (!url) {
-        setErr("MISSING_AUTHORIZE_URL");
+        setError("MISSING_AUTHORIZE_URL");
         return;
       }
 
       window.location.href = url;
     } catch (e: any) {
-      setErr(String(e?.message || "START_ERROR"));
+      setError(String(e?.message || "NETWORK_ERROR"));
     } finally {
       setLoading(false);
     }
-  }, [invoiceId, backUrl, loading]);
+  }, [invoiceId, backUrl]);
 
   return (
-    <div className="mt-4 flex flex-col gap-2">
-      <button className="ftn-btn" type="button" onClick={start} disabled={loading}>
-        {loading ? "Connexion DigiGo..." : "Signer avec DigiGo"}
+    <div className="w-full">
+      <button
+        type="button"
+        onClick={onStart}
+        disabled={loading}
+        className="w-full rounded-full bg-black px-6 py-4 text-white shadow-sm transition disabled:opacity-60"
+      >
+        {loading ? "Chargement..." : "Signer avec DigiGo"}
       </button>
 
-      {err ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 whitespace-pre-wrap">
-          {err}
+      {error ? (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
         </div>
       ) : null}
     </div>
