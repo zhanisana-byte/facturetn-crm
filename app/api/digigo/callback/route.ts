@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { createClient } from "@supabase/supabase-js";
 
 function s(v: any) {
@@ -21,12 +19,6 @@ export async function POST(req: Request) {
     const token = s(body?.token);
     if (!token) return NextResponse.json({ error: "MISSING_TOKEN" }, { status: 400 });
 
-    const authSb = createRouteHandlerClient({ cookies });
-    const { data: authData, error: authErr } = await authSb.auth.getUser();
-    if (authErr) return NextResponse.json({ error: "AUTH_FAILED" }, { status: 401 });
-    const userId = s(authData?.user?.id);
-    if (!userId) return NextResponse.json({ error: "NOT_AUTHENTICATED" }, { status: 401 });
-
     const payload = decodeJwtNoVerify(token) || {};
     const jti = s(payload?.jti);
     if (!jti) return NextResponse.json({ error: "MISSING_JTI" }, { status: 400 });
@@ -37,16 +29,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "MISSING_SUPABASE_SERVICE_ROLE" }, { status: 500 });
     }
 
-    const adminSb = createClient(supabaseUrl, serviceRole, {
+    const sb = createClient(supabaseUrl, serviceRole, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
     const nowIso = new Date().toISOString();
 
-    const { data: sess, error: sessErr } = await adminSb
+    const { data: sess, error: sessErr } = await sb
       .from("digigo_sign_sessions")
-      .select("id, invoice_id, back_url, status, expires_at")
-      .eq("created_by", userId)
+      .select("id, invoice_id, back_url")
       .eq("status", "pending")
       .gt("expires_at", nowIso)
       .order("created_at", { ascending: false })
@@ -56,7 +47,7 @@ export async function POST(req: Request) {
     if (sessErr) return NextResponse.json({ error: sessErr.message }, { status: 500 });
     if (!sess) return NextResponse.json({ error: "SESSION_NOT_FOUND" }, { status: 404 });
 
-    const { error: updErr } = await adminSb
+    const { error: updErr } = await sb
       .from("digigo_sign_sessions")
       .update({
         status: "done",
