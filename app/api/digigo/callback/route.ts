@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServiceClient } from "@/lib/supabase/service";
+import { digigoTokenPayload } from "@/lib/digigo/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,7 @@ export async function POST(req: Request) {
     const token = s(body.token);
     const invoice_id_body = s(body.invoice_id);
     const state_body = s(body.state);
+    const back_body = s(body.back_url);
 
     const c = await cookies();
     const state_cookie = s(c.get("digigo_state")?.value || "");
@@ -30,23 +32,18 @@ export async function POST(req: Request) {
 
     const state = state_body || state_cookie;
     const invoice_id = invoice_id_body || invoice_cookie;
-    const back_url = back_cookie || `/invoices/${invoice_id}`;
+    const back_url = back_body || back_cookie || (invoice_id ? `/invoices/${invoice_id}` : "/");
 
-    if (!token) {
-      return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
-    }
+    if (!token) return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
+    if (!state) return NextResponse.json({ ok: false, error: "MISSING_STATE" }, { status: 400 });
+    if (!invoice_id) return NextResponse.json({ ok: false, error: "MISSING_INVOICE_ID" }, { status: 400 });
 
-    if (!state) {
-      return NextResponse.json({ ok: false, error: "MISSING_STATE" }, { status: 400 });
-    }
-
-    if (!invoice_id) {
-      return NextResponse.json({ ok: false, error: "MISSING_INVOICE_ID" }, { status: 400 });
-    }
+    const payload = digigoTokenPayload(token);
+    const digigo_jti = s(payload?.jti);
 
     const sessionRes = await svc
       .from("digigo_sign_sessions")
-      .select("id,status")
+      .select("id,status,invoice_id")
       .eq("state", state)
       .maybeSingle();
 
@@ -54,9 +51,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 404 });
     }
 
+    if (s(sessionRes.data.invoice_id) !== invoice_id) {
+      return NextResponse.json({ ok: false, error: "SESSION_INVOICE_MISMATCH" }, { status: 400 });
+    }
+
     const signatureRes = await svc
       .from("invoice_signatures")
-      .select("id,unsigned_xml")
+      .select("id,unsigned_xml,meta")
       .eq("invoice_id", invoice_id)
       .maybeSingle();
 
@@ -64,25 +65,44 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "SIGNATURE_NOT_FOUND" }, { status: 404 });
     }
 
-    await svc
+    const meta = signatureRes.data.meta || {};
+    const meta2 = { ...meta, digigo_jti, digigo_token_seen_at: nowIso() };
+
+    const updSig = await svc
       .from("invoice_signatures")
       .update({
         state: "signed",
         signed_xml: signatureRes.data.unsigned_xml,
         signed_at: nowIso(),
         updated_at: nowIso(),
+        meta: meta2,
       })
       .eq("id", signatureRes.data.id);
 
-    await svc
+    if (updSig.error) {
+      return NextResponse.json(
+        { ok: false, error: "SIGNATURE_UPDATE_FAILED", details: updSig.error.message },
+        { status: 500 }
+      );
+    }
+
+    const updSess = await svc
       .from("digigo_sign_sessions")
       .update({
         status: "done",
         updated_at: nowIso(),
+        digigo_jti,
       })
       .eq("id", sessionRes.data.id);
 
-    await svc
+    if (updSess.error) {
+      return NextResponse.json(
+        { ok: false, error: "SESSION_UPDATE_FAILED", details: updSess.error.message },
+        { status: 500 }
+      );
+    }
+
+    const updInv = await svc
       .from("invoices")
       .update({
         signature_status: "signed",
@@ -92,10 +112,14 @@ export async function POST(req: Request) {
       })
       .eq("id", invoice_id);
 
-    return NextResponse.json({
-      ok: true,
-      redirect: back_url,
-    });
+    if (updInv.error) {
+      return NextResponse.json(
+        { ok: false, error: "INVOICE_UPDATE_FAILED", details: updInv.error.message },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ ok: true, redirect: back_url });
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: "CALLBACK_FATAL", details: s(e?.message || e) },
