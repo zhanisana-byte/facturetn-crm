@@ -1,6 +1,5 @@
 // app/api/digigo/start/route.ts
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { supabaseAdmin } from "@/lib/digigo/supabaseAdmin";
 import { s, uuid } from "@/lib/digigo/ids";
 
@@ -40,12 +39,12 @@ export async function POST(req: Request) {
     expires_at: expiresAt.toISOString(),
   });
 
-  if (error) return NextResponse.json({ error: "SESSION_CREATE_FAILED", details: error.message }, { status: 500 });
-
-  const ck = cookies();
-  ck.set("dg_state", state, { httpOnly: true, sameSite: "lax", secure: true, path: "/", maxAge: 60 * 60 });
-  ck.set("dg_invoice_id", invoice_id, { httpOnly: true, sameSite: "lax", secure: true, path: "/", maxAge: 60 * 60 });
-  ck.set("dg_back_url", back_url, { httpOnly: true, sameSite: "lax", secure: true, path: "/", maxAge: 60 * 60 });
+  if (error) {
+    return NextResponse.json(
+      { error: "SESSION_CREATE_FAILED", details: error.message },
+      { status: 500 }
+    );
+  }
 
   const authorizeUrl =
     `${base}/tunsign-proxy-webapp/oauth2/authorize` +
@@ -58,5 +57,14 @@ export async function POST(req: Request) {
     `&hash=${encodeURIComponent(hash)}` +
     `&state=${encodeURIComponent(state)}`;
 
-  return NextResponse.json({ state, authorizeUrl, invoice_id, back_url });
+  const res = NextResponse.json({ state, authorizeUrl, invoice_id, back_url });
+
+  const secure = process.env.NODE_ENV === "production";
+  const common = { httpOnly: true as const, sameSite: "lax" as const, secure, path: "/", maxAge: 60 * 60 };
+
+  res.cookies.set({ name: "dg_state", value: state, ...common });
+  res.cookies.set({ name: "dg_invoice_id", value: invoice_id, ...common });
+  res.cookies.set({ name: "dg_back_url", value: back_url, ...common });
+
+  return res;
 }
