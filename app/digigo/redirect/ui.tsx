@@ -1,57 +1,103 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 function s(v: any) {
   return String(v ?? "").trim();
 }
 
-type CallbackOk = {
-  ok: true;
-  invoice_id: string;
-  state: string;
-  back_url?: string;
-};
+type UiState =
+  | { kind: "loading"; title: string; subtitle?: string }
+  | { kind: "success"; title: string; subtitle?: string }
+  | { kind: "error"; title: string; subtitle?: string; details?: string };
 
-type CallbackErr = {
-  ok: false;
-  error: string;
-  details?: string;
-};
+export default function DigigoRedirectPage() {
+  const router = useRouter();
 
-export default function RedirectUi() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const token = s(params.get("token"));
+  const stateFromUrl = s(params.get("state"));
 
-  const [loading, setLoading] = useState(true);
-  const [res, setRes] = useState<CallbackOk | CallbackErr | null>(null);
+  const [ui, setUi] = useState<UiState>({
+    kind: "loading",
+    title: "Finalisation de la signature",
+    subtitle: "Traitement en cours…",
+  });
 
   useEffect(() => {
     let cancelled = false;
 
     async function run() {
       try {
-        setLoading(true);
-        setRes(null);
+        setUi({
+          kind: "loading",
+          title: "Finalisation de la signature",
+          subtitle: "Traitement en cours…",
+        });
 
-        if (!token) {
-          if (!cancelled) setRes({ ok: false, error: "MISSING_TOKEN" });
+        // 1) context (invoice_id + state attendu)
+        const ctxRes = await fetch("/api/digigo/context", { cache: "no-store" });
+        const ctx = await ctxRes.json().catch(() => ({}));
+
+        const invoice_id = s(ctx?.invoice_id ?? ctx?.invoiceId);
+        const stateExpected = s(ctx?.state);
+
+        if (!invoice_id) {
+          if (!cancelled) setUi({ kind: "error", title: "Erreur", subtitle: "Session introuvable." });
           return;
         }
 
-        const r = await fetch("/api/digigo/callback", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token }),
-          cache: "no-store",
-        });
-        const j = (await r.json().catch(() => null)) as any;
+        const effectiveState = stateFromUrl || stateExpected;
+        if (!effectiveState) {
+          if (!cancelled) setUi({ kind: "error", title: "Erreur", subtitle: "MISSING_STATE" });
+          return;
+        }
 
-        if (!cancelled) setRes(j);
+        // 2) finalize : on passe invoiceId + state (+ token si présent)
+        const finRes = await fetch("/api/digigo/finalize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({
+            invoiceId: invoice_id,
+            state: effectiveState,
+            token,
+          }),
+        });
+
+        const fin = await finRes.json().catch(() => ({}));
+
+        if (!finRes.ok || !fin?.ok) {
+          const msg = s(fin?.error || fin?.message || "INTERNAL_ERROR");
+          const details = s(fin?.details || "");
+          if (!cancelled) {
+            setUi({
+              kind: "error",
+              title: "Finalisation de la signature",
+              subtitle: "Impossible de finaliser la signature.",
+              details: msg + (details ? `\n${details}` : ""),
+            });
+          }
+          return;
+        }
+
+        if (!cancelled) {
+          setUi({
+            kind: "success",
+            title: "Finalisation de la signature",
+            subtitle: "OK",
+          });
+        }
       } catch (e: any) {
-        if (!cancelled) setRes({ ok: false, error: "NETWORK_ERROR", details: s(e?.message || e) });
-      } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setUi({
+            kind: "error",
+            title: "Finalisation de la signature",
+            subtitle: "Impossible de finaliser la signature.",
+            details: s(e?.message || "fetch failed"),
+          });
+        }
       }
     }
 
@@ -59,79 +105,60 @@ export default function RedirectUi() {
     return () => {
       cancelled = true;
     };
-  }, [token]);
-
-  const ok = res && (res as any).ok === true;
-  const backUrl = ok ? s((res as any).back_url) : "";
+  }, [router, token, stateFromUrl]);
 
   return (
-    <div className="min-h-screen w-full bg-gradient-to-br from-slate-50 via-white to-slate-100 flex items-center justify-center p-6">
-      <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white/80 backdrop-blur shadow-sm">
-        <div className="p-6">
-          <div className="flex items-center gap-3">
-            <div
-              className={`h-10 w-10 rounded-full flex items-center justify-center ${
-                loading ? "bg-slate-100" : ok ? "bg-emerald-100" : "bg-rose-100"
-              }`}
-            >
-              {loading ? (
-                <span className="h-4 w-4 rounded-full bg-slate-300 animate-pulse" />
-              ) : ok ? (
-                <span className="text-emerald-700 font-bold">✓</span>
-              ) : (
-                <span className="text-rose-700 font-bold">!</span>
-              )}
-            </div>
-            <div className="flex-1">
-              <div className="text-lg font-semibold text-slate-900">Finalisation de la signature</div>
-              <div className="text-sm text-slate-600">
-                {loading ? "Traitement en cours…" : ok ? "Signature enregistrée." : "Impossible de finaliser la signature."}
-              </div>
-            </div>
+    <div className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4">
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-sm p-6">
+        <div className="flex items-start gap-3">
+          <div
+            className={[
+              "mt-0.5 h-10 w-10 rounded-full flex items-center justify-center",
+              ui.kind === "success"
+                ? "bg-emerald-50 text-emerald-600"
+                : ui.kind === "error"
+                ? "bg-rose-50 text-rose-600"
+                : "bg-slate-100 text-slate-600",
+            ].join(" ")}
+          >
+            {ui.kind === "success" ? "✓" : ui.kind === "error" ? "!" : "…"}
           </div>
 
-          <div className="mt-5">
-            {loading ? (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">Merci de patienter…</div>
-            ) : ok ? (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-                <div className="font-semibold">OK</div>
-                <div className="mt-1 text-emerald-800/80">Vous pouvez revenir à la facture pour continuer.</div>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
-                <div className="font-semibold">Erreur</div>
-                <div className="mt-1">{s((res as any)?.error) || "UNKNOWN"}</div>
-                {s((res as any)?.details) ? <div className="mt-2 text-rose-800/80">{s((res as any)?.details)}</div> : null}
-              </div>
-            )}
+          <div className="flex-1">
+            <h1 className="text-base font-semibold text-slate-900">{ui.title}</h1>
+            {ui.subtitle ? <p className="mt-1 text-sm text-slate-600">{ui.subtitle}</p> : null}
           </div>
+        </div>
 
-          <div className="mt-6 flex flex-col sm:flex-row gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                if (backUrl) window.location.href = backUrl;
-                else window.location.href = "/";
-              }}
-              className="inline-flex justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-            >
-              Retour à la facture
-            </button>
+        {ui.kind === "error" ? (
+          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4">
+            <p className="text-sm font-medium text-rose-700">Erreur</p>
+            {ui.details ? (
+              <pre className="mt-2 whitespace-pre-wrap break-words text-xs text-rose-800">
+                {ui.details}
+              </pre>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="mt-5 flex gap-2">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50"
+          >
+            Retour à la facture
+          </button>
+
+          {ui.kind === "error" ? (
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="inline-flex justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+              className="flex-1 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
             >
               Réessayer
             </button>
-          </div>
-
-          <div className="mt-5 text-xs text-slate-500">
-            Remarque 1 : la session expire après un délai (ex: 10–30 min). Si elle a expiré, relance la signature.
-            <br />
-            Remarque 2 : évite d’ouvrir plusieurs signatures en parallèle (plusieurs onglets) pour ne pas mélanger les sessions.
-          </div>
+          ) : null}
         </div>
       </div>
     </div>
