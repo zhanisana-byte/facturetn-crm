@@ -77,3 +77,20 @@ export function digigoAuthorizeUrl(args: DigigoAuthorizeArgs): string {
 
   return u.toString();
 }
+
+function b64urlToUtf8(input: string) {
+  const s = input.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = s.length % 4 ? "=".repeat(4 - (s.length % 4)) : "";
+  return Buffer.from(s + pad, "base64").toString("utf8");
+}
+
+export function digigoTokenPayload(token: string): any {
+  const t = String(token || "").trim();
+  const parts = t.split(".");
+  if (parts.length < 2) return {};
+  try {
+    return JSON.parse(b64urlToUtf8(parts[1]));
+  } catch {
+    return {};
+  }
+}
