@@ -31,7 +31,6 @@ function isHttps(req: Request) {
   const app = s(process.env.NEXT_PUBLIC_APP_URL || "");
   return app.startsWith("https://");
 }
-
 function computeFromItems(items: any[]) {
   let ht = 0;
   let tva = 0;
@@ -49,6 +48,11 @@ function computeFromItems(items: any[]) {
     tva += (net * vatPct) / 100;
   }
   return { ht, tva };
+}
+function normalizeEnv(v: string) {
+  const x = s(v).toLowerCase();
+  if (x === "test" || x === "sandbox" || x === "staging") return "test";
+  return "production";
 }
 
 export async function POST(req: Request) {
@@ -88,7 +92,7 @@ export async function POST(req: Request) {
 
   const credRes = await svc
     .from("ttn_credentials")
-    .select("signature_config, updated_at")
+    .select("signature_config, signer_email, updated_at")
     .eq("company_id", company_id)
     .eq("is_active", true)
     .order("updated_at", { ascending: false })
@@ -96,7 +100,12 @@ export async function POST(req: Request) {
 
   const cred = credRes.data?.[0];
   const signatureConfig: any = cred?.signature_config || {};
-  const credentialId = s(signatureConfig.digigo_signer_email ?? signatureConfig.credentialId ?? signatureConfig.email ?? "");
+
+  const credentialId =
+    s(company?.digigo_credential_id) ||
+    s(signatureConfig.credentialId) ||
+    s(cred?.signer_email) ||
+    s(signatureConfig.digigo_signer_email);
 
   if (!credentialId) {
     return NextResponse.json({ ok: false, error: "MISSING_CREDENTIAL_ID" }, { status: 400 });
@@ -135,7 +144,7 @@ export async function POST(req: Request) {
 
   const backUrlFinal = back_url || `/invoices/${invoice_id}`;
   const expires_at = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-  const env = s(process.env.DIGIGO_ENV || process.env.NEXT_PUBLIC_DIGIGO_ENV || process.env.NODE_ENV || "production");
+  const env = normalizeEnv(process.env.DIGIGO_ENV || process.env.NEXT_PUBLIC_DIGIGO_ENV || process.env.NODE_ENV || "production");
 
   const sessIns = await svc
     .from("digigo_sign_sessions")
