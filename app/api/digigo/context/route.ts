@@ -1,12 +1,12 @@
-// app/api/digigo/context/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { s } from "@/lib/digigo/ids";
 
-export const dynamic = "force-dynamic";
+function s(v: any) {
+  return String(v ?? "").trim();
+}
 
 export async function GET() {
-  const ck = cookies();
+  const ck = await cookies();
   return NextResponse.json({
     state: s(ck.get("dg_state")?.value),
     invoice_id: s(ck.get("dg_invoice_id")?.value),
