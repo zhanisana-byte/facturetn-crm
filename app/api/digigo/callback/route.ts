@@ -1,79 +1,100 @@
-// app/api/digigo/callback/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { supabaseAdmin } from "@/lib/digigo/supabaseAdmin";
-import { decodeJwtPayload } from "@/lib/digigo/jwt";
-import { s } from "@/lib/digigo/ids";
+import { createClient } from "@supabase/supabase-js";
 
-export const dynamic = "force-dynamic";
+function s(v: any) {
+  return String(v ?? "").trim();
+}
 
-export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({} as any));
-  const token = s(body?.token);
-  if (!token) return NextResponse.json({ error: "MISSING_TOKEN" }, { status: 400 });
+function b64urlToUtf8(input: string) {
+  const pad = "=".repeat((4 - (input.length % 4)) % 4);
+  const b64 = (input + pad).replace(/-/g, "+").replace(/_/g, "/");
+  return Buffer.from(b64, "base64").toString("utf8");
+}
 
-  const payload = decodeJwtPayload(token) || {};
-  const jti = s(payload?.jti);
-  if (!jti) return NextResponse.json({ error: "MISSING_JTI" }, { status: 400 });
+function parseJwt(token: string): any {
+  const parts = s(token).split(".");
+  if (parts.length < 2) return {};
+  try {
+    return JSON.parse(b64urlToUtf8(parts[1]));
+  } catch {
+    return {};
+  }
+}
 
-  const ck = cookies();
+function env(name: string, fallback = "") {
+  return s(process.env[name] ?? fallback);
+}
+
+function supabaseAdmin() {
+  const url = env("NEXT_PUBLIC_SUPABASE_URL");
+  const key = env("SUPABASE_SERVICE_ROLE_KEY");
+  return createClient(url, key, { auth: { persistSession: false } });
+}
+
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const token = s(url.searchParams.get("token"));
+  const stateFromUrl = s(url.searchParams.get("state"));
+
+  const ck = await cookies();
   const cookieState = s(ck.get("dg_state")?.value);
   const cookieInvoice = s(ck.get("dg_invoice_id")?.value);
   const cookieBack = s(ck.get("dg_back_url")?.value);
 
-  const admin = supabaseAdmin();
+  const state = stateFromUrl || cookieState;
 
-  const byJti = await admin
+  if (!token) {
+    return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
+  }
+  if (!state) {
+    return NextResponse.json({ ok: false, error: "MISSING_STATE" }, { status: 400 });
+  }
+
+  const payload = parseJwt(token);
+  const jti = s(payload?.jti);
+  if (!jti) {
+    return NextResponse.json({ ok: false, error: "MISSING_JTI" }, { status: 400 });
+  }
+
+  const sb = supabaseAdmin();
+
+  const { data: sessionRow } = await sb
     .from("digigo_sign_sessions")
-    .select("id, invoice_id, state, back_url, status, expires_at")
-    .eq("digigo_jti", jti)
+    .select("id, invoice_id, state, status, expires_at, digigo_jti")
+    .eq("state", state)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  let row = byJti.data as any;
+  const invoiceId = s(sessionRow?.invoice_id) || cookieInvoice;
+  const backUrl = cookieBack || (invoiceId ? `/invoices/${invoiceId}` : "/invoices");
 
-  if (!row && cookieState) {
-    const byState = await admin
-      .from("digigo_sign_sessions")
-      .select("id, invoice_id, state, back_url, status, expires_at")
-      .eq("state", cookieState)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    row = byState.data as any;
-
-    if (row?.id) {
-      await admin
-        .from("digigo_sign_sessions")
-        .update({ digigo_jti: jti, status: "done", updated_at: new Date().toISOString() })
-        .eq("id", row.id);
-    }
+  if (!invoiceId) {
+    return NextResponse.json({ ok: false, error: "BAD_INVOICE_ID", state, jti }, { status: 400 });
   }
 
-  if (!row && cookieInvoice) {
-    const byInvoice = await admin
-      .from("digigo_sign_sessions")
-      .select("id, invoice_id, state, back_url, status, expires_at")
-      .eq("invoice_id", cookieInvoice)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    row = byInvoice.data as any;
+  await sb
+    .from("digigo_sign_sessions")
+    .update({ digigo_jti: jti, status: "done", updated_at: new Date().toISOString() })
+    .eq("state", state)
+    .is("digigo_jti", null);
 
-    if (row?.id) {
-      await admin
-        .from("digigo_sign_sessions")
-        .update({ digigo_jti: jti, status: "done", updated_at: new Date().toISOString() })
-        .eq("id", row.id);
-    }
-  }
+  await sb
+    .from("invoice_signatures")
+    .update({
+      state: "pending",
+      provider: "digigo",
+      updated_at: new Date().toISOString(),
+      meta: {
+        state,
+        back_url: backUrl,
+        credentialId: s(payload?.sub),
+        jti,
+      },
+    })
+    .eq("invoice_id", invoiceId)
+    .eq("provider", "digigo");
 
-  if (!row?.invoice_id) return NextResponse.json({ error: "SESSION_NOT_FOUND", jti }, { status: 404 });
-
-  const invoice_id = s(row.invoice_id);
-  const back_url = s(row.back_url) || cookieBack || `/invoices/${invoice_id}`;
-  const state = s(row.state);
-
-  return NextResponse.json({ ok: true, invoice_id, back_url, state, jti });
+  return NextResponse.redirect(new URL(`/digigo/redirect?token=${encodeURIComponent(token)}`, url.origin));
 }
