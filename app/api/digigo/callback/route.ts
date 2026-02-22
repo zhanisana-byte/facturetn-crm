@@ -1,129 +1,80 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createServiceClient } from "@/lib/supabase/service";
-import { digigoTokenPayload } from "@/lib/digigo/client";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { createClient } from "@supabase/supabase-js";
 
 function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function nowIso() {
-  return new Date().toISOString();
+function decodeJwtNoVerify(token: string) {
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+  const json = Buffer.from(payload, "base64").toString("utf8");
+  return JSON.parse(json);
 }
 
 export async function POST(req: Request) {
-  const svc = createServiceClient();
-
   try {
     const body = await req.json().catch(() => ({}));
+    const token = s(body?.token);
+    if (!token) return NextResponse.json({ error: "MISSING_TOKEN" }, { status: 400 });
 
-    const token = s(body.token);
-    const invoice_id_body = s(body.invoice_id);
-    const state_body = s(body.state);
-    const back_body = s(body.back_url);
+    const authSb = createRouteHandlerClient({ cookies });
+    const { data: authData, error: authErr } = await authSb.auth.getUser();
+    if (authErr) return NextResponse.json({ error: "AUTH_FAILED" }, { status: 401 });
+    const userId = s(authData?.user?.id);
+    if (!userId) return NextResponse.json({ error: "NOT_AUTHENTICATED" }, { status: 401 });
 
-    const c = await cookies();
-    const state_cookie = s(c.get("digigo_state")?.value || "");
-    const invoice_cookie = s(c.get("digigo_invoice_id")?.value || "");
-    const back_cookie = s(c.get("digigo_back_url")?.value || "");
+    const payload = decodeJwtNoVerify(token) || {};
+    const jti = s(payload?.jti);
+    if (!jti) return NextResponse.json({ error: "MISSING_JTI" }, { status: 400 });
 
-    const state = state_body || state_cookie;
-    const invoice_id = invoice_id_body || invoice_cookie;
-    const back_url = back_body || back_cookie || (invoice_id ? `/invoices/${invoice_id}` : "/");
+    const supabaseUrl = s(process.env.NEXT_PUBLIC_SUPABASE_URL);
+    const serviceRole = s(process.env.SUPABASE_SERVICE_ROLE_KEY);
+    if (!supabaseUrl || !serviceRole) {
+      return NextResponse.json({ error: "MISSING_SUPABASE_SERVICE_ROLE" }, { status: 500 });
+    }
 
-    if (!token) return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
-    if (!state) return NextResponse.json({ ok: false, error: "MISSING_STATE" }, { status: 400 });
-    if (!invoice_id) return NextResponse.json({ ok: false, error: "MISSING_INVOICE_ID" }, { status: 400 });
+    const adminSb = createClient(supabaseUrl, serviceRole, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
 
-    const payload = digigoTokenPayload(token);
-    const digigo_jti = s(payload?.jti);
+    const nowIso = new Date().toISOString();
 
-    const sessionRes = await svc
+    const { data: sess, error: sessErr } = await adminSb
       .from("digigo_sign_sessions")
-      .select("id,status,invoice_id")
-      .eq("state", state)
+      .select("id, invoice_id, back_url, status, expires_at")
+      .eq("created_by", userId)
+      .eq("status", "pending")
+      .gt("expires_at", nowIso)
+      .order("created_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
-    if (!sessionRes.data) {
-      return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 404 });
-    }
+    if (sessErr) return NextResponse.json({ error: sessErr.message }, { status: 500 });
+    if (!sess) return NextResponse.json({ error: "SESSION_NOT_FOUND" }, { status: 404 });
 
-    if (s(sessionRes.data.invoice_id) !== invoice_id) {
-      return NextResponse.json({ ok: false, error: "SESSION_INVOICE_MISMATCH" }, { status: 400 });
-    }
-
-    const signatureRes = await svc
-      .from("invoice_signatures")
-      .select("id,unsigned_xml,meta")
-      .eq("invoice_id", invoice_id)
-      .maybeSingle();
-
-    if (!signatureRes.data) {
-      return NextResponse.json({ ok: false, error: "SIGNATURE_NOT_FOUND" }, { status: 404 });
-    }
-
-    const meta = signatureRes.data.meta || {};
-    const meta2 = { ...meta, digigo_jti, digigo_token_seen_at: nowIso() };
-
-    const updSig = await svc
-      .from("invoice_signatures")
-      .update({
-        state: "signed",
-        signed_xml: signatureRes.data.unsigned_xml,
-        signed_at: nowIso(),
-        updated_at: nowIso(),
-        meta: meta2,
-      })
-      .eq("id", signatureRes.data.id);
-
-    if (updSig.error) {
-      return NextResponse.json(
-        { ok: false, error: "SIGNATURE_UPDATE_FAILED", details: updSig.error.message },
-        { status: 500 }
-      );
-    }
-
-    const updSess = await svc
+    const { error: updErr } = await adminSb
       .from("digigo_sign_sessions")
       .update({
         status: "done",
-        updated_at: nowIso(),
-        digigo_jti,
+        digigo_jti: jti,
+        error_message: null,
+        updated_at: nowIso,
       })
-      .eq("id", sessionRes.data.id);
+      .eq("id", sess.id);
 
-    if (updSess.error) {
-      return NextResponse.json(
-        { ok: false, error: "SESSION_UPDATE_FAILED", details: updSess.error.message },
-        { status: 500 }
-      );
-    }
+    if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
 
-    const updInv = await svc
-      .from("invoices")
-      .update({
-        signature_status: "signed",
-        ttn_signed: true,
-        signed_at: nowIso(),
-        updated_at: nowIso(),
-      })
-      .eq("id", invoice_id);
-
-    if (updInv.error) {
-      return NextResponse.json(
-        { ok: false, error: "INVOICE_UPDATE_FAILED", details: updInv.error.message },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({ ok: true, redirect: back_url });
+    return NextResponse.json({
+      ok: true,
+      back_url: sess.back_url || `/invoices/${sess.invoice_id}`,
+      digigo_jti: jti,
+      session_id: sess.id,
+    });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: "CALLBACK_FATAL", details: s(e?.message || e) },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: e?.message || "UNKNOWN" }, { status: 500 });
   }
 }
