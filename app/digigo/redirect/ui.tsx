@@ -6,15 +6,12 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-export default function DigigoRedirectPage() {
-  const [error, setError] = useState("");
-  const [done, setDone] = useState(false);
+export default function RedirectUi() {
+  const [error, setError] = useState<string>("");
+  const [done, setDone] = useState<boolean>(false);
 
-  const token = useMemo(() => {
-    if (typeof window === "undefined") return "";
-    const p = new URLSearchParams(window.location.search);
-    return s(p.get("token"));
-  }, []);
+  const params = useMemo(() => new URLSearchParams(window.location.search), []);
+  const token = s(params.get("token"));
 
   useEffect(() => {
     let cancelled = false;
@@ -22,37 +19,45 @@ export default function DigigoRedirectPage() {
     async function run() {
       try {
         setError("");
-        setDone(false);
 
         if (!token) {
           setError("MISSING_TOKEN");
           return;
         }
 
-        const res = await fetch("/api/digigo/callback", {
+        const ctxRes = await fetch("/api/digigo/context", { cache: "no-store", credentials: "include" });
+        const ctx = await ctxRes.json().catch(() => ({}));
+
+        const invoice_id = s(ctx?.invoice_id);
+        const state = s(ctx?.state);
+        const back_url = s(ctx?.back_url);
+
+        const cbRes = await fetch("/api/digigo/callback", {
           method: "POST",
           headers: { "content-type": "application/json" },
+          credentials: "include",
           cache: "no-store",
-          body: JSON.stringify({ token }),
+          body: JSON.stringify({ token, invoice_id, state, back_url }),
         });
 
-        const json = await res.json().catch(() => ({}));
+        const cb = await cbRes.json().catch(() => ({}));
 
-        if (!res.ok || !json?.ok) {
-          setError(s(json?.error) || "CALLBACK_FAILED");
+        if (!cbRes.ok || !cb?.ok) {
+          setError(s(cb?.error) || `CALLBACK_HTTP_${cbRes.status}`);
           return;
         }
 
-        const redirect = s(json?.redirect) || "/";
         setDone(true);
 
-        if (!cancelled) window.location.replace(redirect);
+        const redirect = s(cb?.redirect) || (invoice_id ? `/invoices/${invoice_id}` : "/");
+        window.location.assign(redirect);
       } catch (e: any) {
-        setError(s(e?.message || e) || "REDIRECT_FATAL");
+        setError(s(e?.message || e));
       }
     }
 
     run();
+
     return () => {
       cancelled = true;
     };
@@ -60,23 +65,21 @@ export default function DigigoRedirectPage() {
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4">
-      <div className="w-full max-w-xl rounded-2xl border bg-white/70 backdrop-blur p-8 shadow-sm">
-        <div className="text-xl font-semibold">Signature DigiGo</div>
+      <div className="w-full max-w-md rounded-2xl border bg-white/80 backdrop-blur p-6 shadow-sm">
+        <div className="text-lg font-semibold">Finalisation de la signature</div>
 
         {error ? (
           <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
             <div className="font-semibold">Erreur</div>
             <div className="mt-1">{error}</div>
           </div>
-        ) : (
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-700">
-            <div className="font-semibold">
-              {done ? "Signature finalisée" : "Finalisation de la signature..."}
-            </div>
-            <div className="mt-1 text-sm">
-              {done ? "Redirection..." : "Veuillez patienter."}
-            </div>
+        ) : done ? (
+          <div className="mt-4 rounded-xl border border-green-200 bg-green-50 p-4 text-green-700">
+            <div className="font-semibold">OK</div>
+            <div className="mt-1">Redirection…</div>
           </div>
+        ) : (
+          <div className="mt-4 rounded-xl border bg-gray-50 p-4 text-gray-700">Traitement…</div>
         )}
       </div>
     </div>
