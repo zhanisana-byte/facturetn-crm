@@ -8,107 +8,87 @@ function s(v: any) {
 
 export default function RedirectUi() {
   const [error, setError] = useState("");
-  const [done, setDone] = useState(false);
+  const [busy, setBusy] = useState(true);
 
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const token = s(params.get("token"));
 
-  useEffect(() => {
-    let cancelled = false;
+  async function run() {
+    try {
+      setBusy(true);
+      setError("");
 
-    async function run() {
-      try {
-        setError("");
-
-        if (!token) {
-          setError("MISSING_TOKEN");
-          return;
-        }
-
-        const res = await fetch("/api/digigo/callback", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token }),
-        });
-
-        const data = await res.json().catch(() => ({}));
-
-        if (!res.ok) {
-          setError(s(data?.error || data?.message || "CALLBACK_FAILED"));
-          return;
-        }
-
-        if (!cancelled) {
-          setDone(true);
-          const back = s(data?.back_url) || "/invoices";
-          setTimeout(() => {
-            window.location.href = back;
-          }, 600);
-        }
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || "ERREUR");
+      if (!token) {
+        setError("TOKEN_MANQUANT");
+        return;
       }
-    }
 
+      const res = await fetch("/api/digigo/callback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+        cache: "no-store",
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(s(data?.error) || "CALLBACK_FAILED");
+
+      const back = s(data?.back_url) || "/invoices";
+      window.location.href = back;
+    } catch (e: any) {
+      setError(s(e?.message) || "ERREUR");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
     run();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+  }, []);
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-        background: "#0b0f19",
-      }}
-    >
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 420,
-          borderRadius: 14,
-          padding: 22,
-          background: "rgba(255,255,255,0.06)",
-          border: "1px solid rgba(255,255,255,0.12)",
-          boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
-          color: "#fff",
-          textAlign: "center",
-        }}
-      >
-        {!done && !error && (
-          <div style={{ display: "grid", gap: 10 }}>
-            <div
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: 999,
-                border: "3px solid rgba(255,255,255,0.25)",
-                borderTopColor: "#fff",
-                margin: "0 auto",
-                animation: "digigoSpin 0.8s linear infinite",
-              }}
-            />
-            <div style={{ fontSize: 14, opacity: 0.9 }}>Connexion DigiGo…</div>
+    <div className="min-h-[70vh] w-full flex items-center justify-center p-6">
+      <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="p-6">
+          <div className="flex items-start gap-3">
+            <div className="h-10 w-10 rounded-full bg-rose-50 flex items-center justify-center">
+              <span className="text-rose-600 font-bold">!</span>
+            </div>
+            <div className="flex-1">
+              <div className="text-lg font-semibold text-slate-900">
+                {error ? "Erreur" : "Finalisation de la signature"}
+              </div>
+              <div className="text-sm text-slate-600">
+                {error ? "Session introuvable." : busy ? "Connexion DigiGo…" : "Terminé."}
+              </div>
+            </div>
           </div>
-        )}
-        {done && !error && <div style={{ fontSize: 18, fontWeight: 700 }}>OK</div>}
-        {error && <div style={{ color: "#ff6b6b", fontSize: 14, fontWeight: 600 }}>{error}</div>}
 
-        <style jsx global>{`
-          @keyframes digigoSpin {
-            from {
-              transform: rotate(0deg);
-            }
-            to {
-              transform: rotate(360deg);
-            }
-          }
-        `}</style>
+          {error && (
+            <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4">
+              <div className="text-xs uppercase tracking-wide text-rose-700 font-semibold">Erreur</div>
+              <div className="mt-1 text-sm text-rose-800">{error}</div>
+            </div>
+          )}
+
+          <div className="mt-5 flex gap-3">
+            <button
+              className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+              onClick={() => (window.location.href = "/invoices")}
+              disabled={busy}
+            >
+              Retour à la facture
+            </button>
+
+            <button
+              className="flex-1 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+              onClick={run}
+              disabled={busy}
+            >
+              Réessayer
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
