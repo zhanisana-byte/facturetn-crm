@@ -12,9 +12,7 @@ function s(v: any) {
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const token = s(url.searchParams.get("token"));
-  if (!token) {
-    return NextResponse.redirect(new URL("/digigo/redirect?error=MISSING_TOKEN", url.origin));
-  }
+  if (!token) return NextResponse.redirect(new URL("/digigo/redirect?error=MISSING_TOKEN", url.origin));
   return NextResponse.redirect(new URL(`/digigo/redirect?token=${encodeURIComponent(token)}`, url.origin));
 }
 
@@ -24,36 +22,26 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const token = s(body?.token);
 
-  if (!token) {
-    return NextResponse.json({ error: "MISSING_TOKEN" }, { status: 400 });
-  }
+  if (!token) return NextResponse.json({ error: "MISSING_TOKEN" }, { status: 400 });
 
   const payload = decodeJwtPayload(token);
   const jti = s(payload?.jti);
   const sub = s(payload?.sub);
 
-  if (!jti) {
-    return NextResponse.json({ error: "MISSING_JTI" }, { status: 400 });
-  }
-  if (!sub) {
-    return NextResponse.json({ error: "MISSING_SUB" }, { status: 400 });
-  }
+  if (!jti) return NextResponse.json({ error: "MISSING_JTI" }, { status: 400 });
+  if (!sub) return NextResponse.json({ error: "MISSING_SUB" }, { status: 400 });
 
   const { data: sess, error: sessErr } = await admin
     .from("digigo_sign_sessions")
-    .select("id, invoice_id, state, back_url, status, expires_at, environment, company_id")
+    .select("id, invoice_id, state, back_url, status, expires_at, environment, company_id, created_at")
     .eq("status", "pending")
     .gt("expires_at", new Date().toISOString())
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (sessErr) {
-    return NextResponse.json({ error: "SESSION_LOOKUP_FAILED", details: sessErr.message }, { status: 500 });
-  }
-  if (!sess?.invoice_id) {
-    return NextResponse.json({ error: "SESSION_NOT_FOUND" }, { status: 404 });
-  }
+  if (sessErr) return NextResponse.json({ error: "SESSION_LOOKUP_FAILED", details: sessErr.message }, { status: 500 });
+  if (!sess?.invoice_id) return NextResponse.json({ error: "SESSION_NOT_FOUND" }, { status: 404 });
 
   const { data: sig, error: sigErr } = await admin
     .from("invoice_signatures")
@@ -63,12 +51,9 @@ export async function POST(req: Request) {
     .eq("environment", sess.environment)
     .maybeSingle();
 
-  if (sigErr) {
-    return NextResponse.json({ error: "SIGNATURE_LOOKUP_FAILED", details: sigErr.message }, { status: 500 });
-  }
-  if (!sig) {
-    return NextResponse.json({ error: "SIGNATURE_NOT_FOUND" }, { status: 404 });
-  }
+  if (sigErr) return NextResponse.json({ error: "SIGNATURE_LOOKUP_FAILED", details: sigErr.message }, { status: 500 });
+  if (!sig) return NextResponse.json({ error: "SIGNATURE_NOT_FOUND" }, { status: 404 });
+
   if (sig.signed_xml) {
     return NextResponse.json({
       ok: true,
@@ -79,21 +64,15 @@ export async function POST(req: Request) {
   }
 
   const credentialId = s(sig?.meta?.credentialId) || sub;
-  if (!credentialId) {
-    return NextResponse.json({ error: "MISSING_CREDENTIAL_ID" }, { status: 400 });
-  }
+  if (!credentialId) return NextResponse.json({ error: "MISSING_CREDENTIAL_ID" }, { status: 400 });
 
   const unsignedXml = s(sig.unsigned_xml);
   const unsignedHash = s(sig.unsigned_hash);
 
-  if (!unsignedXml) {
-    return NextResponse.json({ error: "MISSING_XML" }, { status: 400 });
-  }
-  if (!unsignedHash) {
-    return NextResponse.json({ error: "MISSING_HASH" }, { status: 400 });
-  }
+  if (!unsignedXml) return NextResponse.json({ error: "MISSING_XML" }, { status: 400 });
+  if (!unsignedHash) return NextResponse.json({ error: "MISSING_HASH" }, { status: 400 });
 
-  const accessToken = await digigoOauthTokenFromJti(jti);
+  const accessToken = await digigoOauthTokenFromJti({ jti });
   const signatureValue = await digigoSignHash(accessToken, credentialId, unsignedHash);
 
   const signedXml = injectSignatureIntoTeifXml(unsignedXml, signatureValue);
@@ -105,9 +84,7 @@ export async function POST(req: Request) {
     .update({ status: "done", digigo_jti: jti, updated_at: nowIso })
     .eq("id", sess.id);
 
-  if (updSessErr) {
-    return NextResponse.json({ error: "SESSION_UPDATE_FAILED", details: updSessErr.message }, { status: 500 });
-  }
+  if (updSessErr) return NextResponse.json({ error: "SESSION_UPDATE_FAILED", details: updSessErr.message }, { status: 500 });
 
   const { error: updSigErr } = await admin
     .from("invoice_signatures")
@@ -117,17 +94,11 @@ export async function POST(req: Request) {
       signed_hash: signedHash,
       signed_at: nowIso,
       updated_at: nowIso,
-      meta: {
-        ...(sig.meta || {}),
-        digigo_jti: jti,
-        credentialId,
-      },
+      meta: { ...(sig.meta || {}), digigo_jti: jti, credentialId },
     })
     .eq("id", sig.id);
 
-  if (updSigErr) {
-    return NextResponse.json({ error: "SIGNATURE_UPDATE_FAILED", details: updSigErr.message }, { status: 500 });
-  }
+  if (updSigErr) return NextResponse.json({ error: "SIGNATURE_UPDATE_FAILED", details: updSigErr.message }, { status: 500 });
 
   return NextResponse.json({
     ok: true,
