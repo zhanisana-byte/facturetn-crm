@@ -70,30 +70,14 @@ export async function POST(req: Request) {
 
     const signerUserId = await getUserIdOrThrow();
 
-    const { data: invoice, error: eInv } = await admin
-      .from("invoices")
-      .select("*")
-      .eq("id", invoiceId)
-      .maybeSingle();
-
-    if (eInv || !invoice) {
-      return NextResponse.json({ error: "INVOICE_NOT_FOUND" }, { status: 404 });
-    }
+    const { data: invoice, error: eInv } = await admin.from("invoices").select("*").eq("id", invoiceId).maybeSingle();
+    if (eInv || !invoice) return NextResponse.json({ error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
     const companyId = s((invoice as any).company_id);
-    if (!companyId) {
-      return NextResponse.json({ error: "MISSING_COMPANY_ID" }, { status: 400 });
-    }
+    if (!companyId) return NextResponse.json({ error: "MISSING_COMPANY_ID" }, { status: 400 });
 
-    const { data: company, error: eC } = await admin
-      .from("companies")
-      .select("*")
-      .eq("id", companyId)
-      .maybeSingle();
-
-    if (eC || !company) {
-      return NextResponse.json({ error: "COMPANY_NOT_FOUND" }, { status: 404 });
-    }
+    const { data: company, error: eC } = await admin.from("companies").select("*").eq("id", companyId).maybeSingle();
+    if (eC || !company) return NextResponse.json({ error: "COMPANY_NOT_FOUND" }, { status: 404 });
 
     const { data: items, error: eItems } = await admin
       .from("invoice_items")
@@ -101,9 +85,7 @@ export async function POST(req: Request) {
       .eq("invoice_id", invoiceId)
       .order("position", { ascending: true });
 
-    if (eItems) {
-      return NextResponse.json({ error: "ITEMS_LOAD_FAILED", details: eItems.message }, { status: 500 });
-    }
+    if (eItems) return NextResponse.json({ error: "ITEMS_LOAD_FAILED", details: eItems.message }, { status: 500 });
 
     const safeItems = Array.isArray(items) ? items : [];
     const computed = computeFromItems(safeItems);
@@ -112,14 +94,14 @@ export async function POST(req: Request) {
     const tva = computed.tva;
 
     const stampEnabled = Boolean((invoice as any).stamp_enabled ?? false);
-    const stampAmount = n((invoice as any).stamp_amount ?? 1);
+    const stampAmount = n((invoice as any).stamp_amount ?? 0);
 
     const ttc = ht + tva + (stampEnabled ? stampAmount : 0);
 
     const unsignedXml = buildTeifInvoiceXml({
       invoiceId,
       company: {
-        name: s((company as any).name ?? "Société"),
+        name: s((company as any).company_name ?? (company as any).name ?? "Société"),
         taxId: s((company as any).tax_id ?? "NA"),
         address: s((company as any).address ?? ""),
         city: s((company as any).city ?? ""),
@@ -128,7 +110,7 @@ export async function POST(req: Request) {
       },
       invoice: {
         documentType: s((invoice as any).document_type ?? "facture"),
-        number: s((invoice as any).number ?? ""),
+        number: s((invoice as any).invoice_number ?? ""),
         issueDate: s((invoice as any).issue_date ?? ""),
         dueDate: s((invoice as any).due_date ?? ""),
         currency: s((invoice as any).currency ?? "TND"),
@@ -169,20 +151,14 @@ export async function POST(req: Request) {
         company_id: companyId,
         environment: "production",
         signer_user_id: signerUserId,
-        meta: {
-          state,
-          back_url: backUrl || `/invoices/${invoiceId}`,
-          credentialId,
-        },
+        meta: { state, back_url: backUrl || `/invoices/${invoiceId}`, credentialId },
         signed_hash: null,
         updated_at: now.toISOString(),
       },
-      { onConflict: "invoice_id,provider,environment" }
+      { onConflict: "invoice_id" }
     );
 
-    if (upsertErr) {
-      return NextResponse.json({ error: "SIGNATURE_UPSERT_FAILED", details: upsertErr.message }, { status: 500 });
-    }
+    if (upsertErr) return NextResponse.json({ error: "SIGNATURE_UPSERT_FAILED", details: upsertErr.message }, { status: 500 });
 
     const { error: sessErr } = await admin.from("digigo_sign_sessions").insert({
       invoice_id: invoiceId,
@@ -195,13 +171,16 @@ export async function POST(req: Request) {
       expires_at: expiresAt.toISOString(),
       digigo_jti: null,
       error_message: null,
+      updated_at: now.toISOString(),
     });
 
-    if (sessErr) {
-      return NextResponse.json({ error: "SESSION_CREATE_FAILED", details: sessErr.message }, { status: 500 });
-    }
+    if (sessErr) return NextResponse.json({ error: "SESSION_CREATE_FAILED", details: sessErr.message }, { status: 500 });
 
-    const authorizeUrl = digigoAuthorizeUrl({ state });
+    const authorizeUrl = digigoAuthorizeUrl({
+      state,
+      credentialId,
+      hashBase64: unsignedHash,
+    });
 
     return NextResponse.json({ authorize_url: authorizeUrl });
   } catch (e: any) {
