@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { digigoTokenPayload } from "@/lib/digigo/jwt";
+import { decodeJwtPayload } from "@/lib/digigo/jwt";
 import { digigoOauthTokenFromJti, digigoSignHash } from "@/lib/digigo/server";
 import { injectSignatureIntoTeifXml } from "@/lib/ttn/teifSignature";
 import { sha256Base64Utf8 } from "@/lib/crypto/sha256";
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "MISSING_TOKEN" }, { status: 400 });
   }
 
-  const payload = digigoTokenPayload(token);
+  const payload = decodeJwtPayload(token);
   const jti = s(payload?.jti);
   const sub = s(payload?.sub);
 
