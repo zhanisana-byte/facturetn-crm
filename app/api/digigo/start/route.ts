@@ -1,6 +1,3 @@
-Colle ce fichier complet dans `app/api/digigo/start/route.ts`
-
-```ts
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -72,13 +69,21 @@ export async function POST(req: Request) {
 
     const signerUserId = await getUserIdOrThrow();
 
-    const { data: invoice, error: eInv } = await admin.from("invoices").select("*").eq("id", invoiceId).maybeSingle();
+    const { data: invoice, error: eInv } = await admin
+      .from("invoices")
+      .select("*")
+      .eq("id", invoiceId)
+      .maybeSingle();
     if (eInv || !invoice) return NextResponse.json({ error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
     const companyId = s((invoice as any).company_id);
     if (!companyId) return NextResponse.json({ error: "MISSING_COMPANY_ID" }, { status: 400 });
 
-    const { data: company, error: eC } = await admin.from("companies").select("*").eq("id", companyId).maybeSingle();
+    const { data: company, error: eC } = await admin
+      .from("companies")
+      .select("*")
+      .eq("id", companyId)
+      .maybeSingle();
     if (eC || !company) return NextResponse.json({ error: "COMPANY_NOT_FOUND" }, { status: 404 });
 
     if (!credentialId) credentialId = s((company as any).digigo_credential_id);
@@ -156,11 +161,7 @@ export async function POST(req: Request) {
         company_id: companyId,
         environment: "production",
         signer_user_id: signerUserId,
-        meta: {
-          state,
-          back_url: backUrl || `/invoices/${invoiceId}`,
-          credentialId,
-        },
+        meta: { state, back_url: backUrl || `/invoices/${invoiceId}`, credentialId },
         signed_hash: null,
         updated_at: nowIso,
       },
@@ -185,15 +186,10 @@ export async function POST(req: Request) {
 
     if (sessErr) return NextResponse.json({ error: "SESSION_CREATE_FAILED", details: sessErr.message }, { status: 500 });
 
-    const authorizeUrl = digigoAuthorizeUrl({
-      state,
-      credentialId,
-      hashBase64: unsignedHash,
-    });
+    const authorizeUrl = digigoAuthorizeUrl({ state, credentialId, hashBase64: unsignedHash });
 
     return NextResponse.json({ authorize_url: authorizeUrl });
   } catch (e: any) {
     return NextResponse.json({ error: "START_FAILED", details: String(e?.message || e) }, { status: 500 });
   }
 }
-```
