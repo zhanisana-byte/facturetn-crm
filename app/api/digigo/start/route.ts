@@ -61,11 +61,17 @@ async function resolveCredentialId(admin: any, companyId: string, environment: "
 
   if (error) throw new Error(`TTN_CREDENTIALS_LOOKUP_FAILED:${error.message}`);
 
-  const credFromConfig = s((data as any)?.signature_config?.credentialId ?? (data as any)?.signature_config?.credential_id);
-  const signerEmail = s((data as any)?.signer_email);
-  const certEmail = s((data as any)?.cert_email);
+  const cfg = (data as any)?.signature_config || {};
+  const cred =
+    s(cfg?.credentialId) ||
+    s(cfg?.credential_id) ||
+    s(cfg?.digigo_signer_email) ||
+    s(cfg?.digigo_credential_id) ||
+    s(cfg?.digigoCredentialId) ||
+    s((data as any)?.signer_email) ||
+    s((data as any)?.cert_email);
 
-  return credFromConfig || signerEmail || certEmail;
+  return cred;
 }
 
 export async function POST(req: Request) {
