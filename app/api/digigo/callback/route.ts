@@ -1,15 +1,8 @@
 import { NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/service";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+import { supabaseAdmin } from "@/lib/digigo/supabaseAdmin";
 
 function s(v: any) {
   return String(v ?? "").trim();
-}
-
-function isUuid(v: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
 
 function b64urlToUtf8(input: string) {
@@ -28,75 +21,55 @@ function parseJwt(token: string): any {
   }
 }
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => ({} as any));
   const token = s(body?.token);
-  const invoice_id = s(body?.invoice_id ?? body?.invoiceId);
 
   if (!token) return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
-  if (!invoice_id || !isUuid(invoice_id)) {
-    return NextResponse.json({ ok: false, error: "BAD_INVOICE_ID" }, { status: 400 });
-  }
 
   const payload = parseJwt(token);
   const jti = s(payload?.jti);
+
   if (!jti) return NextResponse.json({ ok: false, error: "MISSING_JTI" }, { status: 400 });
 
-  const service = createServiceClient();
+  const admin = supabaseAdmin();
   const nowIso = new Date().toISOString();
 
-  const sessRes = await service
+  const sess = await admin
     .from("digigo_sign_sessions")
-    .select("id, invoice_id, back_url, status, expires_at")
-    .eq("invoice_id", invoice_id)
+    .select("id, invoice_id, back_url, status, expires_at, digigo_jti")
     .eq("status", "pending")
+    .is("digigo_jti", null)
+    .gt("expires_at", nowIso)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (sessRes.error) {
-    return NextResponse.json(
-      { ok: false, error: "SESSION_READ_FAILED", message: sessRes.error.message },
-      { status: 500 }
-    );
-  }
+  if (!sess.data) return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 404 });
 
-  const session: any = sessRes.data;
-  if (!session) {
-    return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 404 });
-  }
+  const sessionId = s((sess.data as any)?.id);
+  const invoice_id = s((sess.data as any)?.invoice_id);
+  const back_url = s((sess.data as any)?.back_url) || (invoice_id ? `/invoices/${invoice_id}` : "/invoices");
 
-  const expMs = session?.expires_at ? new Date(session.expires_at).getTime() : 0;
-  if (!expMs || expMs <= Date.now()) {
-    await service
-      .from("digigo_sign_sessions")
-      .update({ status: "expired", error_message: "AUTO_EXPIRE", updated_at: nowIso })
-      .eq("id", session.id);
-
-    return NextResponse.json({ ok: false, error: "SESSION_EXPIRED" }, { status: 400 });
-  }
-
-  const updRes = await service
+  await admin
     .from("digigo_sign_sessions")
-    .update({ status: "done", digigo_jti: jti, error_message: null, updated_at: nowIso })
-    .eq("id", session.id);
+    .update({ digigo_jti: jti, status: "done", updated_at: nowIso })
+    .eq("id", sessionId);
 
-  if (updRes.error) {
-    return NextResponse.json(
-      { ok: false, error: "SESSION_UPDATE_FAILED", message: updRes.error.message },
-      { status: 500 }
-    );
+  if (invoice_id) {
+    await admin
+      .from("invoice_signatures")
+      .update({
+        provider: "digigo",
+        state: "pending",
+        updated_at: nowIso,
+        meta: { jti, sub: s(payload?.sub || ""), azp: s(payload?.azp || "") },
+      })
+      .eq("invoice_id", invoice_id)
+      .eq("provider", "digigo");
   }
 
-  const back_url = s(session?.back_url) || `/invoices/${invoice_id}`;
-
-  return NextResponse.json(
-    {
-      ok: true,
-      invoice_id,
-      back_url,
-      digigo_jti: jti,
-    },
-    { status: 200 }
-  );
+  return NextResponse.json({ ok: true, invoice_id, back_url, jti });
 }
