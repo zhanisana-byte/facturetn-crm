@@ -6,70 +6,77 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function getStored(key: string) {
-  let v = "";
-  try {
-    v = s(window.localStorage.getItem(key) || "");
-  } catch {}
-  if (v) return v;
-  try {
-    v = s(window.sessionStorage.getItem(key) || "");
-  } catch {}
-  return v;
-}
-
 export default function RedirectUi() {
+  const [error, setError] = useState<string>("");
+  const [done, setDone] = useState<boolean>(false);
+
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const token = s(params.get("token"));
-
-  const [error, setError] = useState<string>("");
-  const [loading, setLoading] = useState<boolean>(true);
+  const urlError = s(params.get("error"));
 
   useEffect(() => {
-    async function run() {
-      if (!token) {
-        setError("MISSING_TOKEN");
-        setLoading(false);
-        return;
-      }
+    let cancelled = false;
 
+    async function run() {
       try {
-        const invoice_id = getStored("digigo_invoice_id");
+        setError("");
+
+        if (urlError) {
+          setError(urlError);
+          return;
+        }
+
+        if (!token) {
+          setError("MISSING_TOKEN");
+          return;
+        }
 
         const res = await fetch("/api/digigo/callback", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, invoice_id }),
+          body: JSON.stringify({ token }),
+          cache: "no-store",
         });
 
-        const data = await res.json().catch(() => ({}));
+        const json = await res.json().catch(() => ({}));
 
         if (!res.ok) {
-          setError(s(data?.error) || "ERROR");
-          setLoading(false);
+          setError(s(json?.error) || "ERROR");
           return;
         }
 
-        const backUrl = s(data?.back_url) || getStored("digigo_back_url");
-        const invoiceId = s(data?.invoice_id) || invoice_id;
-
-        window.location.replace(backUrl || (invoiceId ? `/invoices/${invoiceId}` : "/invoices"));
-      } catch {
-        setError("ERROR");
-        setLoading(false);
+        const backUrl = s(json?.back_url) || "/";
+        setDone(true);
+        window.location.replace(backUrl);
+      } catch (e: any) {
+        if (!cancelled) setError(s(e?.message) || "ERROR");
       }
     }
 
     run();
-  }, [token]);
+    return () => {
+      cancelled = true;
+    };
+  }, [token, urlError]);
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "center" }}>
-      <div style={{ width: 520, padding: 24, borderRadius: 16, background: "white" }}>
-        {loading ? (
-          <div style={{ fontWeight: 600 }}>Connexion DigiGo...</div>
+    <div className="min-h-[60vh] flex items-center justify-center px-4">
+      <div className="w-full max-w-xl rounded-2xl border bg-white/60 backdrop-blur p-6 shadow-sm">
+        <div className="text-sm text-gray-600">DigiGo</div>
+        <div className="mt-2 text-xl font-semibold">Redirection</div>
+
+        {error ? (
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">
+            {error}
+          </div>
+        ) : done ? (
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-700">
+            OK
+          </div>
         ) : (
-          <div style={{ color: "red", fontWeight: 700 }}>{error}</div>
+          <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-gray-700">
+            Traitement...
+          </div>
         )}
       </div>
     </div>
