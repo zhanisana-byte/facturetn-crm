@@ -18,7 +18,6 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const admin = createAdminClient();
-
   const body = await req.json().catch(() => ({}));
   const token = s(body?.token);
 
@@ -72,8 +71,16 @@ export async function POST(req: Request) {
   if (!unsignedXml) return NextResponse.json({ error: "MISSING_XML" }, { status: 400 });
   if (!unsignedHash) return NextResponse.json({ error: "MISSING_HASH" }, { status: 400 });
 
-  const accessToken = await digigoOauthTokenFromJti({ jti });
-  const signatureValue = await digigoSignHash(accessToken, credentialId, unsignedHash);
+  const oauth = await digigoOauthTokenFromJti({ jti });
+  const signRes = await digigoSignHash({
+    sad: s(oauth?.sad),
+    credentialId,
+    hashesBase64: [unsignedHash],
+    hashAlgo: "SHA256",
+    signAlgo: "RSA",
+  });
+
+  const signatureValue = s(signRes?.value);
 
   const signedXml = injectSignatureIntoTeifXml(unsignedXml, signatureValue);
   const signedHash = sha256Base64Utf8(signedXml);
