@@ -1,75 +1,71 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/digigo/supabaseAdmin";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function b64urlToUtf8(input: string) {
-  const pad = "=".repeat((4 - (input.length % 4)) % 4);
-  const b64 = (input + pad).replace(/-/g, "+").replace(/_/g, "/");
-  return Buffer.from(b64, "base64").toString("utf8");
+function decodeJwtPayload(token: string) {
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const json = Buffer.from(b64 + pad, "base64").toString("utf8");
+  return JSON.parse(json);
 }
-
-function parseJwt(token: string): any {
-  const parts = s(token).split(".");
-  if (parts.length < 2) return {};
-  try {
-    return JSON.parse(b64urlToUtf8(parts[1]));
-  } catch {
-    return {};
-  }
-}
-
-export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({} as any));
-  const token = s(body?.token);
+  const admin = createAdminClient();
 
-  if (!token) return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
+  const body = await req.json().catch(() => ({}));
+  const token = s(body.token);
+  if (!token) return NextResponse.json({ error: "MISSING_TOKEN" }, { status: 400 });
 
-  const payload = parseJwt(token);
+  let payload: any;
+  try {
+    payload = decodeJwtPayload(token);
+  } catch {
+    payload = null;
+  }
+
   const jti = s(payload?.jti);
+  if (!jti) return NextResponse.json({ error: "MISSING_JTI" }, { status: 400 });
 
-  if (!jti) return NextResponse.json({ ok: false, error: "MISSING_JTI" }, { status: 400 });
-
-  const admin = supabaseAdmin();
-  const nowIso = new Date().toISOString();
-
-  const sess = await admin
+  const { data: sess, error: sessErr } = await admin
     .from("digigo_sign_sessions")
-    .select("id, invoice_id, back_url, status, expires_at, digigo_jti")
+    .select("id, invoice_id, back_url")
     .eq("status", "pending")
-    .is("digigo_jti", null)
-    .gt("expires_at", nowIso)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (!sess.data) return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 404 });
+  if (sessErr || !sess) return NextResponse.json({ error: "SESSION_NOT_FOUND" }, { status: 404 });
 
-  const sessionId = s((sess.data as any)?.id);
-  const invoice_id = s((sess.data as any)?.invoice_id);
-  const back_url = s((sess.data as any)?.back_url) || (invoice_id ? `/invoices/${invoice_id}` : "/invoices");
+  const { error: updErr } = await admin
+    .from("digigo_sign_sessions")
+    .update({
+      status: "done",
+      digigo_jti: jti,
+      updated_at: new Date().toISOString(),
+      error_message: null,
+    })
+    .eq("id", sess.id);
+
+  if (updErr) return NextResponse.json({ error: "SESSION_UPDATE_FAILED", details: updErr.message }, { status: 500 });
 
   await admin
-    .from("digigo_sign_sessions")
-    .update({ digigo_jti: jti, status: "done", updated_at: nowIso })
-    .eq("id", sessionId);
+    .from("invoice_signatures")
+    .update({
+      session_id: jti,
+      updated_at: new Date().toISOString(),
+      error_message: null,
+    })
+    .eq("invoice_id", sess.invoice_id)
+    .eq("provider", "digigo");
 
-  if (invoice_id) {
-    await admin
-      .from("invoice_signatures")
-      .update({
-        provider: "digigo",
-        state: "pending",
-        updated_at: nowIso,
-        meta: { jti, sub: s(payload?.sub || ""), azp: s(payload?.azp || "") },
-      })
-      .eq("invoice_id", invoice_id)
-      .eq("provider", "digigo");
-  }
-
-  return NextResponse.json({ ok: true, invoice_id, back_url, jti });
+  return NextResponse.json({
+    ok: true,
+    invoice_id: sess.invoice_id,
+    back_url: sess.back_url || `/invoices/${sess.invoice_id}`,
+  });
 }
