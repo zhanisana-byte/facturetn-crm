@@ -1,3 +1,6 @@
+Colle ce fichier complet dans `app/api/digigo/start/route.ts`
+
+```ts
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -62,11 +65,10 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
 
     const invoiceId = s(body?.invoice_id);
-    const credentialId = s(body?.credential_id);
+    let credentialId = s(body?.credential_id);
     const backUrl = s(body?.back_url);
 
     if (!invoiceId) return NextResponse.json({ error: "MISSING_INVOICE_ID" }, { status: 400 });
-    if (!credentialId) return NextResponse.json({ error: "MISSING_CREDENTIAL_ID" }, { status: 400 });
 
     const signerUserId = await getUserIdOrThrow();
 
@@ -78,6 +80,9 @@ export async function POST(req: Request) {
 
     const { data: company, error: eC } = await admin.from("companies").select("*").eq("id", companyId).maybeSingle();
     if (eC || !company) return NextResponse.json({ error: "COMPANY_NOT_FOUND" }, { status: 404 });
+
+    if (!credentialId) credentialId = s((company as any).digigo_credential_id);
+    if (!credentialId) return NextResponse.json({ error: "MISSING_CREDENTIAL_ID" }, { status: 400 });
 
     const { data: items, error: eItems } = await admin
       .from("invoice_items")
@@ -103,10 +108,10 @@ export async function POST(req: Request) {
       company: {
         name: s((company as any).company_name ?? (company as any).name ?? "Société"),
         taxId: s((company as any).tax_id ?? "NA"),
-        address: s((company as any).address ?? ""),
+        address: s((company as any).address ?? (company as any).address_line ?? ""),
         city: s((company as any).city ?? ""),
         postalCode: s((company as any).postal_code ?? ""),
-        country: s((company as any).country ?? "TN"),
+        country: s((company as any).country ?? (company as any).country_code ?? "TN"),
       },
       invoice: {
         documentType: s((invoice as any).document_type ?? "facture"),
@@ -133,8 +138,8 @@ export async function POST(req: Request) {
     const unsignedHash = sha256Base64Utf8(unsignedXml);
 
     const state = randomUUID();
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + 30 * 60 * 1000);
+    const nowIso = new Date().toISOString();
+    const expiresAtIso = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
     const { error: upsertErr } = await admin.from("invoice_signatures").upsert(
       {
@@ -151,9 +156,13 @@ export async function POST(req: Request) {
         company_id: companyId,
         environment: "production",
         signer_user_id: signerUserId,
-        meta: { state, back_url: backUrl || `/invoices/${invoiceId}`, credentialId },
+        meta: {
+          state,
+          back_url: backUrl || `/invoices/${invoiceId}`,
+          credentialId,
+        },
         signed_hash: null,
-        updated_at: now.toISOString(),
+        updated_at: nowIso,
       },
       { onConflict: "invoice_id" }
     );
@@ -168,10 +177,10 @@ export async function POST(req: Request) {
       created_by: signerUserId,
       company_id: companyId,
       environment: "production",
-      expires_at: expiresAt.toISOString(),
+      expires_at: expiresAtIso,
       digigo_jti: null,
       error_message: null,
-      updated_at: now.toISOString(),
+      updated_at: nowIso,
     });
 
     if (sessErr) return NextResponse.json({ error: "SESSION_CREATE_FAILED", details: sessErr.message }, { status: 500 });
@@ -187,3 +196,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "START_FAILED", details: String(e?.message || e) }, { status: 500 });
   }
 }
+```
