@@ -86,13 +86,21 @@ export async function POST(req: Request) {
 
     const signerUserId = await getUserIdOrThrow();
 
-    const { data: invoice, error: eInv } = await admin.from("invoices").select("*").eq("id", invoiceId).maybeSingle();
+    const { data: invoice, error: eInv } = await admin
+      .from("invoices")
+      .select("*")
+      .eq("id", invoiceId)
+      .maybeSingle();
     if (eInv || !invoice) return NextResponse.json({ error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
     const companyId = s((invoice as any).company_id);
     if (!companyId) return NextResponse.json({ error: "MISSING_COMPANY_ID" }, { status: 400 });
 
-    const { data: company, error: eC } = await admin.from("companies").select("*").eq("id", companyId).maybeSingle();
+    const { data: company, error: eC } = await admin
+      .from("companies")
+      .select("*")
+      .eq("id", companyId)
+      .maybeSingle();
     if (eC || !company) return NextResponse.json({ error: "COMPANY_NOT_FOUND" }, { status: 404 });
 
     const environment: "production" | "test" = "production";
@@ -104,7 +112,7 @@ export async function POST(req: Request) {
       .from("invoice_items")
       .select("*")
       .eq("invoice_id", invoiceId)
-      .order("position", { ascending: true });
+      .order("line_no", { ascending: true });
 
     if (eItems) return NextResponse.json({ error: "ITEMS_LOAD_FAILED", details: eItems.message }, { status: 500 });
 
