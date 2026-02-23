@@ -6,6 +6,18 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
+function getStored(key: string) {
+  let v = "";
+  try {
+    v = s(window.localStorage.getItem(key) || "");
+  } catch {}
+  if (v) return v;
+  try {
+    v = s(window.sessionStorage.getItem(key) || "");
+  } catch {}
+  return v;
+}
+
 export default function RedirectUi() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const token = s(params.get("token"));
@@ -22,10 +34,12 @@ export default function RedirectUi() {
       }
 
       try {
+        const invoice_id = getStored("digigo_invoice_id");
+
         const res = await fetch("/api/digigo/callback", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token }),
+          body: JSON.stringify({ token, invoice_id }),
         });
 
         const data = await res.json().catch(() => ({}));
@@ -36,8 +50,8 @@ export default function RedirectUi() {
           return;
         }
 
-        const backUrl = s(data?.back_url);
-        const invoiceId = s(data?.invoice_id);
+        const backUrl = s(data?.back_url) || getStored("digigo_back_url");
+        const invoiceId = s(data?.invoice_id) || invoice_id;
 
         window.location.replace(backUrl || (invoiceId ? `/invoices/${invoiceId}` : "/invoices"));
       } catch {
