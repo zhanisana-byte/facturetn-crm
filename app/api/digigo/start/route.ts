@@ -12,39 +12,32 @@ export const runtime = "nodejs";
 function s(v: any) {
   return String(v ?? "").trim();
 }
-
 function n(v: any) {
   const x = Number(v ?? 0);
   return Number.isFinite(x) ? x : 0;
 }
-
 function clampPct(x: number) {
   if (!Number.isFinite(x)) return 0;
   if (x < 0) return 0;
   if (x > 100) return 100;
   return x;
 }
-
 function computeFromItems(items: any[]) {
   let ht = 0;
   let tva = 0;
-
   for (const it of items) {
-    const qty = n(it.quantity ?? it.qty ?? 0);
-    const pu = n(it.unit_price_ht ?? it.unit_price ?? it.price ?? 0);
-    const vatPct = n(it.vat_pct ?? it.vatPct ?? it.tva_pct ?? it.tvaPct ?? it.vat ?? 0);
-    const discPct = clampPct(n(it.discount_pct ?? it.discountPct ?? it.remise_pct ?? it.remisePct ?? it.discount ?? 0));
-    const discAmt = n(it.discount_amount ?? it.discountAmount ?? it.remise_amount ?? it.remiseAmount ?? 0);
-
+    const qty = n(it.quantity ?? 0);
+    const pu = n(it.unit_price_ht ?? 0);
+    const vatPct = n(it.vat_pct ?? 0);
+    const discPct = clampPct(n(it.discount_pct ?? 0));
+    const discAmt = n(it.discount_amount ?? 0);
     const base = qty * pu;
     const remise = discAmt > 0 ? discAmt : discPct > 0 ? (base * discPct) / 100 : 0;
     const lineHt = Math.max(0, base - remise);
     const lineTva = (lineHt * vatPct) / 100;
-
     ht += lineHt;
     tva += lineTva;
   }
-
   return { ht, tva };
 }
 
@@ -56,37 +49,49 @@ async function getUserIdOrThrow() {
   return user.id;
 }
 
+async function resolveCredentialId(admin: any, companyId: string, environment: "production" | "test") {
+  const { data, error } = await admin
+    .from("ttn_credentials")
+    .select("signature_config, signer_email, cert_email, updated_at")
+    .eq("company_id", companyId)
+    .eq("environment", environment)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(`TTN_CREDENTIALS_LOOKUP_FAILED:${error.message}`);
+
+  const credFromConfig = s((data as any)?.signature_config?.credentialId ?? (data as any)?.signature_config?.credential_id);
+  const signerEmail = s((data as any)?.signer_email);
+  const certEmail = s((data as any)?.cert_email);
+
+  return credFromConfig || signerEmail || certEmail;
+}
+
 export async function POST(req: Request) {
   try {
     const admin = createAdminClient();
     const body = await req.json().catch(() => ({}));
 
     const invoiceId = s(body?.invoice_id);
-    let credentialId = s(body?.credential_id);
     const backUrl = s(body?.back_url);
 
     if (!invoiceId) return NextResponse.json({ error: "MISSING_INVOICE_ID" }, { status: 400 });
 
     const signerUserId = await getUserIdOrThrow();
 
-    const { data: invoice, error: eInv } = await admin
-      .from("invoices")
-      .select("*")
-      .eq("id", invoiceId)
-      .maybeSingle();
+    const { data: invoice, error: eInv } = await admin.from("invoices").select("*").eq("id", invoiceId).maybeSingle();
     if (eInv || !invoice) return NextResponse.json({ error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
     const companyId = s((invoice as any).company_id);
     if (!companyId) return NextResponse.json({ error: "MISSING_COMPANY_ID" }, { status: 400 });
 
-    const { data: company, error: eC } = await admin
-      .from("companies")
-      .select("*")
-      .eq("id", companyId)
-      .maybeSingle();
+    const { data: company, error: eC } = await admin.from("companies").select("*").eq("id", companyId).maybeSingle();
     if (eC || !company) return NextResponse.json({ error: "COMPANY_NOT_FOUND" }, { status: 404 });
 
-    if (!credentialId) credentialId = s((company as any).digigo_credential_id);
+    const environment: "production" | "test" = "production";
+
+    const credentialId = await resolveCredentialId(admin, companyId, environment);
     if (!credentialId) return NextResponse.json({ error: "MISSING_CREDENTIAL_ID" }, { status: 400 });
 
     const { data: items, error: eItems } = await admin
@@ -105,13 +110,12 @@ export async function POST(req: Request) {
 
     const stampEnabled = Boolean((invoice as any).stamp_enabled ?? false);
     const stampAmount = n((invoice as any).stamp_amount ?? 0);
-
     const ttc = ht + tva + (stampEnabled ? stampAmount : 0);
 
     const unsignedXml = buildTeifInvoiceXml({
       invoiceId,
       company: {
-        name: s((company as any).company_name ?? (company as any).name ?? "Société"),
+        name: s((company as any).company_name ?? "Société"),
         taxId: s((company as any).tax_id ?? "NA"),
         address: s((company as any).address ?? (company as any).address_line ?? ""),
         city: s((company as any).city ?? ""),
@@ -159,7 +163,7 @@ export async function POST(req: Request) {
         otp_id: null,
         error_message: null,
         company_id: companyId,
-        environment: "production",
+        environment,
         signer_user_id: signerUserId,
         meta: { state, back_url: backUrl || `/invoices/${invoiceId}`, credentialId },
         signed_hash: null,
@@ -177,7 +181,7 @@ export async function POST(req: Request) {
       status: "pending",
       created_by: signerUserId,
       company_id: companyId,
-      environment: "production",
+      environment,
       expires_at: expiresAtIso,
       digigo_jti: null,
       error_message: null,
