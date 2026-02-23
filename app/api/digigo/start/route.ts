@@ -1,92 +1,98 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/digigo/supabaseAdmin";
-import { s, uuid } from "@/lib/digigo/ids";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { digigoAuthorizeUrl } from "@/lib/digigo/client";
+import { sha256Base64 } from "@/lib/crypto/sha256";
+import { teifFromInvoiceId } from "@/lib/ttn/teif";
+import { randomUUID } from "crypto";
 
-export const dynamic = "force-dynamic";
-
-function isUuid(v: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+function s(v: any) {
+  return String(v ?? "").trim();
 }
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({} as any));
+  const supabase = await createClient();
+  const admin = createAdminClient();
 
-  const invoice_id = s(body?.invoice_id || body?.invoiceId);
-  if (!invoice_id || !isUuid(invoice_id)) return NextResponse.json({ error: "BAD_INVOICE_ID" }, { status: 400 });
+  const body = await req.json().catch(() => ({}));
+  const invoice_id = s(body.invoice_id);
+  const credentialIdFromBody = s(body.credentialId);
+  const back_url = s(body.back_url) || (invoice_id ? `/invoices/${invoice_id}` : "");
 
-  const admin = supabaseAdmin();
+  if (!invoice_id) return NextResponse.json({ error: "MISSING_INVOICE_ID" }, { status: 400 });
 
-  const inv = await admin.from("invoices").select("id, company_id").eq("id", invoice_id).maybeSingle();
-  if (!inv.data) return NextResponse.json({ error: "INVOICE_NOT_FOUND" }, { status: 404 });
+  const { data: userRes } = await supabase.auth.getUser();
+  const user = userRes?.user;
+  if (!user) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
 
-  const company_id = s((inv.data as any)?.company_id);
-  if (!company_id || !isUuid(company_id)) return NextResponse.json({ error: "BAD_COMPANY_ID" }, { status: 400 });
-
-  const back_url = s(body?.back_url || body?.backUrl) || `/invoices/${invoice_id}`;
-
-  const cs = await admin.from("company_settings").select("*").eq("company_id", company_id).maybeSingle();
-  const digigo_signer_email = s((cs.data as any)?.digigo_signer_email);
-
-  const cred = await admin
-    .from("ttn_credentials")
-    .select("*")
-    .eq("company_id", company_id)
-    .order("updated_at", { ascending: false })
-    .limit(1)
+  const { data: inv, error: invErr } = await admin
+    .from("invoices")
+    .select("id, company_id")
+    .eq("id", invoice_id)
     .maybeSingle();
 
-  const signature_config = (cred.data as any)?.signature_config;
-  const cfgEmail =
-    signature_config && typeof signature_config === "object" ? s((signature_config as any)?.digigo_signer_email) : "";
+  if (invErr || !inv) return NextResponse.json({ error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
-  const cert_email = s((cred.data as any)?.cert_email);
+  const { data: sigExisting } = await admin
+    .from("invoice_signatures")
+    .select("id, unsigned_xml, unsigned_hash, meta")
+    .eq("invoice_id", invoice_id)
+    .eq("provider", "digigo")
+    .eq("environment", "production")
+    .maybeSingle();
 
-  const credentialId = digigo_signer_email || cfgEmail || cert_email || s(body?.credentialId);
+  let unsigned_xml = s(sigExisting?.unsigned_xml);
+  if (!unsigned_xml) unsigned_xml = await teifFromInvoiceId(invoice_id);
+
+  const unsigned_hash = s(sigExisting?.unsigned_hash) || sha256Base64(unsigned_xml);
+
+  const credentialId =
+    credentialIdFromBody ||
+    s((sigExisting?.meta as any)?.credentialId) ||
+    s((sigExisting?.meta as any)?.digigoCredentialId) ||
+    s((sigExisting?.meta as any)?.digigo_email);
+
   if (!credentialId) return NextResponse.json({ error: "MISSING_CREDENTIAL_ID" }, { status: 400 });
 
-  const hash = s(body?.hash);
-  if (!hash) return NextResponse.json({ error: "MISSING_HASH" }, { status: 400 });
-
-  const clientId = s(process.env.DIGIGO_CLIENT_ID);
-  const base = s(process.env.DIGIGO_BASE_URL).replace(/\/$/, "");
-  const redirectUri = s(process.env.DIGIGO_REDIRECT_URI);
-  if (!clientId || !base || !redirectUri) return NextResponse.json({ error: "DIGIGO_ENV_MISSING" }, { status: 500 });
-
-  const numSignatures = s(body?.numSignatures || 1);
-  const scope = s(body?.scope || "credential");
-
-  const state = uuid();
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + 30 * 60 * 1000);
-
-  const { error } = await admin.from("digigo_sign_sessions").insert({
-    invoice_id,
-    company_id,
-    state,
+  const meta = {
+    ...(typeof sigExisting?.meta === "object" && sigExisting?.meta ? (sigExisting.meta as any) : {}),
+    credentialId,
     back_url,
-    status: "pending",
-    digigo_jti: null,
+  };
+
+  const { error: upErr } = await admin.from("invoice_signatures").upsert({
+    id: sigExisting?.id,
+    invoice_id,
+    provider: "digigo",
+    state: "pending",
+    unsigned_xml,
+    unsigned_hash,
+    signed_xml: null,
+    signed_hash: null,
+    signed_at: null,
     error_message: null,
-    created_at: now.toISOString(),
-    updated_at: now.toISOString(),
-    expires_at: expiresAt.toISOString(),
+    company_id: inv.company_id,
     environment: "production",
+    signer_user_id: user.id,
+    meta,
+    updated_at: new Date().toISOString(),
   });
 
-  if (error) {
-    return NextResponse.json({ error: "SESSION_CREATE_FAILED", details: error.message }, { status: 500 });
-  }
+  if (upErr) return NextResponse.json({ error: "SIGNATURE_UPSERT_FAILED", details: upErr.message }, { status: 500 });
 
-  const authorizeUrl =
-    `${base}/tunsign-proxy-webapp/oauth2/authorize` +
-    `?redirectUri=${encodeURIComponent(redirectUri)}` +
-    `&responseType=code` +
-    `&scope=${encodeURIComponent(scope)}` +
-    `&credentialId=${encodeURIComponent(credentialId)}` +
-    `&clientId=${encodeURIComponent(clientId)}` +
-    `&numSignatures=${encodeURIComponent(String(numSignatures))}` +
-    `&hash=${encodeURIComponent(hash)}` +
-    `&state=${encodeURIComponent(state)}`;
+  const expires_at = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
-  return NextResponse.json({ authorizeUrl, invoice_id, back_url, state });
+  await admin.from("digigo_sign_sessions").insert({
+    invoice_id,
+    state: randomUUID(),
+    back_url,
+    status: "pending",
+    created_by: user.id,
+    company_id: inv.company_id,
+    environment: "production",
+    expires_at,
+  });
+
+  const url = digigoAuthorizeUrl({ credentialId, hash: unsigned_hash });
+  return NextResponse.json({ ok: true, url });
 }
