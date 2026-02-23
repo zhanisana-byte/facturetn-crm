@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createClient } from "@supabase/supabase-js";
+import { createServiceClient } from "@/lib/supabase/service";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function s(v: any) {
   return String(v ?? "").trim();
+}
+
+function isUuid(v: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
 
 function b64urlToUtf8(input: string) {
@@ -22,79 +28,75 @@ function parseJwt(token: string): any {
   }
 }
 
-function env(name: string, fallback = "") {
-  return s(process.env[name] ?? fallback);
-}
+export async function POST(req: Request) {
+  const body = await req.json().catch(() => ({}));
+  const token = s(body?.token);
+  const invoice_id = s(body?.invoice_id ?? body?.invoiceId);
 
-function supabaseAdmin() {
-  const url = env("NEXT_PUBLIC_SUPABASE_URL");
-  const key = env("SUPABASE_SERVICE_ROLE_KEY");
-  return createClient(url, key, { auth: { persistSession: false } });
-}
-
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const token = s(url.searchParams.get("token"));
-  const stateFromUrl = s(url.searchParams.get("state"));
-
-  const ck = await cookies();
-  const cookieState = s(ck.get("dg_state")?.value);
-  const cookieInvoice = s(ck.get("dg_invoice_id")?.value);
-  const cookieBack = s(ck.get("dg_back_url")?.value);
-
-  const state = stateFromUrl || cookieState;
-
-  if (!token) {
-    return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
-  }
-  if (!state) {
-    return NextResponse.json({ ok: false, error: "MISSING_STATE" }, { status: 400 });
+  if (!token) return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
+  if (!invoice_id || !isUuid(invoice_id)) {
+    return NextResponse.json({ ok: false, error: "BAD_INVOICE_ID" }, { status: 400 });
   }
 
   const payload = parseJwt(token);
   const jti = s(payload?.jti);
-  if (!jti) {
-    return NextResponse.json({ ok: false, error: "MISSING_JTI" }, { status: 400 });
-  }
+  if (!jti) return NextResponse.json({ ok: false, error: "MISSING_JTI" }, { status: 400 });
 
-  const sb = supabaseAdmin();
+  const service = createServiceClient();
+  const nowIso = new Date().toISOString();
 
-  const { data: sessionRow } = await sb
+  const sessRes = await service
     .from("digigo_sign_sessions")
-    .select("id, invoice_id, state, status, expires_at, digigo_jti")
-    .eq("state", state)
+    .select("id, invoice_id, back_url, status, expires_at")
+    .eq("invoice_id", invoice_id)
+    .eq("status", "pending")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  const invoiceId = s(sessionRow?.invoice_id) || cookieInvoice;
-  const backUrl = cookieBack || (invoiceId ? `/invoices/${invoiceId}` : "/invoices");
-
-  if (!invoiceId) {
-    return NextResponse.json({ ok: false, error: "BAD_INVOICE_ID", state, jti }, { status: 400 });
+  if (sessRes.error) {
+    return NextResponse.json(
+      { ok: false, error: "SESSION_READ_FAILED", message: sessRes.error.message },
+      { status: 500 }
+    );
   }
 
-  await sb
+  const session: any = sessRes.data;
+  if (!session) {
+    return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 404 });
+  }
+
+  const expMs = session?.expires_at ? new Date(session.expires_at).getTime() : 0;
+  if (!expMs || expMs <= Date.now()) {
+    await service
+      .from("digigo_sign_sessions")
+      .update({ status: "expired", error_message: "AUTO_EXPIRE", updated_at: nowIso })
+      .eq("id", session.id);
+
+    return NextResponse.json({ ok: false, error: "SESSION_EXPIRED" }, { status: 400 });
+  }
+
+  const updRes = await service
     .from("digigo_sign_sessions")
-    .update({ digigo_jti: jti, status: "done", updated_at: new Date().toISOString() })
-    .eq("state", state)
-    .is("digigo_jti", null);
+    .update({ status: "done", digigo_jti: jti, error_message: null, updated_at: nowIso })
+    .eq("id", session.id);
 
-  await sb
-    .from("invoice_signatures")
-    .update({
-      state: "pending",
-      provider: "digigo",
-      updated_at: new Date().toISOString(),
-      meta: {
-        state,
-        back_url: backUrl,
-        credentialId: s(payload?.sub),
-        jti,
-      },
-    })
-    .eq("invoice_id", invoiceId)
-    .eq("provider", "digigo");
+  if (updRes.error) {
+    return NextResponse.json(
+      { ok: false, error: "SESSION_UPDATE_FAILED", message: updRes.error.message },
+      { status: 500 }
+    );
+  }
 
-  return NextResponse.redirect(new URL(`/digigo/redirect?token=${encodeURIComponent(token)}`, url.origin));
+  const back_url = s(session?.back_url) || `/invoices/${invoice_id}`;
+
+  return NextResponse.json(
+    {
+      ok: true,
+      invoice_id,
+      back_url,
+      digigo_jti: jti,
+    },
+    { status: 200 }
+  );
 }
