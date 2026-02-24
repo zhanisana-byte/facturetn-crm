@@ -12,6 +12,7 @@ export default function RedirectUi() {
 
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const token = s(params.get("token"));
+  const state = s(params.get("state"));
   const urlError = s(params.get("error"));
 
   useEffect(() => {
@@ -31,10 +32,15 @@ export default function RedirectUi() {
           return;
         }
 
+        if (!state) {
+          setError("MISSING_STATE");
+          return;
+        }
+
         const res = await fetch("/api/digigo/callback", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token }),
+          body: JSON.stringify({ token, state }),
           cache: "no-store",
         });
 
@@ -57,7 +63,7 @@ export default function RedirectUi() {
     return () => {
       cancelled = true;
     };
-  }, [token, urlError]);
+  }, [token, state, urlError]);
 
   return (
     <div className="min-h-[60vh] flex items-center justify-center px-4">
