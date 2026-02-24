@@ -2,6 +2,16 @@
 
 import { useCallback, useState } from "react";
 
+function s(v: any) {
+  return String(v ?? "").trim();
+}
+function store(k: string, v: string) {
+  const val = s(v);
+  if (!val) return;
+  try { window.localStorage.setItem(k, val); } catch {}
+  try { window.sessionStorage.setItem(k, val); } catch {}
+}
+
 type Props = {
   invoiceId: string;
   backUrl?: string;
@@ -16,10 +26,13 @@ export default function InvoiceSignatureClient({ invoiceId, backUrl }: Props) {
     setError("");
 
     try {
+      const safeBackUrl = backUrl ?? `/invoices/${encodeURIComponent(invoiceId)}`;
+
       const res = await fetch("/api/digigo/start", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ invoice_id: invoiceId, back_url: backUrl ?? null }),
+        body: JSON.stringify({ invoice_id: invoiceId, back_url: safeBackUrl }),
+        cache: "no-store",
       });
 
       const data = await res.json().catch(() => ({}));
@@ -29,13 +42,22 @@ export default function InvoiceSignatureClient({ invoiceId, backUrl }: Props) {
         return;
       }
 
-      const url = String(data?.authorize_url || "");
-      if (!url) {
+      const authorizeUrl = s(data?.authorize_url);
+      const state = s(data?.state);
+      const inv = s(data?.invoice_id || invoiceId);
+      const back = s(data?.back_url || safeBackUrl);
+
+      if (!authorizeUrl) {
         setError("MISSING_AUTHORIZE_URL");
         return;
       }
 
-      window.location.href = url;
+      // ✅ IMPORTANT: stocker avant redirect
+      store("digigo_state", state);
+      store("digigo_invoice_id", inv);
+      store("digigo_back_url", back);
+
+      window.location.href = authorizeUrl;
     } catch (e: any) {
       setError(String(e?.message || "NETWORK_ERROR"));
     } finally {
