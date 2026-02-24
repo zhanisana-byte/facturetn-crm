@@ -9,11 +9,8 @@ function s(v: any) {
   return String(v ?? "").trim();
 }
 
-function jsonError(error: string, status: number, details?: any, extra?: Record<string, any>) {
-  return NextResponse.json(
-    { ok: false, error, ...(details ? { details } : {}), ...(extra || {}) },
-    { status }
-  );
+function jsonError(error: string, status: number, details?: any) {
+  return NextResponse.json({ ok: false, error, ...(details ? { details } : {}) }, { status });
 }
 
 function safeBackUrl(origin: string, sessBackUrl?: string, sigBackUrl?: string, invoiceId?: string) {
@@ -25,61 +22,14 @@ function safeBackUrl(origin: string, sessBackUrl?: string, sigBackUrl?: string, 
   }
 }
 
-async function lookupUserIdByEmail(admin: any, email: string) {
-  const em = s(email).toLowerCase();
-  if (!em) return null;
-  const { data, error } = await admin
-    .from("app_users")
-    .select("id,email")
-    .ilike("email", em)
-    .maybeSingle();
-  if (!error && data?.id) return data.id;
-  const { data: au, error: auErr } = await admin
-    .from("auth.users")
-    .select("id,email")
-    .ilike("email", em)
-    .maybeSingle();
-  if (auErr) return null;
-  return au?.id || null;
-}
-
-async function lookupSession(admin: any, state: string, userId: string | null) {
-  const nowIso = new Date().toISOString();
-
-  if (s(state)) {
-    const { data, error } = await admin
-      .from("digigo_sign_sessions")
-      .select("*")
-      .eq("state", s(state))
-      .maybeSingle();
-    if (error) return { session: null, error: { code: "SESSION_LOOKUP_FAILED", message: error.message } };
-    return { session: data, error: null };
-  }
-
-  if (!userId) return { session: null, error: { code: "MISSING_USER_FOR_FALLBACK", message: "No userId" } };
-
-  const { data, error } = await admin
-    .from("digigo_sign_sessions")
-    .select("*")
-    .eq("status", "pending")
-    .eq("created_by", userId)
-    .gt("expires_at", nowIso)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) return { session: null, error: { code: "SESSION_FALLBACK_FAILED", message: error.message } };
-  return { session: data, error: null };
-}
-
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const token = s(url.searchParams.get("token"));
   const state = s(url.searchParams.get("state"));
-  const error = s(url.searchParams.get("error"));
+  const err = s(url.searchParams.get("error"));
 
   if (!token) {
-    const red = new URL(`/digigo/redirect?error=${encodeURIComponent(error || "MISSING_TOKEN")}`, url.origin);
+    const red = new URL(`/digigo/redirect?error=${encodeURIComponent(err || "MISSING_TOKEN")}`, url.origin);
     if (state) red.searchParams.set("state", state);
     return NextResponse.redirect(red);
   }
@@ -96,6 +46,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const token = s(body?.token);
   const state = s(body?.state);
+  const invoiceIdFromBody = s(body?.invoice_id || body?.invoiceId);
 
   if (!token) return jsonError("MISSING_TOKEN", 400);
 
@@ -113,72 +64,96 @@ export async function POST(req: Request) {
   if (!jti) return jsonError("MISSING_JTI", 400);
   if (!sub) return jsonError("MISSING_SUB", 400);
 
-  const userId = await lookupUserIdByEmail(admin, sub);
+  let sess: any = null;
 
-  const { session, error: sessLookupErr } = await lookupSession(admin, state, userId);
+  if (state) {
+    const r = await admin
+      .from("digigo_sign_sessions")
+      .select("id, invoice_id, state, back_url, status, expires_at, environment, company_id, created_by, created_at, error_message")
+      .eq("state", state)
+      .maybeSingle();
 
-  if (sessLookupErr) return jsonError(sessLookupErr.code, 500, sessLookupErr.message);
-  if (!session?.invoice_id) return jsonError("SESSION_NOT_FOUND", 404, null, { state: state || null });
+    if (r.error) return jsonError("SESSION_LOOKUP_FAILED", 500, r.error.message);
+    sess = r.data;
+  } else if (invoiceIdFromBody) {
+    const r = await admin
+      .from("digigo_sign_sessions")
+      .select("id, invoice_id, state, back_url, status, expires_at, environment, company_id, created_by, created_at, error_message")
+      .eq("invoice_id", invoiceIdFromBody)
+      .eq("status", "pending")
+      .gt("expires_at", nowIso)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-  if (s(session.status) === "done") {
-    const origin = new URL(req.url).origin;
-    const backUrl = safeBackUrl(origin, s(session.back_url), "", s(session.invoice_id));
-    return NextResponse.json({ ok: true, invoice_id: s(session.invoice_id), back_url: backUrl, already_done: true });
+    if (r.error) return jsonError("SESSION_LOOKUP_FAILED", 500, r.error.message);
+    sess = r.data;
   }
 
-  if (s(session.status) === "expired" || (session.expires_at && s(session.expires_at) <= nowIso)) {
+  if (!sess?.invoice_id) {
+    return jsonError("SESSION_NOT_FOUND", 404, {
+      hint: "Provide state (preferred) or invoice_id from localStorage",
+    });
+  }
+
+  const invoiceId = s(sess.invoice_id);
+  const env = s(sess.environment) || "production";
+  const companyId = s(sess.company_id) || null;
+
+  if (s(sess.status) === "done") {
+    const origin = new URL(req.url).origin;
+
+    const { data: sig2 } = await admin
+      .from("invoice_signatures")
+      .select("meta")
+      .eq("invoice_id", invoiceId)
+      .eq("provider", "digigo")
+      .eq("environment", env)
+      .maybeSingle();
+
+    const backUrl = safeBackUrl(origin, s(sess.back_url), s((sig2 as any)?.meta?.back_url), invoiceId);
+    return NextResponse.json({ ok: true, invoice_id: invoiceId, back_url: backUrl, already_done: true });
+  }
+
+  if (s(sess.expires_at) && s(sess.expires_at) <= nowIso) {
+    await admin
+      .from("digigo_sign_sessions")
+      .update({ status: "expired", updated_at: nowIso })
+      .eq("id", sess.id);
     return jsonError("SESSION_EXPIRED", 400);
   }
 
-  const invoiceId = s(session.invoice_id);
-  const env = s(session.environment) || "test";
-  const companyId = s(session.company_id) || null;
-
   const { data: sig, error: sigErr } = await admin
     .from("invoice_signatures")
-    .select("id, invoice_id, provider, state, unsigned_xml, unsigned_hash, signed_xml, signed_hash, meta, environment, company_id, error_message")
+    .select("id, invoice_id, unsigned_xml, unsigned_hash, meta, environment, company_id, signed_xml")
     .eq("invoice_id", invoiceId)
     .eq("provider", "digigo")
     .eq("environment", env)
     .maybeSingle();
 
-  if (sigErr) {
-    await admin
-      .from("digigo_sign_sessions")
-      .update({ status: "failed", error_message: `SIGNATURE_LOOKUP_FAILED: ${s(sigErr.message)}`, updated_at: nowIso })
-      .eq("id", session.id);
-    return jsonError("SIGNATURE_LOOKUP_FAILED", 500, sigErr.message);
-  }
-
-  if (!sig) {
-    await admin
-      .from("digigo_sign_sessions")
-      .update({ status: "failed", error_message: "SIGNATURE_NOT_FOUND", updated_at: nowIso })
-      .eq("id", session.id);
-    return jsonError("SIGNATURE_NOT_FOUND", 404);
-  }
+  if (sigErr) return jsonError("SIGNATURE_LOOKUP_FAILED", 500, sigErr.message);
+  if (!sig) return jsonError("SIGNATURE_NOT_FOUND", 404);
 
   const origin = new URL(req.url).origin;
   const meta = sig.meta && typeof sig.meta === "object" ? sig.meta : {};
-  const metaBackUrl = s((meta as any)?.back_url);
-  const backUrl = safeBackUrl(origin, s(session.back_url), metaBackUrl, invoiceId);
+  const backUrl = safeBackUrl(origin, s(sess.back_url), s((meta as any)?.back_url), invoiceId);
 
-  if (s(sig.signed_xml)) {
+  if (sig.signed_xml) {
     await admin
       .from("digigo_sign_sessions")
       .update({ status: "done", digigo_jti: jti, error_message: null, updated_at: nowIso })
-      .eq("id", session.id);
+      .eq("id", sess.id);
 
     return NextResponse.json({ ok: true, invoice_id: invoiceId, back_url: backUrl, already_signed: true });
   }
+
+  const credentialId = s((meta as any)?.credentialId) || sub;
+  if (!credentialId) return jsonError("MISSING_CREDENTIAL_ID", 400);
 
   const unsignedXml = s(sig.unsigned_xml);
   const unsignedHash = s(sig.unsigned_hash);
   if (!unsignedXml) return jsonError("MISSING_XML", 400);
   if (!unsignedHash) return jsonError("MISSING_HASH", 400);
-
-  const credentialId = s((meta as any)?.credentialId) || sub;
-  if (!credentialId) return jsonError("MISSING_CREDENTIAL_ID", 400);
 
   try {
     const oauth = await digigoOauthTokenFromJti({ jti });
@@ -201,11 +176,11 @@ export async function POST(req: Request) {
 
     const newMeta = {
       ...(meta || {}),
-      back_url: metaBackUrl || s(session.back_url) || backUrl,
-      credentialId,
       digigo_jti: jti,
+      credentialId,
+      back_url: s((meta as any)?.back_url) || s(sess.back_url) || backUrl,
+      digigo_state: s(sess.state),
       digigo_sub: sub,
-      digigo_state: s(session.state),
     };
 
     const { error: updSigErr } = await admin
@@ -216,19 +191,19 @@ export async function POST(req: Request) {
         signed_hash: signedHash,
         signed_at: nowIso,
         updated_at: nowIso,
-        error_message: null,
         meta: newMeta,
-        environment: env,
         company_id: (sig as any).company_id || companyId || undefined,
       })
-      .eq("invoice_id", invoiceId);
+      .eq("id", sig.id);
 
     if (updSigErr) return jsonError("SIGNATURE_UPDATE_FAILED", 500, updSigErr.message);
 
-    await admin
+    const { error: updSessErr } = await admin
       .from("digigo_sign_sessions")
       .update({ status: "done", digigo_jti: jti, error_message: null, updated_at: nowIso })
-      .eq("id", session.id);
+      .eq("id", sess.id);
+
+    if (updSessErr) return jsonError("SESSION_UPDATE_FAILED", 500, updSessErr.message);
 
     await admin
       .from("invoices")
@@ -241,13 +216,14 @@ export async function POST(req: Request) {
       })
       .eq("id", invoiceId);
 
-    return NextResponse.json({ ok: true, invoice_id: invoiceId, back_url: backUrl, jti, environment: env });
+    return NextResponse.json({ ok: true, invoice_id: invoiceId, back_url: backUrl, digigo_jti: jti });
   } catch (e: any) {
     const msg = s(e?.message) || "UNKNOWN_ERROR";
     await admin
       .from("digigo_sign_sessions")
       .update({ status: "failed", error_message: msg, updated_at: nowIso })
-      .eq("id", session.id);
+      .eq("id", sess.id);
+
     return jsonError("DIGIGO_CALLBACK_FAILED", 500, msg);
   }
 }
