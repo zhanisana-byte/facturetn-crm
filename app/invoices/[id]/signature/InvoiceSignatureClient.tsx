@@ -5,6 +5,7 @@ import { useCallback, useState } from "react";
 function s(v: any) {
   return String(v ?? "").trim();
 }
+
 function store(k: string, v: string) {
   const val = s(v);
   if (!val) return;
@@ -52,7 +53,6 @@ export default function InvoiceSignatureClient({ invoiceId, backUrl }: Props) {
         return;
       }
 
-      // ✅ IMPORTANT: stocker avant redirect
       store("digigo_state", state);
       store("digigo_invoice_id", inv);
       store("digigo_back_url", back);
