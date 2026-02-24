@@ -1,16 +1,37 @@
 import { NextResponse } from "next/server";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { createClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
 function s(v: any) {
   return String(v ?? "").trim();
 }
 
+function getSupabase() {
+  const cookieStore = cookies();
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+        set(name: string, value: string, options: any) {
+          cookieStore.set({ name, value, ...options });
+        },
+        remove(name: string, options: any) {
+          cookieStore.set({ name, value: "", ...options });
+        },
+      },
+    }
+  );
+}
+
 function decodeJti(token: string) {
   const parts = token.split(".");
   if (parts.length < 2) return "";
-  const payload = Buffer.from(parts[1], "base64").toString("utf8");
   try {
+    const payload = Buffer.from(parts[1], "base64").toString("utf8");
     const json = JSON.parse(payload);
     return s(json?.jti);
   } catch {
@@ -53,7 +74,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "INVALID_TOKEN" }, { status: 400 });
     }
 
-    const supabase = createRouteHandlerClient({ cookies });
+    const supabase = getSupabase();
 
     const { data, error } = await supabase.rpc("digigo_finalize_latest_session", {
       p_invoice_id: invoice_id,
