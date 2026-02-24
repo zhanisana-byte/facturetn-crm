@@ -76,7 +76,9 @@ export async function POST(req: Request) {
     }
 
     const cfg = cred.signature_config && typeof cred.signature_config === "object" ? cred.signature_config : {};
-    const credentialId = s(cfg.digigo_signer_email || cfg.credentialId || cfg.credential_id || cred.signer_email || cred.cert_email);
+    const credentialId = s(
+      cfg.digigo_signer_email || cfg.credentialId || cfg.credential_id || cred.signer_email || cred.cert_email
+    );
 
     if (!credentialId) {
       return NextResponse.json({ ok: false, error: "MISSING_CREDENTIAL_ID" }, { status: 400 });
@@ -89,7 +91,10 @@ export async function POST(req: Request) {
       .order("line_no", { ascending: true });
 
     if (itemsRes.error) {
-      return NextResponse.json({ ok: false, error: "ITEMS_LOAD_FAILED", details: itemsRes.error.message }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: "ITEMS_LOAD_FAILED", details: itemsRes.error.message },
+        { status: 500 }
+      );
     }
 
     const items = Array.isArray(itemsRes.data) ? itemsRes.data : [];
@@ -138,6 +143,8 @@ export async function POST(req: Request) {
 
     const hash = sha256Base64Utf8(unsigned_xml);
 
+    const backUrlFinal = back_url || `/invoices/${invoice_id}`;
+
     const upSig = await service.from("invoice_signatures").upsert(
       {
         invoice_id,
@@ -148,18 +155,20 @@ export async function POST(req: Request) {
         signer_user_id: auth.user.id,
         company_id,
         environment: "production",
-        meta: { credentialId, back_url: back_url || `/invoices/${invoice_id}` },
+        meta: { credentialId, back_url: backUrlFinal },
       },
       { onConflict: "invoice_id" }
     );
 
     if (upSig.error) {
-      return NextResponse.json({ ok: false, error: "SIGNATURE_UPSERT_FAILED", details: upSig.error.message }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: "SIGNATURE_UPSERT_FAILED", details: upSig.error.message },
+        { status: 500 }
+      );
     }
 
     const state = crypto.randomUUID();
     const expires_at = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-    const backUrlFinal = back_url || `/invoices/${invoice_id}`;
 
     const sessIns = await service.from("digigo_sign_sessions").insert({
       state,
@@ -173,7 +182,10 @@ export async function POST(req: Request) {
     });
 
     if (sessIns.error) {
-      return NextResponse.json({ ok: false, error: "SESSION_CREATE_FAILED", details: sessIns.error.message }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: "SESSION_CREATE_FAILED", details: sessIns.error.message },
+        { status: 500 }
+      );
     }
 
     const authorize_url = digigoAuthorizeUrl({
@@ -183,7 +195,10 @@ export async function POST(req: Request) {
       state,
     });
 
-    return NextResponse.json({ ok: true, authorize_url }, { status: 200 });
+    return NextResponse.json(
+      { ok: true, authorize_url, state, invoice_id, back_url: backUrlFinal },
+      { status: 200 }
+    );
   } catch (e: any) {
     console.error("DIGIGO_START_ERROR", e);
     return NextResponse.json({ ok: false, error: "START_FAILED", details: String(e?.message || e) }, { status: 500 });
