@@ -1,19 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 function s(v: any) {
   return String(v ?? "").trim();
 }
 
-export default function RedirectUi() {
-  const [error, setError] = useState<string>("");
-  const [done, setDone] = useState<boolean>(false);
+function getStored(key: string) {
+  try {
+    const v = localStorage.getItem(key);
+    if (v) return v;
+  } catch {}
+  try {
+    const v = sessionStorage.getItem(key);
+    if (v) return v;
+  } catch {}
+  return "";
+}
 
-  const params = useMemo(() => new URLSearchParams(window.location.search), []);
-  const token = s(params.get("token"));
-  const state = s(params.get("state"));
-  const urlError = s(params.get("error"));
+export default function RedirectUi() {
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState("Traitement...");
 
   useEffect(() => {
     let cancelled = false;
@@ -22,25 +29,33 @@ export default function RedirectUi() {
       try {
         setError("");
 
+        const qs = new URLSearchParams(window.location.search);
+        const token = s(qs.get("token"));
+        const urlState = s(qs.get("state"));
+        const urlError = s(qs.get("error"));
+
         if (urlError) {
           setError(urlError);
+          setStatus("Erreur");
           return;
         }
 
         if (!token) {
           setError("MISSING_TOKEN");
+          setStatus("Erreur");
           return;
         }
 
-        if (!state) {
-          setError("MISSING_STATE");
-          return;
-        }
+        const storedState =
+          urlState ||
+          s(getStored("digigo_state")) ||
+          s(getStored("digigo_oauth_state")) ||
+          s(getStored("digigo_sign_state"));
 
         const res = await fetch("/api/digigo/callback", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, state }),
+          body: JSON.stringify({ token, state: storedState || undefined }),
           cache: "no-store",
         });
 
@@ -48,14 +63,18 @@ export default function RedirectUi() {
 
         if (!res.ok) {
           setError(s(json?.error) || "ERROR");
+          setStatus("Erreur");
           return;
         }
 
         const backUrl = s(json?.back_url) || "/";
-        setDone(true);
-        window.location.replace(backUrl);
+        setStatus("OK");
+        if (!cancelled) window.location.replace(backUrl);
       } catch (e: any) {
-        if (!cancelled) setError(s(e?.message) || "ERROR");
+        if (!cancelled) {
+          setError(s(e?.message) || "ERROR");
+          setStatus("Erreur");
+        }
       }
     }
 
@@ -63,7 +82,7 @@ export default function RedirectUi() {
     return () => {
       cancelled = true;
     };
-  }, [token, state, urlError]);
+  }, []);
 
   return (
     <div className="min-h-[60vh] flex items-center justify-center px-4">
@@ -75,13 +94,9 @@ export default function RedirectUi() {
           <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">
             {error}
           </div>
-        ) : done ? (
-          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-700">
-            OK
-          </div>
         ) : (
           <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-gray-700">
-            Traitement...
+            {status}
           </div>
         )}
       </div>
