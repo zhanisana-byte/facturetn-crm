@@ -31,8 +31,8 @@ export default function RedirectUi() {
 
         const qs = new URLSearchParams(window.location.search);
         const token = s(qs.get("token"));
-        const urlState = s(qs.get("state"));
         const urlError = s(qs.get("error"));
+        const urlState = s(qs.get("state"));
 
         if (urlError) {
           setError(urlError);
@@ -46,22 +46,23 @@ export default function RedirectUi() {
           return;
         }
 
-        const storedState =
-          urlState ||
-          s(getStored("digigo_state")) ||
-          s(getStored("digigo_oauth_state")) ||
-          s(getStored("digigo_sign_state"));
+        const storedState = urlState || s(getStored("digigo_state"));
+        const storedInvoiceId = s(getStored("digigo_invoice_id"));
 
         const res = await fetch("/api/digigo/callback", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, state: storedState || undefined }),
+          body: JSON.stringify({
+            token,
+            state: storedState || undefined,
+            invoice_id: storedInvoiceId || undefined,
+          }),
           cache: "no-store",
         });
 
         const json = await res.json().catch(() => ({}));
 
-        if (!res.ok) {
+        if (!res.ok || !json?.ok) {
           setError(s(json?.error) || "ERROR");
           setStatus("Erreur");
           return;
