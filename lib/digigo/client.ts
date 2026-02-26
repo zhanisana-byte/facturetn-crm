@@ -12,7 +12,7 @@ function getEnv(): DigigoEnv {
   return e === "production" ? "production" : "test";
 }
 
-function baseUrl(env: DigigoEnv) {
+export function digigoBaseUrl(env: DigigoEnv) {
   const test = clean(process.env.DIGIGO_TEST_BASE_URL) || "https://193.95.63.230";
   const prod = clean(process.env.DIGIGO_PROD_BASE_URL) || "https://digigo.tuntrust.tn";
   return env === "production" ? prod : test;
@@ -40,8 +40,7 @@ export function digigoAuthorizeUrl(params: {
     throw new Error("Missing DIGIGO_CLIENT_ID or DIGIGO_REDIRECT_URI");
   }
 
-  const url = new URL("/tunsign-proxy-webapp/oauth2/login", baseUrl(env));
-
+  const url = new URL("/tunsign-proxy-webapp/oauth2/login", digigoBaseUrl(env));
   url.searchParams.set("clientId", clientId);
   url.searchParams.set("redirectUri", redirectUri);
   url.searchParams.set("state", params.state);
@@ -54,22 +53,33 @@ export function digigoAuthorizeUrl(params: {
   return url.toString();
 }
 
-export async function digigoExchangeCode(params: {
+type ExchangeFull = {
+  env: DigigoEnv;
+  clientId: string;
+  clientSecret: string;
   code: string;
-}) {
-  const env = getEnv();
-  const clientId = clean(process.env.DIGIGO_CLIENT_ID);
-  const clientSecret = clean(process.env.DIGIGO_CLIENT_SECRET);
+};
 
-  if (!clientId || !clientSecret) {
-    throw new Error("Missing DIGIGO credentials");
+type ExchangeSimple = {
+  code: string;
+};
+
+export async function digigoExchangeCode(params: ExchangeFull | ExchangeSimple) {
+  const env = "env" in params ? params.env : getEnv();
+  const clientId = "clientId" in params ? clean(params.clientId) : clean(process.env.DIGIGO_CLIENT_ID);
+  const clientSecret =
+    "clientSecret" in params ? clean(params.clientSecret) : clean(process.env.DIGIGO_CLIENT_SECRET);
+  const code = clean(params.code);
+
+  if (!clientId || !clientSecret || !code) {
+    throw new Error("Missing DIGIGO credentials or code");
   }
 
   const url = new URL(
     `/tunsign-proxy-webapp/oauth2/token/${encodeURIComponent(clientId)}/authorization_code/${encodeURIComponent(
       clientSecret
-    )}/${encodeURIComponent(params.code)}`,
-    baseUrl(env)
+    )}/${encodeURIComponent(code)}`,
+    digigoBaseUrl(env)
   );
 
   const res = await fetch(url.toString(), { method: "POST" });
