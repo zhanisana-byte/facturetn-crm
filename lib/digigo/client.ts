@@ -26,29 +26,47 @@ export function sha256Base64Utf8(input: string) {
   return crypto.createHash("sha256").update(input, "utf8").digest("base64");
 }
 
-export function digigoAuthorizeUrl(params: {
+type AuthorizeFull = {
+  env: DigigoEnv;
+  clientId: string;
+  redirectUri: string;
+  state: string;
+  credentialId: string;
+  hashBase64?: string;
+  numSignatures?: number;
+};
+
+type AuthorizeSimple = {
   credentialId: string;
   hashBase64: string;
   numSignatures?: number;
   state: string;
-}) {
-  const env = getEnv();
-  const clientId = clean(process.env.DIGIGO_CLIENT_ID);
-  const redirectUri = clean(process.env.DIGIGO_REDIRECT_URI);
+};
+
+export function digigoAuthorizeUrl(params: AuthorizeFull | AuthorizeSimple) {
+  const env = "env" in params ? params.env : getEnv();
+  const clientId = "clientId" in params ? clean(params.clientId) : clean(process.env.DIGIGO_CLIENT_ID);
+  const redirectUri =
+    "redirectUri" in params ? clean(params.redirectUri) : clean(process.env.DIGIGO_REDIRECT_URI);
 
   if (!clientId || !redirectUri) {
     throw new Error("Missing DIGIGO_CLIENT_ID or DIGIGO_REDIRECT_URI");
   }
 
   const url = new URL("/tunsign-proxy-webapp/oauth2/login", digigoBaseUrl(env));
+
   url.searchParams.set("clientId", clientId);
   url.searchParams.set("redirectUri", redirectUri);
   url.searchParams.set("state", params.state);
   url.searchParams.set("credentialId", params.credentialId);
-  url.searchParams.set("hashBase64", params.hashBase64);
 
-  const n = params.numSignatures ?? 1;
-  url.searchParams.set("numSignatures", String(n));
+  const hash = "hashBase64" in params ? clean(params.hashBase64) : null;
+  if (hash) url.searchParams.set("hashBase64", hash);
+
+  const n = params.numSignatures;
+  if (typeof n === "number" && Number.isFinite(n) && n > 0) {
+    url.searchParams.set("numSignatures", String(Math.floor(n)));
+  }
 
   return url.toString();
 }
