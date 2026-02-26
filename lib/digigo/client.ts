@@ -12,6 +12,10 @@ function must(v: string | null, name: string) {
   return v;
 }
 
+function envFromProcess(): DigigoEnv {
+  return clean(process.env.DIGIGO_ENV) === "production" ? "production" : "test";
+}
+
 function getBaseUrl(env: DigigoEnv) {
   const test = clean(process.env.DIGIGO_BASE_URL_TEST);
   const prod = clean(process.env.DIGIGO_BASE_URL_PROD);
@@ -23,7 +27,7 @@ export function sha256Base64Utf8(input: string) {
   return crypto.createHash("sha256").update(input, "utf8").digest("base64");
 }
 
-export function digigoAuthorizeUrl(params: {
+type AuthorizeFull = {
   env: DigigoEnv;
   clientId: string;
   redirectUri: string;
@@ -31,18 +35,40 @@ export function digigoAuthorizeUrl(params: {
   credentialId: string;
   hashBase64?: string;
   numSignatures?: number;
-}) {
-  const base = getBaseUrl(params.env);
+};
+
+type AuthorizeSimple = {
+  credentialId: string;
+  hashBase64: string;
+  numSignatures?: number;
+  state: string;
+};
+
+export function digigoAuthorizeUrl(params: AuthorizeFull | AuthorizeSimple) {
+  const env = "env" in params ? params.env : envFromProcess();
+  const clientId = "clientId" in params ? clean(params.clientId) : clean(process.env.DIGIGO_CLIENT_ID);
+  const redirectUri =
+    "redirectUri" in params ? clean(params.redirectUri) : clean(process.env.DIGIGO_REDIRECT_URI);
+
+  if (!clientId) throw new Error("MISSING_DIGIGO_CLIENT_ID");
+  if (!redirectUri) throw new Error("MISSING_DIGIGO_REDIRECT_URI");
+
+  const base = getBaseUrl(env);
   const url = new URL("/oauth2/authorize", base);
 
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("client_id", params.clientId);
-  url.searchParams.set("redirect_uri", params.redirectUri);
+  url.searchParams.set("client_id", clientId);
+  url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("state", params.state);
   url.searchParams.set("credential_id", params.credentialId);
 
-  if (params.hashBase64) url.searchParams.set("hash", params.hashBase64);
-  if (params.numSignatures) url.searchParams.set("numSignatures", String(params.numSignatures));
+  const hash = "hashBase64" in params ? clean(params.hashBase64) : null;
+  if (hash) url.searchParams.set("hash", hash);
+
+  const n = params.numSignatures;
+  if (typeof n === "number" && Number.isFinite(n) && n > 0) {
+    url.searchParams.set("numSignatures", String(Math.floor(n)));
+  }
 
   return url.toString();
 }
