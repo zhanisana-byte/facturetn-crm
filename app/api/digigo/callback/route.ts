@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { createClient } from "@/lib/supabase/server";
 import { digigoExchangeCode, type DigigoEnv } from "@/lib/digigo/client";
 
 function clean(v?: string | null) {
@@ -9,7 +8,7 @@ function clean(v?: string | null) {
 }
 
 export async function GET(req: Request) {
-  const supabase = createRouteHandlerClient({ cookies });
+  const supabase = await createClient();
 
   const url = new URL(req.url);
   const code = clean(url.searchParams.get("code"));
