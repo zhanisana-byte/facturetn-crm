@@ -13,12 +13,22 @@ export function digigoBaseUrl(env: DigigoEnv) {
   return env === "production" ? prod : test;
 }
 
+export function randomState() {
+  return crypto.randomBytes(24).toString("hex");
+}
+
+export function sha256Base64Utf8(input: string) {
+  return crypto.createHash("sha256").update(input, "utf8").digest("base64");
+}
+
 export function digigoAuthorizeUrl(params: {
   env: DigigoEnv;
   clientId: string;
   redirectUri: string;
   state: string;
   credentialId: string;
+  hashBase64?: string;
+  numSignatures?: number;
 }) {
   const base = digigoBaseUrl(params.env);
   const url = new URL("/tunsign-proxy-webapp/oauth2/login", base);
@@ -28,15 +38,15 @@ export function digigoAuthorizeUrl(params: {
   url.searchParams.set("state", params.state);
   url.searchParams.set("credentialId", params.credentialId);
 
+  const hash = clean(params.hashBase64 ?? null);
+  if (hash) url.searchParams.set("hashBase64", hash);
+
+  const n = params.numSignatures;
+  if (typeof n === "number" && Number.isFinite(n) && n > 0) {
+    url.searchParams.set("numSignatures", String(Math.floor(n)));
+  }
+
   return url.toString();
-}
-
-export function randomState() {
-  return crypto.randomBytes(24).toString("hex");
-}
-
-export function sha256Base64Utf8(input: string) {
-  return crypto.createHash("sha256").update(input, "utf8").digest("base64");
 }
 
 export async function digigoExchangeCode(params: {
