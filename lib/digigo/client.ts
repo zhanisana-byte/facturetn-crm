@@ -31,6 +31,14 @@ export function digigoAuthorizeUrl(params: {
   return url.toString();
 }
 
+export function randomState() {
+  return crypto.randomBytes(24).toString("hex");
+}
+
+export function sha256Base64Utf8(input: string) {
+  return crypto.createHash("sha256").update(input, "utf8").digest("base64");
+}
+
 export async function digigoExchangeCode(params: {
   env: DigigoEnv;
   clientId: string;
@@ -69,8 +77,4 @@ export async function digigoExchangeCode(params: {
     status: res.status,
     json: json ?? text,
   };
-}
-
-export function randomState() {
-  return crypto.randomBytes(24).toString("hex");
 }
