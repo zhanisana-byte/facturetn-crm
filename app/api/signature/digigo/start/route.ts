@@ -1,65 +1,92 @@
-import { NextResponse } from "next/server"
-import { digigoAuthorizeUrl, sha256Base64Utf8 } from "@/lib/digigo/client"
-import { createClient } from "@supabase/supabase-js"
-import { v4 as uuidv4 } from "uuid"
+import { NextResponse } from "next/server";
+import crypto from "crypto";
+import { digigoAuthorizeUrl, sha256Base64Utf8, type DigigoEnv } from "@/lib/digigo/client";
+import { createServiceClient } from "@/lib/supabase/service";
 
-export const runtime = "nodejs"
-export const dynamic = "force-dynamic"
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+function s(v: any) {
+  return String(v ?? "").trim();
+}
+
+function isUuid(v: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
 
 export async function POST(req: Request) {
-  const { invoiceId } = await req.json()
+  try {
+    const service = createServiceClient();
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+    const body = await req.json().catch(() => ({}));
+    const invoiceId = s(body.invoice_id || body.invoiceId);
+    const backUrl = s(body.back_url || body.backUrl);
 
-  const { data: invoice } = await supabase
-    .from("invoices")
-    .select("id, company_id")
-    .eq("id", invoiceId)
-    .single()
+    if (!invoiceId || !isUuid(invoiceId)) {
+      return NextResponse.json({ ok: false, error: "INVALID_INVOICE_ID" }, { status: 400 });
+    }
 
-  if (!invoice) {
-    return NextResponse.json({ error: "INVOICE_NOT_FOUND" }, { status: 404 })
+    const invRes = await service
+      .from("invoices")
+      .select("id, company_id")
+      .eq("id", invoiceId)
+      .single();
+
+    if (!invRes.data) {
+      return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
+    }
+
+    const companyId = s(invRes.data.company_id);
+
+    const compRes = await service
+      .from("companies")
+      .select("id, digigo_credential_id")
+      .eq("id", companyId)
+      .single();
+
+    if (!compRes.data) {
+      return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
+    }
+
+    const credentialId = s(compRes.data.digigo_credential_id);
+    if (!credentialId) {
+      return NextResponse.json({ ok: false, error: "DIGIGO_NOT_CONFIGURED" }, { status: 400 });
+    }
+
+    const env = (s(process.env.DIGIGO_ENV) === "production" ? "production" : "test") as DigigoEnv;
+    const clientId = s(process.env.DIGIGO_CLIENT_ID);
+    const redirectUri = s(process.env.DIGIGO_REDIRECT_URI);
+
+    if (!clientId || !redirectUri) {
+      return NextResponse.json({ ok: false, error: "MISSING_DIGIGO_ENV" }, { status: 500 });
+    }
+
+    const state = crypto.randomUUID();
+
+    const hash = sha256Base64Utf8(invoiceId);
+
+    await service.from("digigo_sign_sessions").insert({
+      invoice_id: invoiceId,
+      company_id: companyId,
+      state,
+      back_url: backUrl || `/invoices/${invoiceId}`,
+      status: "pending",
+      expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      environment: env,
+    });
+
+    const authorize_url = digigoAuthorizeUrl({
+      env,
+      clientId,
+      redirectUri,
+      state,
+      credentialId,
+      hashBase64: hash,
+      numSignatures: 1,
+    });
+
+    return NextResponse.json({ ok: true, authorize_url, state });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: "UNKNOWN_ERROR", message: s(e?.message) }, { status: 500 });
   }
-
-  const { data: company } = await supabase
-    .from("companies")
-    .select("digigo_credential_id")
-    .eq("id", invoice.company_id)
-    .single()
-
-  if (!company?.digigo_credential_id) {
-    return NextResponse.json({ error: "DIGIGO_NOT_CONFIGURED" }, { status: 400 })
-  }
-
-  const env = (process.env.DIGIGO_ENV as "test" | "production") || "test"
-  const clientId = process.env.DIGIGO_CLIENT_ID!
-  const redirectUri = process.env.DIGIGO_REDIRECT_URI!
-
-  const state = uuidv4()
-
-  const hash = sha256Base64Utf8(invoice.id)
-
-  const authorizeUrl = digigoAuthorizeUrl({
-    env,
-    clientId,
-    redirectUri,
-    state,
-    credentialId: company.digigo_credential_id,
-    hashBase64: hash,
-    numSignatures: 1,
-  })
-
-  await supabase.from("digigo_sign_sessions").insert({
-    invoice_id: invoice.id,
-    state,
-    status: "pending",
-    expires_at: new Date(Date.now() + 10 * 60 * 1000),
-    company_id: invoice.company_id,
-    environment: env,
-  })
-
-  return NextResponse.json({ authorizeUrl })
 }
