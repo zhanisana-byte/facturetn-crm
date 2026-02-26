@@ -7,14 +7,19 @@ function clean(v?: string | null) {
   return x.length ? x : null;
 }
 
-export function digigoBaseUrl(env: DigigoEnv) {
+function getEnv(): DigigoEnv {
+  const e = clean(process.env.DIGIGO_ENV);
+  return e === "production" ? "production" : "test";
+}
+
+function baseUrl(env: DigigoEnv) {
   const test = clean(process.env.DIGIGO_TEST_BASE_URL) || "https://193.95.63.230";
   const prod = clean(process.env.DIGIGO_PROD_BASE_URL) || "https://digigo.tuntrust.tn";
   return env === "production" ? prod : test;
 }
 
 export function randomState() {
-  return crypto.randomBytes(24).toString("hex");
+  return crypto.randomUUID();
 }
 
 export function sha256Base64Utf8(input: string) {
@@ -22,45 +27,49 @@ export function sha256Base64Utf8(input: string) {
 }
 
 export function digigoAuthorizeUrl(params: {
-  env: DigigoEnv;
-  clientId: string;
-  redirectUri: string;
-  state: string;
   credentialId: string;
-  hashBase64?: string;
+  hashBase64: string;
   numSignatures?: number;
+  state: string;
 }) {
-  const base = digigoBaseUrl(params.env);
-  const url = new URL("/tunsign-proxy-webapp/oauth2/login", base);
+  const env = getEnv();
+  const clientId = clean(process.env.DIGIGO_CLIENT_ID);
+  const redirectUri = clean(process.env.DIGIGO_REDIRECT_URI);
 
-  url.searchParams.set("clientId", params.clientId);
-  url.searchParams.set("redirectUri", params.redirectUri);
+  if (!clientId || !redirectUri) {
+    throw new Error("Missing DIGIGO_CLIENT_ID or DIGIGO_REDIRECT_URI");
+  }
+
+  const url = new URL("/tunsign-proxy-webapp/oauth2/login", baseUrl(env));
+
+  url.searchParams.set("clientId", clientId);
+  url.searchParams.set("redirectUri", redirectUri);
   url.searchParams.set("state", params.state);
   url.searchParams.set("credentialId", params.credentialId);
+  url.searchParams.set("hashBase64", params.hashBase64);
 
-  const hash = clean(params.hashBase64 ?? null);
-  if (hash) url.searchParams.set("hashBase64", hash);
-
-  const n = params.numSignatures;
-  if (typeof n === "number" && Number.isFinite(n) && n > 0) {
-    url.searchParams.set("numSignatures", String(Math.floor(n)));
-  }
+  const n = params.numSignatures ?? 1;
+  url.searchParams.set("numSignatures", String(n));
 
   return url.toString();
 }
 
 export async function digigoExchangeCode(params: {
-  env: DigigoEnv;
-  clientId: string;
-  clientSecret: string;
   code: string;
 }) {
-  const base = digigoBaseUrl(params.env);
+  const env = getEnv();
+  const clientId = clean(process.env.DIGIGO_CLIENT_ID);
+  const clientSecret = clean(process.env.DIGIGO_CLIENT_SECRET);
+
+  if (!clientId || !clientSecret) {
+    throw new Error("Missing DIGIGO credentials");
+  }
+
   const url = new URL(
-    `/tunsign-proxy-webapp/oauth2/token/${encodeURIComponent(params.clientId)}/authorization_code/${encodeURIComponent(
-      params.clientSecret
+    `/tunsign-proxy-webapp/oauth2/token/${encodeURIComponent(clientId)}/authorization_code/${encodeURIComponent(
+      clientSecret
     )}/${encodeURIComponent(params.code)}`,
-    base
+    baseUrl(env)
   );
 
   const res = await fetch(url.toString(), { method: "POST" });
