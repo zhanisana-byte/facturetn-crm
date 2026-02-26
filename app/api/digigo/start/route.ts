@@ -1,107 +1,196 @@
 import { NextResponse } from "next/server";
+import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
-import { digigoAuthorizeUrl, randomState, type DigigoEnv } from "@/lib/digigo/client";
+import { createServiceClient } from "@/lib/supabase/service";
+import { canCompanyAction } from "@/lib/permissions/companyPerms";
+import { buildTeifInvoiceXml } from "@/lib/ttn/teifXml";
+import { sha256Base64Utf8, digigoAuthorizeUrl } from "@/lib/digigo/client";
 
-function clean(v?: string | null) {
-  const x = (v ?? "").trim();
-  return x.length ? x : null;
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+function s(v: any) {
+  return String(v ?? "").trim();
+}
+
+function n(v: any) {
+  const x = Number(v ?? 0);
+  return Number.isFinite(x) ? x : 0;
+}
+
+function isUuid(v: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+
+function isHttps(req: Request) {
+  const proto = s(req.headers.get("x-forwarded-proto") || "");
+  if (proto) return proto === "https";
+  const app = s(process.env.NEXT_PUBLIC_APP_URL || "");
+  return app.startsWith("https://");
 }
 
 export async function POST(req: Request) {
-  const supabase = await createClient();
+  try {
+    const supabase = await createClient();
+    const service = createServiceClient();
 
-  const {
-    data: { user },
-    error: userErr,
-  } = await supabase.auth.getUser();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
 
-  if (userErr || !user) {
-    return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
-  }
+    const body = await req.json().catch(() => ({}));
+    const invoice_id = s(body.invoice_id || body.invoiceId);
+    const back_url_in = s(body.back_url || body.backUrl);
 
-  const body = await req.json().catch(() => ({}));
-  const invoiceId = clean(body?.invoice_id);
-  const backUrl = clean(body?.back_url);
-  const env = (clean(body?.environment) as DigigoEnv) || "test";
+    if (!invoice_id || !isUuid(invoice_id)) {
+      return NextResponse.json({ ok: false, error: "INVALID_INVOICE_ID" }, { status: 400 });
+    }
 
-  if (!invoiceId) {
-    return NextResponse.json({ ok: false, error: "MISSING_INVOICE_ID" }, { status: 400 });
-  }
+    const invRes = await service.from("invoices").select("*").eq("id", invoice_id).single();
+    if (!invRes.data) return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
 
-  const { data: invoice, error: invErr } = await supabase
-    .from("invoices")
-    .select("id, company_id")
-    .eq("id", invoiceId)
-    .single();
+    const invoice: any = invRes.data;
+    const company_id = s(invoice.company_id);
 
-  if (invErr || !invoice) {
-    return NextResponse.json({ ok: false, error: "INVOICE_NOT_FOUND" }, { status: 404 });
-  }
+    const allowed =
+      (await canCompanyAction(supabase, auth.user.id, company_id, "validate_invoices" as any)) ||
+      (await canCompanyAction(supabase, auth.user.id, company_id, "submit_ttn" as any)) ||
+      (await canCompanyAction(supabase, auth.user.id, company_id, "create_invoices" as any));
 
-  const { data: company, error: compErr } = await supabase
-    .from("companies")
-    .select("id, digigo_credential_id")
-    .eq("id", invoice.company_id)
-    .single();
+    if (!allowed) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
 
-  if (compErr || !company) {
-    return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
-  }
+    const compRes = await service.from("companies").select("*").eq("id", company_id).single();
+    if (!compRes.data) return NextResponse.json({ ok: false, error: "COMPANY_NOT_FOUND" }, { status: 404 });
 
-  let credentialId = clean(company.digigo_credential_id);
-
-  if (!credentialId) {
-    const { data: ttnCred, error: ttnErr } = await supabase
+    const credRes = await service
       .from("ttn_credentials")
-      .select("signature_config")
-      .eq("company_id", company.id)
-      .eq("is_active", true)
-      .order("created_at", { ascending: false })
-      .limit(1)
+      .select("*")
+      .eq("company_id", company_id)
+      .eq("environment", "test")
+      .single();
+
+    if (!credRes.data || credRes.data.signature_provider !== "digigo") {
+      return NextResponse.json({ ok: false, error: "DIGIGO_NOT_CONFIGURED" }, { status: 400 });
+    }
+
+    const cred: any = credRes.data;
+    const cfg = cred.signature_config && typeof cred.signature_config === "object" ? cred.signature_config : {};
+
+    const credentialId =
+      s(compRes.data.digigo_credential_id) ||
+      s(cfg.credentialId) ||
+      s(cfg.digigo_credential_id);
+
+    if (!credentialId) {
+      return NextResponse.json({ ok: false, error: "MISSING_DIGIGO_CREDENTIAL_ID" }, { status: 400 });
+    }
+
+    const itemsRes = await service
+      .from("invoice_items")
+      .select("*")
+      .eq("invoice_id", invoice_id)
+      .order("line_no");
+
+    if (!itemsRes.data || itemsRes.data.length === 0) {
+      return NextResponse.json({ ok: false, error: "NO_ITEMS" }, { status: 400 });
+    }
+
+    const unsigned_xml = buildTeifInvoiceXml({
+      invoiceId: invoice_id,
+      company: {
+        name: s(compRes.data.company_name),
+        taxId: s(compRes.data.tax_id),
+        address: s(compRes.data.address),
+        city: s(compRes.data.city),
+        postalCode: s(compRes.data.postal_code),
+        country: "TN",
+      },
+      invoice: {
+        documentType: invoice.document_type,
+        number: invoice.invoice_number,
+        issueDate: invoice.issue_date,
+        dueDate: invoice.due_date,
+        currency: invoice.currency,
+        customerName: invoice.customer_name,
+        customerTaxId: invoice.customer_tax_id,
+        customerEmail: invoice.customer_email,
+        customerAddress: invoice.customer_address,
+      },
+      totals: {
+        ht: n(invoice.subtotal_ht),
+        tva: n(invoice.total_vat),
+        ttc: n(invoice.total_ttc),
+        stampEnabled: !!invoice.stamp_enabled,
+        stampAmount: n(invoice.stamp_amount),
+      },
+      items: itemsRes.data.map((it: any) => ({
+        description: it.description,
+        qty: n(it.quantity),
+        price: n(it.unit_price_ht),
+        vat: n(it.vat_pct),
+      })),
+      purpose: "ttn",
+    } as any);
+
+    const hash = sha256Base64Utf8(unsigned_xml);
+
+    await service.from("invoice_signatures").upsert({
+      invoice_id,
+      provider: "digigo",
+      state: "pending",
+      unsigned_xml,
+      unsigned_hash: hash,
+      signer_user_id: auth.user.id,
+      meta: { credentialId, environment: "test" },
+    });
+
+    const state = crypto.randomUUID();
+    const expires_at = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    const back_url = back_url_in || `/invoices/${invoice_id}`;
+
+    const sessIns = await service
+      .from("digigo_sign_sessions")
+      .insert({
+        state,
+        invoice_id,
+        company_id,
+        created_by: auth.user.id,
+        back_url,
+        status: "pending",
+        expires_at,
+        environment: "test",
+      })
+      .select("id")
       .maybeSingle();
 
-    if (!ttnErr && ttnCred?.signature_config) {
-      const cfg = ttnCred.signature_config as any;
-      credentialId = clean(cfg?.credentialId);
+    if (sessIns.error) {
+      return NextResponse.json({ ok: false, error: "SESSION_CREATE_FAILED", details: sessIns.error.message }, { status: 500 });
     }
+
+    const authorize_url = digigoAuthorizeUrl({
+      credentialId,
+      hashBase64: hash,
+      numSignatures: 1,
+      state,
+    });
+
+    if (!authorize_url) {
+      return NextResponse.json({ ok: false, error: "AUTHORIZE_URL_NOT_GENERATED" }, { status: 500 });
+    }
+
+    const res = NextResponse.json(
+      { ok: true, authorize_url, state, invoice_id, back_url },
+      { status: 200 }
+    );
+
+    const secure = isHttps(req);
+    const maxAge = 60 * 30;
+
+    res.cookies.set("digigo_state", state, { httpOnly: true, secure, sameSite: "lax", path: "/", maxAge });
+    res.cookies.set("digigo_invoice_id", invoice_id, { httpOnly: true, secure, sameSite: "lax", path: "/", maxAge });
+    res.cookies.set("digigo_back_url", back_url, { httpOnly: true, secure, sameSite: "lax", path: "/", maxAge });
+
+    return res;
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: "UNKNOWN_ERROR", message: s(e?.message) }, { status: 500 });
   }
-
-  if (!credentialId) {
-    return NextResponse.json({ ok: false, error: "MISSING_DIGIGO_CREDENTIAL_ID" }, { status: 400 });
-  }
-
-  const clientId = clean(process.env.DIGIGO_CLIENT_ID);
-  const redirectUri = clean(process.env.DIGIGO_REDIRECT_URI);
-
-  if (!clientId || !redirectUri) {
-    return NextResponse.json({ ok: false, error: "MISSING_DIGIGO_ENV" }, { status: 500 });
-  }
-
-  const state = randomState();
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-
-  const { error: sessErr } = await supabase.from("digigo_sign_sessions").insert({
-    invoice_id: invoiceId,
-    company_id: company.id,
-    state,
-    back_url: backUrl,
-    status: "pending",
-    created_by: user.id,
-    expires_at: expiresAt,
-    environment: env,
-  });
-
-  if (sessErr) {
-    return NextResponse.json({ ok: false, error: "SESSION_CREATE_FAILED", details: sessErr.message }, { status: 500 });
-  }
-
-  const url = digigoAuthorizeUrl({
-    env,
-    clientId,
-    redirectUri,
-    state,
-    credentialId,
-  });
-
-  return NextResponse.json({ ok: true, url, state });
 }
