@@ -17,8 +17,10 @@ function envFromProcess(): DigigoEnv {
 }
 
 function getBaseUrl(env: DigigoEnv) {
-  const test = clean(process.env.DIGIGO_BASE_URL_TEST);
-  const prod = clean(process.env.DIGIGO_BASE_URL_PROD);
+  const anyBase = clean(process.env.DIGIGO_BASE_URL);
+  const test = clean(process.env.DIGIGO_BASE_URL_TEST) || anyBase;
+  const prod = clean(process.env.DIGIGO_BASE_URL_PROD) || anyBase;
+
   if (env === "production") return must(prod, "DIGIGO_BASE_URL_PROD");
   return must(test, "DIGIGO_BASE_URL_TEST");
 }
@@ -47,8 +49,7 @@ type AuthorizeSimple = {
 export function digigoAuthorizeUrl(params: AuthorizeFull | AuthorizeSimple) {
   const env = "env" in params ? params.env : envFromProcess();
   const clientId = "clientId" in params ? clean(params.clientId) : clean(process.env.DIGIGO_CLIENT_ID);
-  const redirectUri =
-    "redirectUri" in params ? clean(params.redirectUri) : clean(process.env.DIGIGO_REDIRECT_URI);
+  const redirectUri = "redirectUri" in params ? clean(params.redirectUri) : clean(process.env.DIGIGO_REDIRECT_URI);
 
   if (!clientId) throw new Error("MISSING_DIGIGO_CLIENT_ID");
   if (!redirectUri) throw new Error("MISSING_DIGIGO_REDIRECT_URI");
