@@ -2,8 +2,12 @@ import crypto from "crypto";
 
 export type DigigoEnv = "test" | "production";
 
+function s(v: any) {
+  return String(v ?? "").trim();
+}
+
 function clean(v?: string | null) {
-  const x = (v ?? "").trim();
+  const x = s(v);
   return x.length ? x : null;
 }
 
@@ -12,7 +16,8 @@ function must(v: string | null, name: string) {
   return v;
 }
 
-function envFromProcess(): DigigoEnv {
+function resolveEnv(env?: DigigoEnv): DigigoEnv {
+  if (env === "test" || env === "production") return env;
   return clean(process.env.DIGIGO_ENV) === "production" ? "production" : "test";
 }
 
@@ -29,86 +34,83 @@ export function sha256Base64Utf8(input: string) {
   return crypto.createHash("sha256").update(input, "utf8").digest("base64");
 }
 
-type AuthorizeFull = {
-  env: DigigoEnv;
-  clientId: string;
-  redirectUri: string;
-  state: string;
-  credentialId: string;
-  hashBase64?: string;
-  numSignatures?: number;
-};
-
-type AuthorizeSimple = {
+export function digigoAuthorizeUrl(args: {
+  env?: DigigoEnv;
+  clientId?: string;
+  redirectUri?: string;
   credentialId: string;
   hashBase64: string;
   numSignatures?: number;
   state: string;
-};
+}) {
+  const env = resolveEnv(args.env);
 
-export function digigoAuthorizeUrl(params: AuthorizeFull | AuthorizeSimple) {
-  const env = "env" in params ? params.env : envFromProcess();
-  const clientId = "clientId" in params ? clean(params.clientId) : clean(process.env.DIGIGO_CLIENT_ID);
-  const redirectUri = "redirectUri" in params ? clean(params.redirectUri) : clean(process.env.DIGIGO_REDIRECT_URI);
+  const base = getBaseUrl(env);
+  const clientId = clean(args.clientId) || clean(process.env.DIGIGO_CLIENT_ID);
+  const redirectUri = clean(args.redirectUri) || clean(process.env.DIGIGO_REDIRECT_URI);
 
   if (!clientId) throw new Error("MISSING_DIGIGO_CLIENT_ID");
   if (!redirectUri) throw new Error("MISSING_DIGIGO_REDIRECT_URI");
 
-  const base = getBaseUrl(env);
-  const url = new URL("/oauth2/authorize", base);
+  const url = new URL("/tunsign-proxy-webapp/oauth2/authorize", base);
 
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("client_id", clientId);
-  url.searchParams.set("redirect_uri", redirectUri);
-  url.searchParams.set("state", params.state);
-  url.searchParams.set("credential_id", params.credentialId);
+  url.searchParams.set("redirectUri", redirectUri);
+  url.searchParams.set("responseType", "code");
+  url.searchParams.set("scope", "credential");
+  url.searchParams.set("credentialId", s(args.credentialId));
+  url.searchParams.set("clientId", clientId);
 
-  const hash = "hashBase64" in params ? clean(params.hashBase64) : null;
-  if (hash) url.searchParams.set("hash", hash);
+  const n = args.numSignatures ?? 1;
+  url.searchParams.set("numSignatures", String(Math.max(1, Math.floor(Number(n) || 1))));
 
-  const n = params.numSignatures;
-  if (typeof n === "number" && Number.isFinite(n) && n > 0) {
-    url.searchParams.set("numSignatures", String(Math.floor(n)));
-  }
+  url.searchParams.set("hash", s(args.hashBase64));
+  url.searchParams.set("state", s(args.state));
 
   return url.toString();
 }
 
-export async function digigoExchangeCode(params: {
-  env: DigigoEnv;
-  clientId: string;
-  clientSecret: string;
+export async function digigoExchangeCode(args: {
+  env?: DigigoEnv;
+  clientId?: string;
+  clientSecret?: string;
   code: string;
   redirectUri?: string;
 }) {
-  const base = getBaseUrl(params.env);
+  const env = resolveEnv(args.env);
+  const base = getBaseUrl(env);
 
-  const redirectUri = clean(params.redirectUri) || clean(process.env.DIGIGO_REDIRECT_URI);
+  const clientId = clean(args.clientId) || clean(process.env.DIGIGO_CLIENT_ID);
+  const clientSecret = clean(args.clientSecret) || clean(process.env.DIGIGO_CLIENT_SECRET);
+  const redirectUri = clean(args.redirectUri) || clean(process.env.DIGIGO_REDIRECT_URI);
+
+  if (!clientId) throw new Error("MISSING_DIGIGO_CLIENT_ID");
+  if (!clientSecret) throw new Error("MISSING_DIGIGO_CLIENT_SECRET");
   if (!redirectUri) throw new Error("MISSING_DIGIGO_REDIRECT_URI");
 
-  const res = await fetch(`${base}/oauth2/token`, {
+  const tokenUrl = new URL("/tunsign-proxy-webapp/oauth2/token", base);
+
+  const res = await fetch(tokenUrl.toString(), {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       grant_type: "authorization_code",
-      code: params.code,
-      client_id: params.clientId,
-      client_secret: params.clientSecret,
-      redirect_uri: redirectUri,
+      code: s(args.code),
+      clientId,
+      clientSecret,
+      redirectUri,
     }),
   });
 
-  const text = await res.text();
+  const raw = await res.text();
   let json: any = null;
   try {
-    json = JSON.parse(text);
+    json = JSON.parse(raw);
   } catch {
     json = null;
   }
 
   if (!res.ok) {
-    return { ok: false as const, status: res.status, raw: text, json };
+    return { ok: false as const, status: res.status, raw, json };
   }
-
-  return { ok: true as const, status: res.status, json: json ?? text };
+  return { ok: true as const, status: res.status, json: json ?? raw };
 }
