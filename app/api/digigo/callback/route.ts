@@ -38,6 +38,20 @@ async function getLatestPendingSessionByInvoiceId(invoiceId: string) {
   return r.data;
 }
 
+async function getLatestPendingSessionGlobal() {
+  const service = createServiceClient();
+  const r = await service
+    .from("digigo_sign_sessions")
+    .select("*")
+    .eq("status", "pending")
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (r.error) throw new Error(`SESSION_READ_FAILED:${r.error.message}`);
+  return r.data;
+}
+
 async function ensureNotExpired(session: any) {
   const expiresAt = new Date(session.expires_at as any).getTime();
   if (!Number.isFinite(expiresAt) || Date.now() > expiresAt) {
@@ -50,6 +64,10 @@ async function ensureNotExpired(session: any) {
 export async function POST(req: Request) {
   const service = createServiceClient();
 
+  let sessionIdForFailure: string | null = null;
+  let stateForFailure: string | null = null;
+  let invoiceIdForFailure: string | null = null;
+
   try {
     const body = await req.json().catch(() => ({}));
     const token = s(body?.token);
@@ -59,12 +77,24 @@ export async function POST(req: Request) {
 
     if (!token) return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
 
-    if (!state && !invoiceIdHint) {
-      return NextResponse.json({ ok: false, error: "MISSING_STATE_OR_INVOICE_ID" }, { status: 400 });
+    let session: any = null;
+
+    if (state) {
+      session = await getSessionByState(state);
+    } else if (invoiceIdHint) {
+      session = await getLatestPendingSessionByInvoiceId(invoiceIdHint);
+    } else {
+      session = await getLatestPendingSessionGlobal();
+      if (!session) {
+        return NextResponse.json({ ok: false, error: "MISSING_STATE_OR_INVOICE_ID" }, { status: 400 });
+      }
     }
 
-    const session = state ? await getSessionByState(state) : await getLatestPendingSessionByInvoiceId(invoiceIdHint!);
     if (!session) return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 404 });
+
+    sessionIdForFailure = s(session.id) || null;
+    stateForFailure = state || s(session.state) || null;
+    invoiceIdForFailure = invoiceIdHint || s(session.invoice_id) || null;
 
     if (session.status === "done") {
       return NextResponse.json({ ok: true, back_url: clean(session.back_url) || "/" }, { status: 200 });
@@ -147,18 +177,18 @@ export async function POST(req: Request) {
     const msg = clean(e?.message) || "INTERNAL_ERROR";
 
     try {
-      const body = await req.clone().json().catch(() => ({}));
-      const state = s(body?.state);
-      const invoiceIdFromBody = s(body?.invoiceId ?? body?.invoice_id ?? body?.id);
-      const invoiceIdHint = isUuid(invoiceIdFromBody) ? invoiceIdFromBody : null;
-
       const service2 = createServiceClient();
       const q = service2
         .from("digigo_sign_sessions")
         .update({ status: "failed", error_message: msg, updated_at: new Date().toISOString() });
 
-      if (state) await q.eq("state", state);
-      else if (invoiceIdHint) await q.eq("invoice_id", invoiceIdHint).eq("status", "pending");
+      if (sessionIdForFailure) {
+        await q.eq("id", sessionIdForFailure);
+      } else if (stateForFailure) {
+        await q.eq("state", stateForFailure);
+      } else if (invoiceIdForFailure && isUuid(invoiceIdForFailure)) {
+        await q.eq("invoice_id", invoiceIdForFailure).eq("status", "pending");
+      }
     } catch {}
 
     return NextResponse.json({ ok: false, error: "CALLBACK_FAILED", message: msg }, { status: 500 });
