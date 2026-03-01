@@ -1,5 +1,4 @@
 import crypto from "crypto";
-import { Agent } from "undici";
 
 export type DigigoEnv = "test" | "production";
 
@@ -27,32 +26,21 @@ function insecureTlsEnabled() {
   return v === "1" || v === "true" || v === "yes";
 }
 
-let _dispatcher: Agent | null = null;
-
-function digigoDispatcher() {
-  if (!insecureTlsEnabled()) return undefined;
-  if (_dispatcher) return _dispatcher;
-  _dispatcher = new Agent({
-    connect: {
-      rejectUnauthorized: false,
-    },
-  });
-  return _dispatcher;
-}
-
 async function digigoFetch(url: string, init: RequestInit) {
   try {
-    const dispatcher = digigoDispatcher();
-    const r = await fetch(url, {
-      ...init,
-      cache: "no-store",
-      ...(dispatcher ? ({ dispatcher } as any) : {}),
-    });
+    if (insecureTlsEnabled()) {
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+    }
+    const r = await fetch(url, { ...init, cache: "no-store" });
     return r;
   } catch (e: any) {
     const msg = clean(e?.message) || "FETCH_FAILED";
     const cause = clean(e?.cause?.message) || clean(e?.cause) || null;
     throw new Error(`DIGIGO_FETCH_FAILED:${msg}${cause ? `:${cause}` : ""}`);
+  } finally {
+    if (insecureTlsEnabled()) {
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = "1";
+    }
   }
 }
 
@@ -99,7 +87,9 @@ export async function digigoOauthTokenFromJti(args: { jti: string }) {
   const grantType = "authorization_code";
   const url =
     `${baseUrl()}/tunsign-proxy-webapp/services/v1/oauth2/token/` +
-    `${encodeURIComponent(clientId)}/${encodeURIComponent(grantType)}/${encodeURIComponent(clientSecret)}/${encodeURIComponent(args.jti)}`;
+    `${encodeURIComponent(clientId)}/${encodeURIComponent(grantType)}/${encodeURIComponent(
+      clientSecret
+    )}/${encodeURIComponent(args.jti)}`;
 
   const r = await digigoFetch(url, {
     method: "POST",
@@ -129,7 +119,9 @@ export async function digigoSignHash(args: {
 
   const url =
     `${baseUrl()}/tunsign-proxy-webapp/services/v1/signatures/signHash/` +
-    `${encodeURIComponent(clientId)}/${encodeURIComponent(args.credentialId)}/${encodeURIComponent(args.sad)}/${hashAlgo}/${signAlgo}`;
+    `${encodeURIComponent(clientId)}/${encodeURIComponent(args.credentialId)}/${encodeURIComponent(
+      args.sad
+    )}/${hashAlgo}/${signAlgo}`;
 
   const r = await digigoFetch(url, {
     method: "POST",
