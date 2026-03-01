@@ -10,22 +10,16 @@ function clean(v?: string | null) {
   const x = (v ?? "").trim();
   return x.length ? x : null;
 }
-
 function s(v: any) {
   return String(v ?? "").trim();
 }
-
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
 
 async function getSessionByState(state: string) {
   const service = createServiceClient();
-  const r = await service
-    .from("digigo_sign_sessions")
-    .select("*")
-    .eq("state", state)
-    .maybeSingle();
+  const r = await service.from("digigo_sign_sessions").select("*").eq("state", state).maybeSingle();
   if (r.error) throw new Error(`SESSION_READ_FAILED:${r.error.message}`);
   return r.data;
 }
@@ -61,24 +55,20 @@ export async function POST(req: Request) {
     const token = s(body?.token);
     const state = s(body?.state);
     const invoiceIdFromBody = s(body?.invoiceId ?? body?.invoice_id ?? body?.id);
+    const invoiceIdHint = isUuid(invoiceIdFromBody) ? invoiceIdFromBody : null;
 
     if (!token) return NextResponse.json({ ok: false, error: "MISSING_TOKEN" }, { status: 400 });
 
-    const invoiceIdHint = isUuid(invoiceIdFromBody) ? invoiceIdFromBody : null;
     if (!state && !invoiceIdHint) {
       return NextResponse.json({ ok: false, error: "MISSING_STATE_OR_INVOICE_ID" }, { status: 400 });
     }
 
-    const session = state
-      ? await getSessionByState(state)
-      : await getLatestPendingSessionByInvoiceId(invoiceIdHint as string);
-
+    const session = state ? await getSessionByState(state) : await getLatestPendingSessionByInvoiceId(invoiceIdHint!);
     if (!session) return NextResponse.json({ ok: false, error: "SESSION_NOT_FOUND" }, { status: 404 });
 
     if (session.status === "done") {
       return NextResponse.json({ ok: true, back_url: clean(session.back_url) || "/" }, { status: 200 });
     }
-
     if (session.status === "expired") {
       return NextResponse.json({ ok: false, error: "SESSION_EXPIRED" }, { status: 400 });
     }
@@ -90,12 +80,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "INVALID_INVOICE_ID" }, { status: 400 });
     }
 
-    const sigRes = await service
-      .from("invoice_signatures")
-      .select("*")
-      .eq("invoice_id", invoiceId)
-      .maybeSingle();
-
+    const sigRes = await service.from("invoice_signatures").select("*").eq("invoice_id", invoiceId).maybeSingle();
     if (sigRes.error) {
       return NextResponse.json(
         { ok: false, error: "SIGNATURE_READ_FAILED", message: sigRes.error.message },
@@ -107,7 +92,7 @@ export async function POST(req: Request) {
     if (!sig) return NextResponse.json({ ok: false, error: "SIGNATURE_NOT_FOUND" }, { status: 404 });
 
     const meta = sig.meta && typeof sig.meta === "object" ? sig.meta : {};
-    const credentialId = s(meta?.credentialId || meta?.credential_id);
+    const credentialId = s((meta as any)?.credentialId || (meta as any)?.credential_id);
     const unsignedHash = s(sig.unsigned_hash);
 
     if (!credentialId) return NextResponse.json({ ok: false, error: "CREDENTIAL_ID_MISSING" }, { status: 400 });
@@ -160,20 +145,22 @@ export async function POST(req: Request) {
     );
   } catch (e: any) {
     const msg = clean(e?.message) || "INTERNAL_ERROR";
+
     try {
       const body = await req.clone().json().catch(() => ({}));
       const state = s(body?.state);
       const invoiceIdFromBody = s(body?.invoiceId ?? body?.invoice_id ?? body?.id);
       const invoiceIdHint = isUuid(invoiceIdFromBody) ? invoiceIdFromBody : null;
-      if (state || invoiceIdHint) {
-        const service2 = createServiceClient();
-        const q = service2
-          .from("digigo_sign_sessions")
-          .update({ status: "failed", error_message: msg, updated_at: new Date().toISOString() });
-        if (state) await q.eq("state", state);
-        else if (invoiceIdHint) await q.eq("invoice_id", invoiceIdHint).eq("status", "pending");
-      }
+
+      const service2 = createServiceClient();
+      const q = service2
+        .from("digigo_sign_sessions")
+        .update({ status: "failed", error_message: msg, updated_at: new Date().toISOString() });
+
+      if (state) await q.eq("state", state);
+      else if (invoiceIdHint) await q.eq("invoice_id", invoiceIdHint).eq("status", "pending");
     } catch {}
+
     return NextResponse.json({ ok: false, error: "CALLBACK_FAILED", message: msg }, { status: 500 });
   }
 }
@@ -198,12 +185,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "MISSING_CODE_OR_STATE" }, { status: 400 });
   }
 
-  const sessRes = await service
-    .from("digigo_sign_sessions")
-    .select("*")
-    .eq("state", state)
-    .maybeSingle();
-
+  const sessRes = await service.from("digigo_sign_sessions").select("*").eq("state", state).maybeSingle();
   if (sessRes.error || !sessRes.data) {
     return NextResponse.json({ ok: false, error: "INVALID_STATE" }, { status: 400 });
   }
@@ -229,12 +211,7 @@ export async function GET(req: Request) {
 
   const env = (clean(session.environment) as DigigoEnv) || "test";
 
-  const exchanged = await digigoExchangeCode({
-    env,
-    clientId,
-    clientSecret,
-    code,
-  });
+  const exchanged = await digigoExchangeCode({ env, clientId, clientSecret, code });
 
   if (!exchanged.ok) {
     await service
@@ -253,20 +230,11 @@ export async function GET(req: Request) {
 
   await service
     .from("digigo_sign_sessions")
-    .update({
-      status: "done",
-      digigo_jti: jti,
-      updated_at: new Date().toISOString(),
-    })
+    .update({ status: "done", digigo_jti: jti, updated_at: new Date().toISOString() })
     .eq("id", session.id);
 
   const backUrl = clean(session.back_url);
-  if (backUrl) {
-    const r = new URL(backUrl);
-    r.searchParams.set("state", state);
-    r.searchParams.set("ok", "1");
-    return NextResponse.redirect(r.toString());
-  }
+  if (backUrl) return NextResponse.redirect(backUrl);
 
   return NextResponse.json({ ok: true, state, token: exchanged.json });
 }
