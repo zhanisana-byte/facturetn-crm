@@ -1,3 +1,4 @@
+// lib/digigo/server.ts
 import crypto from "crypto";
 
 export type DigigoEnv = "test" | "production";
@@ -8,40 +9,12 @@ function must(name: string) {
   return v;
 }
 
-function clean(v?: string | null) {
-  const x = String(v ?? "").trim();
-  return x.length ? x : null;
-}
-
 export function sha256Base64Utf8(input: string) {
   return crypto.createHash("sha256").update(input, "utf8").digest("base64");
 }
 
 function baseUrl() {
   return must("DIGIGO_BASE_URL").replace(/\/+$/, "");
-}
-
-function insecureTlsEnabled() {
-  const v = clean(process.env.DIGIGO_INSECURE_TLS);
-  return v === "1" || v === "true" || v === "yes";
-}
-
-async function digigoFetch(url: string, init: RequestInit) {
-  try {
-    if (insecureTlsEnabled()) {
-      process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-    }
-    const r = await fetch(url, { ...init, cache: "no-store" });
-    return r;
-  } catch (e: any) {
-    const msg = clean(e?.message) || "FETCH_FAILED";
-    const cause = clean(e?.cause?.message) || clean(e?.cause) || null;
-    throw new Error(`DIGIGO_FETCH_FAILED:${msg}${cause ? `:${cause}` : ""}`);
-  } finally {
-    if (insecureTlsEnabled()) {
-      process.env.NODE_TLS_REJECT_UNAUTHORIZED = "1";
-    }
-  }
 }
 
 export function digigoAuthorizeUrl(args: {
@@ -54,6 +27,7 @@ export function digigoAuthorizeUrl(args: {
   const clientId = must("DIGIGO_CLIENT_ID");
 
   const u = new URL(`${baseUrl()}/tunsign-proxy-webapp/oauth2/authorize`);
+
   u.searchParams.set("redirectUri", redirectUri);
   u.searchParams.set("responseType", "code");
   u.searchParams.set("scope", "credential");
@@ -87,14 +61,13 @@ export async function digigoOauthTokenFromJti(args: { jti: string }) {
   const grantType = "authorization_code";
   const url =
     `${baseUrl()}/tunsign-proxy-webapp/services/v1/oauth2/token/` +
-    `${encodeURIComponent(clientId)}/${encodeURIComponent(grantType)}/${encodeURIComponent(
-      clientSecret
-    )}/${encodeURIComponent(args.jti)}`;
+    `${encodeURIComponent(clientId)}/${encodeURIComponent(grantType)}/${encodeURIComponent(clientSecret)}/${encodeURIComponent(args.jti)}`;
 
-  const r = await digigoFetch(url, {
+  const r = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ redirectUri }),
+    cache: "no-store",
   });
 
   const txt = await r.text();
@@ -119,14 +92,13 @@ export async function digigoSignHash(args: {
 
   const url =
     `${baseUrl()}/tunsign-proxy-webapp/services/v1/signatures/signHash/` +
-    `${encodeURIComponent(clientId)}/${encodeURIComponent(args.credentialId)}/${encodeURIComponent(
-      args.sad
-    )}/${hashAlgo}/${signAlgo}`;
+    `${encodeURIComponent(clientId)}/${encodeURIComponent(args.credentialId)}/${encodeURIComponent(args.sad)}/${hashAlgo}/${signAlgo}`;
 
-  const r = await digigoFetch(url, {
+  const r = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(args.hashesBase64),
+    cache: "no-store",
   });
 
   const txt = await r.text();
